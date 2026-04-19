@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.db import get_default_content_workspace_id
 from englishbot.vocabulary import (
     create_learning_item,
     create_learning_item_translation,
@@ -72,6 +73,56 @@ def test_init_db_migrates_learning_items_to_add_nullable_asset_refs(
     assert "audio_ref" in column_names
 
 
+def test_init_db_migrates_learning_items_to_add_workspace_id(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "vocabulary_workspace_migration.sqlite3"
+    db.DB_PATH = db_path
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE workspaces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE learning_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lexeme_id INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO learning_items (lexeme_id, text, created_at, updated_at)
+            VALUES (1, 'legacy', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')
+            """
+        )
+
+    db.init_db()
+    default_workspace_id = get_default_content_workspace_id()
+
+    with sqlite3.connect(db_path) as connection:
+        column_names = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(learning_items)").fetchall()
+        }
+        stored_workspace_id = connection.execute(
+            "SELECT workspace_id FROM learning_items WHERE id = 1"
+        ).fetchone()[0]
+
+    assert "workspace_id" in column_names
+    assert stored_workspace_id == default_workspace_id
+
+
 def test_create_and_get_lexeme(tmp_path: Path) -> None:
     setup_db(tmp_path)
 
@@ -86,6 +137,7 @@ def test_create_and_get_lexeme(tmp_path: Path) -> None:
 def test_create_and_get_learning_item_with_nullable_assets(tmp_path: Path) -> None:
     setup_db(tmp_path)
     lexeme_id = create_lexeme("run")
+    default_workspace_id = get_default_content_workspace_id()
 
     without_assets_id = create_learning_item(lexeme_id, "run")
     with_assets_id = create_learning_item(
@@ -99,6 +151,8 @@ def test_create_and_get_learning_item_with_nullable_assets(tmp_path: Path) -> No
     with_assets = get_learning_item(with_assets_id)
     assert without_assets is not None
     assert with_assets is not None
+    assert without_assets["workspace_id"] == default_workspace_id
+    assert with_assets["workspace_id"] == default_workspace_id
     assert without_assets["text"] == "run"
     assert without_assets["image_ref"] is None
     assert without_assets["audio_ref"] is None

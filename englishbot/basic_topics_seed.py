@@ -1,4 +1,4 @@
-from .db import get_connection, init_db, utc_now
+from .db import get_connection, get_default_content_workspace_id, init_db, utc_now
 from .topics import get_topic_by_name, get_topic_learning_item_ids, list_topics
 
 
@@ -45,19 +45,23 @@ BASIC_TOPICS: tuple[dict[str, object], ...] = (
 
 def list_basic_topic_groups() -> list[dict[str, object]]:
     init_db()
+    workspace_id = get_default_content_workspace_id()
     return [
         {
             "name": str(topic["name"]),
             "title": str(topic["title"]),
             "item_count": int(topic["item_count"]),
         }
-        for topic in list_topics()
+        for topic in list_topics(workspace_id=workspace_id)
     ]
 
 
 def get_basic_topic_group(topic_name: str) -> dict[str, object] | None:
     init_db()
-    topic = get_topic_by_name(topic_name.strip())
+    topic = get_topic_by_name(
+        topic_name.strip(),
+        workspace_id=get_default_content_workspace_id(),
+    )
     if topic is None:
         return None
     return {
@@ -78,6 +82,7 @@ def resolve_basic_topic_learning_item_ids(topic_name: str) -> list[int]:
 def seed_basic_topics() -> dict[str, int]:
     init_db()
     timestamp = utc_now()
+    workspace_id = get_default_content_workspace_id()
     created_topics = 0
     created_lexemes = 0
     created_learning_items = 0
@@ -90,17 +95,17 @@ def seed_basic_topics() -> dict[str, int]:
                 """
                 SELECT id
                 FROM topics
-                WHERE name = ?
+                WHERE workspace_id = ? AND name = ?
                 """,
-                (str(topic["topic"]),),
+                (workspace_id, str(topic["topic"])),
             ).fetchone()
             if topic_row is None:
                 cursor = connection.execute(
                     """
-                    INSERT INTO topics (name, title, created_at)
-                    VALUES (?, ?, ?)
+                    INSERT INTO topics (workspace_id, name, title, created_at)
+                    VALUES (?, ?, ?, ?)
                     """,
-                    (str(topic["topic"]), str(topic["title"]), timestamp),
+                    (workspace_id, str(topic["topic"]), str(topic["title"]), timestamp),
                 )
                 topic_id = int(cursor.lastrowid)
                 created_topics += 1
@@ -134,14 +139,15 @@ def seed_basic_topics() -> dict[str, int]:
                     """
                     SELECT id
                     FROM learning_items
-                    WHERE lexeme_id = ? AND text = ?
+                    WHERE workspace_id = ? AND lexeme_id = ? AND text = ?
                     """,
-                    (lexeme_id, lemma),
+                    (workspace_id, lexeme_id, lemma),
                 ).fetchone()
                 if learning_item_row is None:
                     cursor = connection.execute(
                         """
                         INSERT INTO learning_items (
+                            workspace_id,
                             lexeme_id,
                             text,
                             image_ref,
@@ -149,9 +155,9 @@ def seed_basic_topics() -> dict[str, int]:
                             created_at,
                             updated_at
                         )
-                        VALUES (?, ?, NULL, NULL, ?, ?)
+                        VALUES (?, ?, ?, NULL, NULL, ?, ?)
                         """,
-                        (lexeme_id, lemma, timestamp, timestamp),
+                        (workspace_id, lexeme_id, lemma, timestamp, timestamp),
                     )
                     learning_item_id = int(cursor.lastrowid)
                     created_learning_items += 1

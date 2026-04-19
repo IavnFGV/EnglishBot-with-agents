@@ -1,0 +1,73 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Move learning content ownership to workspaces.
+
+Context:
+Workspace foundation already exists or is expected from the previous slice.
+The product model now requires that learning content belongs to a workspace, not directly to a teacher.
+
+Feature:
+Workspace-Owned Content MVP
+
+Scope:
+1. Add `workspace_id` to:
+   - `learning_items`
+   - `learning_item_translations` only if strictly required by the current schema design
+   - `topics`
+
+2. Keep `lexemes` global in this slice.
+   Do NOT redesign lexemes.
+
+3. Define and implement the ownership rule:
+   - `learning_items` belong to a workspace
+   - `topics` belong to a workspace
+   - `topic_learning_items` links only entities inside the same workspace
+
+4. Introduce minimal compatibility behavior for existing seeded content.
+   If needed, place seeded content into a default workspace in the smallest practical way.
+
+5. Do not introduce sharing/publishing between workspaces yet.
+   This slice is only about ownership placement.
+
+Cleanup rules:
+- Remove code paths that assume topics or learning_items are globally usable if that assumption is no longer valid
+- Remove or rewrite outdated comments that describe content as global when it is no longer true
+- Do not keep duplicate models for old global topic ownership and new workspace ownership
+- If seed helpers or lookup logic become redundant after workspace ownership is introduced, simplify or delete them
+
+Out of scope:
+- publish/copy between teacher and student workspaces
+- workspace UI
+- full assignment migration
+- full topic access migration
+- lesson model
+- broad refactors beyond this ownership move
+
+Architecture constraints:
+- Keep changes local and explicit
+- Reuse existing vocabulary/topics modules where reasonable
+- Do not create unnecessary abstraction layers
+
+Testing requirements:
+- migration/schema tests for `workspace_id`
+- tests that learning_items belong to a workspace
+- tests that topics belong to a workspace
+- tests that topic-to-item linkage respects workspace ownership
+- tests for seeded content placement if changed
+
+Workflow:
+1. architect
+2. complexity_guard
+3. coder
+4. complexity_guard
+
+Definition of done:
+- learning content has workspace ownership
+- lexemes remain global
+- old global-content assumptions are cleaned up
+- tests pass
+- CHANGELOG.md and context/current_state.md are updated

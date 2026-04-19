@@ -1,6 +1,6 @@
 import sqlite3
 
-from .db import get_connection, utc_now
+from .db import get_connection, get_default_content_workspace_id, utc_now
 
 
 def create_lexeme(lemma: str) -> int:
@@ -31,14 +31,19 @@ def get_lexeme(lexeme_id: int) -> sqlite3.Row | None:
 def create_learning_item(
     lexeme_id: int,
     text: str,
+    workspace_id: int | None = None,
     image_ref: str | None = None,
     audio_ref: str | None = None,
 ) -> int:
     timestamp = utc_now()
+    stored_workspace_id = (
+        get_default_content_workspace_id() if workspace_id is None else int(workspace_id)
+    )
     with get_connection() as connection:
         cursor = connection.execute(
             """
             INSERT INTO learning_items (
+                workspace_id,
                 lexeme_id,
                 text,
                 image_ref,
@@ -46,9 +51,17 @@ def create_learning_item(
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (lexeme_id, text, image_ref, audio_ref, timestamp, timestamp),
+            (
+                stored_workspace_id,
+                lexeme_id,
+                text,
+                image_ref,
+                audio_ref,
+                timestamp,
+                timestamp,
+            ),
         )
     return int(cursor.lastrowid)
 
@@ -57,7 +70,15 @@ def get_learning_item(learning_item_id: int) -> sqlite3.Row | None:
     with get_connection() as connection:
         return connection.execute(
             """
-            SELECT id, lexeme_id, text, image_ref, audio_ref, created_at, updated_at
+            SELECT
+                id,
+                workspace_id,
+                lexeme_id,
+                text,
+                image_ref,
+                audio_ref,
+                created_at,
+                updated_at
             FROM learning_items
             WHERE id = ?
             """,
@@ -65,10 +86,17 @@ def get_learning_item(learning_item_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
-def list_learning_items(limit: int | None = None) -> list[sqlite3.Row]:
+def list_learning_items(
+    limit: int | None = None,
+    workspace_id: int | None = None,
+) -> list[sqlite3.Row]:
+    stored_workspace_id = (
+        get_default_content_workspace_id() if workspace_id is None else int(workspace_id)
+    )
     query = """
         SELECT
             learning_items.id,
+            learning_items.workspace_id,
             learning_items.lexeme_id,
             learning_items.text,
             learning_items.image_ref,
@@ -76,12 +104,13 @@ def list_learning_items(limit: int | None = None) -> list[sqlite3.Row]:
             learning_items.created_at,
             learning_items.updated_at
         FROM learning_items
+        WHERE learning_items.workspace_id = ?
         ORDER BY learning_items.id
     """
-    parameters: tuple[int, ...] = ()
+    parameters: tuple[int, ...] | tuple[int, int] = (stored_workspace_id,)
     if limit is not None:
         query = f"{query}\nLIMIT ?"
-        parameters = (limit,)
+        parameters = (stored_workspace_id, limit)
 
     with get_connection() as connection:
         return connection.execute(query, parameters).fetchall()
