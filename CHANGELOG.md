@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-04-19
+- Added minimal student topic access for self-learning: SQLite now stores `student_topic_access`, teachers can grant one linked student access to one persisted topic via `/granttopic <student_user_id> <topic_name>`, students can open `/topics` to see only allowed topics and start topic-scoped training sessions, homework remains a separate assignment model, and focused tests cover schema, grant/list/check permissions, handler flow, accessible start, and inaccessible rejection.
 - Added persistent topic MVP in SQLite: runtime now stores first-class `topics` plus `topic_learning_items`, starter packs (`weekdays`, `months`, `colors`) seed as real topics linked to existing `learning_items`, `/assign <student_user_id> <topic_name>` now resolves persisted topics while keeping the raw `learning_item_id` fallback, and focused tests cover topic schema, persistence, seeding, and topic-based assignment titles.
 - Fixed a startup/runtime audit bug for new Telegram users: incoming and outgoing interaction logging now creates a minimal `users`/`user_profiles` stub before writing to `interactions`, so fresh updates no longer fail with `sqlite3.IntegrityError: FOREIGN KEY constraint failed`.
 - Added minimal named-group homework assignment on top of the seeded starter packs: `/assign` now prefers pack names like `weekdays`, `months`, and `colors`, assignments store a human-readable title, student homework lists show that title, and the legacy raw `learning_item_id` path still works as a fallback.

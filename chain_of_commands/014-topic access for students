@@ -1,0 +1,128 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Implement the next minimal product step from the handoff: student access to topics for self-learning, separate from homework assignments.
+
+Context:
+The project already has:
+- Telegram bot foundation
+- user/profile persistence
+- teacher-student invite/link MVP
+- vocabulary persistence (`lexemes`, `learning_items`, `learning_item_translations`)
+- persisted `topics` and `topic_learning_items`
+- minimal `/learn` training session
+- homework-first `/start`
+- assignments and homework launch by assigned items/topics
+
+Current limitation:
+Students can receive homework assignments, but there is no separate concept of allowed topics for self-learning.
+Assignments represent required work.
+We now need a separate topic-availability model representing allowed content.
+
+Feature:
+Student Topic Access MVP
+
+Scope:
+1. Add SQLite persistence for:
+   - `student_topic_access`
+
+2. `student_topic_access` should be minimal:
+   - `id`
+   - `student_user_id`
+   - `topic_id`
+   - `granted_by_teacher_user_id`
+   - `created_at` if it matches current schema style
+
+3. Add minimal business logic to:
+   - grant topic access from a teacher to a linked student
+   - list accessible topics for a student
+   - check whether a student has access to a topic
+
+4. Add minimal teacher command flow:
+   - a teacher can grant one persisted topic to one linked student
+   - use topic name as input, not raw topic id, as the primary UX path
+
+5. Add minimal student flow:
+   - student can view accessible topics
+   - student can start a training session from one accessible topic
+   - reuse existing training session logic
+   - training should use only learning_items linked to the selected topic
+
+6. Keep homework and topic access separate:
+   - homework = assigned/required content
+   - topic access = allowed/self-learning content
+   - do not merge them into one model
+
+7. `/learn` may remain as fallback, but topic-based self-learning should become available through the new access flow.
+
+Out of scope:
+- word-level access control
+- topic revocation history
+- expiry windows
+- lessons
+- nested topics
+- FSM
+- deep links
+- asset playback
+- advanced analytics
+- billing
+- web app management
+- broad UI refactors
+
+Architecture constraints:
+- Keep business logic outside Telegram handlers
+- Do not turn `bot.py` into a catch-all
+- Reuse existing `topics.py`, `training.py`, and related modules where reasonable
+- Add focused new module(s) only if the responsibility is genuinely new
+- Keep homework and topic access concepts explicitly separate
+- Keep the change minimal and product-driven
+
+Testing requirements (MANDATORY):
+Add focused automated tests for:
+- schema creation for `student_topic_access`
+- granting topic access
+- listing student-accessible topics
+- checking access permissions
+- starting training from an accessible topic
+- ensuring inaccessible topics cannot be started
+- thin handler tests where practical, without depending on Telegram runtime
+
+Workflow:
+1. architect:
+   - propose the smallest design
+   - list files to modify
+   - list files to add
+   - explain why this is the minimal reasonable access model
+
+2. complexity_guard:
+   - reject overengineering
+   - reject mixing homework and access models
+   - reject word-level ACL creep
+   - reject missing tests
+
+3. coder:
+   - implement only the approved minimal plan
+   - add focused tests
+   - update requirements.txt only if needed
+   - update CHANGELOG.md
+   - update context/current_state.md
+
+4. complexity_guard:
+   - verify:
+     - no catch-all files
+     - homework and topic access stayed separate
+     - tests exist and are focused
+     - scope stayed limited to topic access MVP
+
+Definition of done:
+- `student_topic_access` exists in SQLite
+- teacher can grant topic access to a linked student
+- student can view accessible topics
+- student can start self-learning from an accessible topic
+- inaccessible topics are rejected
+- homework flow continues to work unchanged
+- tests cover schema, persistence, permissions, and topic-based self-learning
+- CHANGELOG.md and context/current_state.md are updated

@@ -22,6 +22,12 @@ from .teacher_student import (
     create_invite,
     join_with_invite,
 )
+from .topic_access import (
+    StudentLinkRequiredError as TopicAccessStudentLinkRequiredError,
+    TeacherRoleRequiredError as TopicAccessTeacherRoleRequiredError,
+    TopicNotFoundError,
+    grant_topic_access,
+)
 
 
 def _build_assign_usage_message() -> str:
@@ -33,6 +39,17 @@ def _build_assign_usage_message() -> str:
         "Использование: /assign <student_user_id> <group_name>\n"
         "Или: /assign <student_user_id> <learning_item_id,learning_item_id,...>\n"
         f"Доступные группы: {groups}"
+    )
+
+
+def _build_grant_topic_usage_message() -> str:
+    groups = ", ".join(
+        f"{group['name']} ({group['title']})"
+        for group in list_assignable_groups()
+    )
+    return (
+        "Использование: /granttopic <student_user_id> <topic_name>\n"
+        f"Доступные темы: {groups}"
     )
 
 
@@ -143,4 +160,47 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
         chat_id=int(result["notification"]["student_user_id"]),
         text=str(result["notification"]["text"]),
         reply_markup=build_homework_button(),
+    )
+
+
+@router.message(Command("granttopic"))
+async def grant_topic(message: Message, command: CommandObject | None = None) -> None:
+    if message.from_user is None:
+        return
+
+    save_user(message.from_user)
+    raw_args = (command.args if command is not None and command.args is not None else "").strip()
+    if not raw_args:
+        await message.answer(_build_grant_topic_usage_message())
+        return
+
+    parts = raw_args.split(maxsplit=1)
+    if len(parts) != 2:
+        await message.answer(_build_grant_topic_usage_message())
+        return
+
+    try:
+        student_user_id = int(parts[0])
+    except ValueError:
+        await message.answer(_build_grant_topic_usage_message())
+        return
+
+    try:
+        result = grant_topic_access(
+            message.from_user.id,
+            student_user_id,
+            parts[1],
+        )
+    except TopicAccessTeacherRoleRequiredError:
+        await message.answer("Команда /granttopic доступна только пользователю с ролью teacher.")
+        return
+    except TopicAccessStudentLinkRequiredError:
+        await message.answer("Этот ученик не привязан к вашему teacher-профилю.")
+        return
+    except TopicNotFoundError:
+        await message.answer(_build_grant_topic_usage_message())
+        return
+
+    await message.answer(
+        f"Доступ к теме открыт: {result['topic_title']} ({result['topic_name']})."
     )
