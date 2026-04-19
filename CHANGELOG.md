@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-04-19
+- Expanded `export_ai_file_report.py` so the generated report now includes the full contents of each discovered `AGENTS.md` or agent-related file, making it usable as a one-run AI context dump.
+- Added `export_ai_file_report.py`, a minimal script that scans the repository for `AGENTS.md` and agent-related files and writes their names, relative paths, full paths, and sizes into a text report file.
 - Moved role storage out of Telegram `users` and into a separate `user_profiles` entity so product-level profile fields can grow independently from Telegram transport metadata.
 - Relaxed invite join behavior so a `teacher` can consume their own invite code for self-testing or future self-assignment flows without losing the `teacher` role.
 - Added minimal teacher-student invite binding: SQLite bootstraps `user_profiles`, `invites`, and `teacher_student_links`; `/invite` generates one-time codes for `teacher` users, and `/join <code>` binds one student to one teacher in the MVP.

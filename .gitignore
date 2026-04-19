@@ -34,3 +34,4 @@ dist/
 .idea/
 .vscode/
 .DS_Store
+ai_file_state.txt
