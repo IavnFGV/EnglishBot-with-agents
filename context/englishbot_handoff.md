@@ -1,0 +1,194 @@
+# EnglishBot: краткое handoff-описание
+
+Этот документ собран по `README.md`, `ARCHITECTURE.md`, документам из `docs/`, исходному коду в `src/englishbot/` и тестам из `tests/`. Его цель: дать новому человеку или ИИ-подрядчику сжатое, но надёжное понимание проекта без потери важных деталей.
+
+## 1. Что это за продукт
+
+`EnglishBot` — Telegram-бот для изучения английских слов и коротких выражений. Текущий основной продуктовый сценарий такой:
+
+1. контент хранится в SQLite;
+2. редактор или родитель добавляет и редактирует слова;
+3. ученик запускает тренировку или домашку в Telegram;
+4. бот задаёт вопросы, проверяет ответы и обновляет прогресс;
+5. админ видит прогресс, может назначать домашние задания и редактировать роли.
+
+Начиная с `1.0.0`, у проекта есть сознательно суженная “основная история”: Telegram learner flows, уроки и темы, домашка, прогресс, простая админка. Всё, что связано с локальным AI, генерацией картинок, TTS и web app, считается поддерживаемым, но опциональным расширением, а не обязательной частью запуска.
+
+## 2. Как проект устроен
+
+Это модульный монолит, не микросервисная система.
+
+- `src/englishbot/domain`: доменные модели и контракты репозиториев.
+- `src/englishbot/application`: use case-слой с учебными, домашними, редакторскими и image-review сценариями.
+- `src/englishbot/infrastructure`: SQLite-хранилище, загрузка контента, persistence-адаптеры.
+- `src/englishbot/telegram`: Telegram-обработчики, transient UI state, lifecycle и runtime helper-слой.
+- `src/englishbot/presentation`: тексты, клавиатуры, Telegram views, рендеринг прогресса.
+- `src/englishbot/capabilities`: подключение опциональных возможностей AI text, AI images и TTS.
+- `src/englishbot/bot.py`: большой, но уже переходный facade-слой с wrapper handlers и общими helper’ами.
+
+Основной runtime:
+
+- входная точка: `python -m englishbot`
+- модуль: [src/englishbot/__main__.py](/workspaces/EnglishBot/src/englishbot/__main__.py)
+- bootstrap Telegram runtime: [src/englishbot/telegram/bootstrap.py](/workspaces/EnglishBot/src/englishbot/telegram/bootstrap.py)
+
+Важно: `__main__.py` загружает `.env`, строит `RuntimeConfigService`, затем `Settings`, настраивает единый logging formatter и только потом собирает Telegram-приложение и event loop.
+
+## 3. Главные пользовательские возможности
+
+### Учебный сценарий
+
+Базовый learner flow уже зрелый и хорошо покрыт тестами.
+
+- Выбор темы.
+- При наличии уроков: выбор урока или режима “все слова темы”.
+- Выбор режима:
+  - `easy`: выбор правильного слова из 3 вариантов;
+  - `medium`: ввод слова с подсказкой из перемешанных букв;
+  - `hard`: ввод слова без подсказки.
+- Сессия хранит точный набор выбранных `learning_item.id`, текущий индекс и историю ответов.
+- После ответа бот либо задаёт следующий вопрос, либо отдаёт краткий summary.
+
+В коде это выражено через `StartTrainingSessionUseCase`, `GetCurrentQuestionUseCase`, `SubmitAnswerUseCase`, `QuestionFactory`, `AnswerChecker`, `SessionSummaryCalculator`.
+
+### Домашка и прогресс
+
+Домашка сейчас отдельная и более важная часть UX, чем старые daily/weekly ветки.
+
+- У ученика есть единая homework entry point.
+- Домашка запускается как непрерывная assignment-session, не требующая ручного выбора темы на каждом шаге.
+- Прогресс считается по назначенным словам, а не только по темам.
+- Есть более строгая логика уровней, bonus `hard`, combo-цепочка и visual progress track.
+- Админ может назначать домашку пользователям, смотреть пользователей, цели и детали по каждой цели.
+
+Ключевой application-модуль: [src/englishbot/application/homework_progress_use_cases.py](/workspaces/EnglishBot/src/englishbot/application/homework_progress_use_cases.py).
+
+### Редакторский сценарий
+
+Редакторские флоу в проекте уже полноценные, а не “на потом”.
+
+- Импорт сырого текста урока.
+- Построение draft-структуры.
+- Ручное редактирование draft.
+- Повторная генерация draft.
+- Approval и публикация в JSON + SQLite.
+- Генерация image prompt’ов.
+- Image review по словам.
+- Позднее редактирование опубликованных слов и изображений.
+
+Это собрано вокруг `AddWordsFlowHarness`, import pipeline и image-review use cases.
+
+### Массовое управление контентом
+
+Начиная с `1.1.0`, важная часть продукта — workbook для массового редактирования каталога.
+
+- Экспорт workbook из SQLite.
+- Массовое редактирование слов и image metadata в `.xlsx`.
+- Атомарный импорт обратно в БД.
+- Бэкап SQLite перед импортом.
+- Telegram flow “Image Saver” для загрузки картинки и получения готового `image_ref` URL.
+
+Это уже не эксперимент, а закреплённый релизный функционал.
+
+## 4. Данные и устойчивые инварианты
+
+Ключевое архитектурное решение: runtime-источник истины — SQLite, а JSON content packs используются как import/export surface.
+
+Нормализованная модель хранения:
+
+- `lexemes`: глобальная словарная сущность;
+- `learning_items`: конкретная обучаемая единица с переводом, hint, image, prompt;
+- `topic_learning_items`: связь элементов с темами;
+- `lesson_learning_items`: связь элементов с уроками.
+
+Критически важный инвариант проекта:
+
+- learner sessions, progress, answer history, image review и homework опираются на `learning_item.id`, а не просто на слово.
+
+Это позволяет:
+
+- переиспользовать один lexeme в нескольких учебных единицах;
+- держать разные переводы/подсказки для одного headword;
+- прикреплять один learning item к нескольким темам и урокам.
+
+Роли Telegram-пользователей тоже живут не только в `.env`, а в SQLite (`telegram_user_roles`). `ADMIN_USER_IDS` и `EDITOR_USER_IDS` сейчас используются как bootstrap для свежей БД.
+
+## 5. Что опционально, а что нельзя ломать
+
+Опциональные подсистемы:
+
+- AI parsing через Ollama;
+- image generation / rerank / review tooling;
+- TTS service;
+- Telegram Web App admin;
+- devcontainer CPU/GPU профили;
+- локальные ComfyUI и Ollama.
+
+Но есть строгие границы:
+
+- core bot должен запускаться без Ollama и ComfyUI;
+- default devcontainer — лёгкий профиль без локального AI;
+- optional tooling не должна протекать в основной boot path;
+- бизнес-логика не должна жить в Telegram handlers.
+
+Ещё один устойчивый принцип: Telegram-specific transient state должен идти через interaction layer, а не через случайные ключи в `context.user_data`. Для этого в проекте есть [src/englishbot/telegram/interaction.py](/workspaces/EnglishBot/src/englishbot/telegram/interaction.py), `flow_tracking.py`, `runtime.py`, `editor_runtime.py` и tokenized callbacks.
+
+## 6. Web, deploy и эксплуатация
+
+Проект рассчитан на один постоянный сервер с persistent storage.
+
+- рекомендованный хостинг: обычный VPS уровня Hetzner;
+- runtime: polling Telegram bot;
+- хранение: локальная SQLite + локальные `assets`;
+- docker-развёртывание разделено на core и optional overlay;
+- backup/restore/rollback и runtime directories подробно описаны в `docs/docker-server-setup.md`.
+
+Web App уже есть, но его надо воспринимать как MVP-админку:
+
+- WSGI entrypoint: [src/englishbot/webapp_server.py](/workspaces/EnglishBot/src/englishbot/webapp_server.py)
+- страницы: admin users/roles, session endpoint, help page, signed public asset endpoints
+- security-модель пока упрощённая: есть временный link-based access, при этом backend всё равно проверяет роли.
+
+## 7. Что подтверждено тестами
+
+Тестовый слой здесь очень сильный и фактически является спецификацией проекта.
+
+На текущем срезе:
+
+- `619 tests collected`
+- `616 passed, 3 skipped`
+- успешный запуск: `PYTHONPATH=. pytest -q`
+
+Что реально зафиксировано тестами:
+
+- обучение, маршрутизация и завершение сессий;
+- lesson/topic selection и валидация сочетаний;
+- домашка, combo logic, progress, assignment launch и admin drill-down;
+- import pipeline, fallback parsing, Ollama boundary, canonicalization и валидация;
+- image generation, Pixabay, image review, rerank и preview helpers;
+- workbook import/export и image saver;
+- SQLite schema и миграционные инварианты;
+- Web App auth и admin role editing;
+- TTS service и клиент;
+- локализация Telegram UI;
+- callback tokenization;
+- архитектурные запреты:
+  - нельзя импортировать `InlineKeyboardButton` напрямую;
+  - нельзя расползаться обратно в `bot.py`;
+  - runtime/access patterns и interaction contract должны сохраняться.
+
+То есть новый исполнитель должен читать тесты не как “проверку после работы”, а как основной источник требований.
+
+## 8. Что передавать следующему исполнителю как главное
+
+Если проект передают дальше, новый исполнитель должен держать в голове 8 опорных правил:
+
+1. Это Telegram-first учебный продукт, а не AI playground.
+2. Источник истины в runtime — SQLite, не JSON-файлы.
+3. Основная единица обучения — `learning_item`, не просто слово.
+4. Бизнес-логика должна оставаться в `application/`, а Telegram-модули только оркестрируют UX.
+5. Optional AI/TTS/WebApp не должны быть обязательны для core runtime.
+6. Временное Telegram-состояние должно идти через interaction/runtime helper-слой.
+7. `bot.py` можно уменьшать дальше, но он уже допустим как facade; не надо устраивать новый большой рефакторинг без необходимости.
+8. Любое изменение нужно сверять с тестами и документацией одновременно: здесь это часть продукта, а не вторичная формальность.
+
