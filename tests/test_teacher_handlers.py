@@ -13,6 +13,7 @@ from englishbot.teacher_handlers import assign, invite, join
 from englishbot.teacher_student import get_invite, get_teacher_link
 from englishbot.user_profiles import get_user_role, set_user_role
 from englishbot.vocabulary import create_learning_item, create_learning_item_translation, create_lexeme
+from englishbot.workspaces import add_workspace_member
 
 
 class FakeMessage:
@@ -233,8 +234,9 @@ def test_assign_handler_rejects_unlinked_student(tmp_path: Path) -> None:
     db.save_user(teacher)
     db.save_user(student)
     set_user_role(teacher.id, "teacher")
+    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
     message = FakeMessage(teacher)
 
     asyncio.run(assign(message, SimpleNamespace(args=f"{student.id} {learning_item_id}")))
 
-    assert message.answers == ["Этот ученик не привязан к вашему teacher-профилю."]
+    assert message.answers == ["Этот ученик не состоит с вами в общем workspace."]

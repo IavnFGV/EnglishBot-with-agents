@@ -1,0 +1,86 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Move assignment and topic-access logic onto the workspace model.
+
+Context:
+Workspaces and workspace-owned content already exist or are expected from previous slices.
+Assignments and topic access must now operate inside a workspace instead of relying on teacher-student ownership assumptions.
+
+Feature:
+Workspace-Based Learning Flows MVP
+
+Scope:
+1. Add `workspace_id` to:
+   - `assignments`
+   - `student_topic_access`
+   - any directly related table only if strictly needed
+
+2. Keep assignment targeting explicit:
+   - assignment belongs to a workspace
+   - assignment still targets a specific student user inside that workspace
+
+3. Keep topic access explicit:
+   - access belongs to a workspace
+   - access grants one specific student access to one topic inside that workspace
+
+4. Update business rules:
+   - teacher actions must be validated through workspace membership
+   - student access must be validated through workspace membership
+   - current flows must operate inside one workspace context
+
+5. Homework and topic access must remain separate concepts:
+   - homework = required content
+   - topic access = allowed self-learning content
+
+6. Keep existing behavior minimal and practical:
+   - `/assign`
+   - `/granttopic`
+   - `/topics`
+   - homework launch
+   should still work after the workspace migration
+
+Cleanup rules:
+- Remove assumptions that a teacher-student link alone is the source of truth for assignment/access ownership
+- Remove obsolete helper code that only exists to support the old ownership model if it is no longer needed
+- Rewrite outdated comments and docstrings that describe assignments/topics as teacher-owned
+- Delete dead branches rather than keeping both old and new models alive without need
+
+Out of scope:
+- full workspace invitation UX
+- multiple active workspace switching UX
+- publish/copy between teacher workspace and student workspace
+- progress redesign
+- billing
+- lesson model
+
+Architecture constraints:
+- Keep business logic outside Telegram handlers
+- Do not grow bot.py
+- Prefer focused modules and explicit wiring
+- Do not preserve old behavior through sprawling compatibility layers unless truly necessary
+
+Testing requirements:
+- schema/migration tests for workspace-owned assignment/access
+- tests for teacher membership validation
+- tests for student membership validation
+- tests that assignments are visible only in the correct workspace context
+- tests that topic access works only in the correct workspace context
+- handler tests where practical
+
+Workflow:
+1. architect
+2. complexity_guard
+3. coder
+4. complexity_guard
+
+Definition of done:
+- assignments and topic access are workspace-based
+- old teacher-only ownership assumptions are removed where no longer needed
+- flows still work
+- comments and docstrings match the new model
+- tests pass
+- CHANGELOG.md and context/current_state.md are updated

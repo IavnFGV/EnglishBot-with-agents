@@ -12,8 +12,11 @@ from englishbot.workspaces import (
     WorkspaceNotFoundError,
     add_workspace_member,
     create_workspace,
+    find_shared_workspace_for_teacher_and_student,
     find_workspaces_for_user_by_role,
+    get_workspace_member,
     list_workspaces_for_user,
+    user_is_workspace_member,
 )
 
 
@@ -130,3 +133,33 @@ def test_find_workspaces_for_user_by_role_filters_memberships(tmp_path: Path) ->
 
     assert [workspace["name"] for workspace in teacher_workspaces] == ["Teacher Space"]
     assert [workspace["name"] for workspace in student_workspaces] == ["Student Space"]
+
+
+def test_workspace_membership_helpers_return_expected_rows(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    workspace = create_workspace("Shared")
+    add_workspace_member(workspace["workspace_id"], 901, "teacher")
+    add_workspace_member(workspace["workspace_id"], 902, "student")
+
+    teacher_membership = get_workspace_member(workspace["workspace_id"], 901)
+
+    assert teacher_membership is not None
+    assert teacher_membership["role"] == "teacher"
+    assert user_is_workspace_member(workspace["workspace_id"], 901, "teacher") is True
+    assert user_is_workspace_member(workspace["workspace_id"], 902) is True
+    assert user_is_workspace_member(workspace["workspace_id"], 903) is False
+
+
+def test_find_shared_workspace_for_teacher_and_student_returns_first_match(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    first_workspace = create_workspace("First")
+    second_workspace = create_workspace("Second")
+    add_workspace_member(first_workspace["workspace_id"], 1001, "teacher")
+    add_workspace_member(first_workspace["workspace_id"], 1002, "student")
+    add_workspace_member(second_workspace["workspace_id"], 1001, "teacher")
+    add_workspace_member(second_workspace["workspace_id"], 1002, "student")
+
+    workspace = find_shared_workspace_for_teacher_and_student(1001, 1002)
+
+    assert workspace is not None
+    assert workspace["id"] == first_workspace["workspace_id"]

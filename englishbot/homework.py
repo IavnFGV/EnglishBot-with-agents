@@ -1,11 +1,12 @@
 import sqlite3
 
 from .db import get_connection, utc_now
-from .teacher_student import ROLE_TEACHER, get_teacher_link
+from .teacher_student import ROLE_TEACHER
 from .topics import get_topic_by_name, get_topic_learning_item_ids, list_topics
+from .training import create_training_session_for_learning_items
 from .user_profiles import get_user_role
 from .vocabulary import get_learning_item
-from .training import create_training_session_for_learning_items
+from .workspaces import find_shared_workspace_for_teacher_and_student, user_is_workspace_member
 
 
 ACTIVE_STATUS = "active"
@@ -21,7 +22,11 @@ class TeacherRoleRequiredError(HomeworkError):
     pass
 
 
-class StudentLinkRequiredError(HomeworkError):
+class TeacherWorkspaceMembershipRequiredError(HomeworkError):
+    pass
+
+
+class StudentWorkspaceMembershipRequiredError(HomeworkError):
     pass
 
 
@@ -41,6 +46,10 @@ class AssignmentNotFoundError(HomeworkError):
     pass
 
 
+class MixedWorkspaceAssignmentError(HomeworkError):
+    pass
+
+
 def create_assignment(
     teacher_user_id: int,
     student_user_id: int,
@@ -50,24 +59,36 @@ def create_assignment(
     if get_user_role(teacher_user_id) != ROLE_TEACHER:
         raise TeacherRoleRequiredError
 
-    teacher_link = get_teacher_link(student_user_id)
-    if teacher_link is None or int(teacher_link["teacher_user_id"]) != teacher_user_id:
-        raise StudentLinkRequiredError
-
     normalized_learning_item_ids = [int(learning_item_id) for learning_item_id in learning_item_ids]
     if not normalized_learning_item_ids:
         raise EmptyAssignmentError
     stored_title = title.strip() if title is not None and title.strip() else DEFAULT_ASSIGNMENT_TITLE
 
+    workspace_id: int | None = None
     for learning_item_id in normalized_learning_item_ids:
-        if get_learning_item(learning_item_id) is None:
+        learning_item = get_learning_item(learning_item_id)
+        if learning_item is None:
             raise LearningItemNotFoundError
+        item_workspace_id = int(learning_item["workspace_id"])
+        if workspace_id is None:
+            workspace_id = item_workspace_id
+            continue
+        if item_workspace_id != workspace_id:
+            raise MixedWorkspaceAssignmentError
+
+    if workspace_id is None:
+        raise EmptyAssignmentError
+    if not user_is_workspace_member(workspace_id, teacher_user_id, ROLE_TEACHER):
+        raise TeacherWorkspaceMembershipRequiredError
+    if not user_is_workspace_member(workspace_id, student_user_id):
+        raise StudentWorkspaceMembershipRequiredError
 
     timestamp = utc_now()
     with get_connection() as connection:
         cursor = connection.execute(
             """
             INSERT INTO assignments (
+                workspace_id,
                 teacher_user_id,
                 student_user_id,
                 title,
@@ -75,9 +96,10 @@ def create_assignment(
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                workspace_id,
                 teacher_user_id,
                 student_user_id,
                 stored_title,
@@ -113,6 +135,7 @@ def create_assignment(
 def list_assignable_groups() -> list[dict[str, object]]:
     return [
         {
+            "workspace_id": int(topic["workspace_id"]),
             "name": str(topic["name"]),
             "title": str(topic["title"]),
             "item_count": int(topic["item_count"]),
@@ -126,7 +149,11 @@ def create_assignment_from_group(
     student_user_id: int,
     group_name: str,
 ) -> dict[str, object]:
-    topic = get_topic_by_name(group_name.strip())
+    workspace = find_shared_workspace_for_teacher_and_student(teacher_user_id, student_user_id)
+    if workspace is None:
+        raise StudentWorkspaceMembershipRequiredError
+
+    topic = get_topic_by_name(group_name.strip(), workspace_id=int(workspace["id"]))
     if topic is None:
         raise AssignmentGroupNotFoundError
 
@@ -148,6 +175,7 @@ def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
             """
             SELECT
                 assignments.id,
+                assignments.workspace_id,
                 assignments.teacher_user_id,
                 assignments.student_user_id,
                 assignments.title,
@@ -159,6 +187,9 @@ def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
             FROM assignments
             LEFT JOIN assignment_items
                 ON assignment_items.assignment_id = assignments.id
+            JOIN workspace_members
+              ON workspace_members.workspace_id = assignments.workspace_id
+             AND workspace_members.telegram_user_id = assignments.student_user_id
             WHERE assignments.student_user_id = ?
               AND assignments.status = ?
             GROUP BY assignments.id
@@ -174,6 +205,7 @@ def get_assignment(assignment_id: int) -> sqlite3.Row | None:
             """
             SELECT
                 id,
+                workspace_id,
                 teacher_user_id,
                 student_user_id,
                 title,
@@ -216,6 +248,8 @@ def start_assignment_training_session(
     if int(assignment["student_user_id"]) != student_user_id:
         raise AssignmentNotFoundError
     if str(assignment["status"]) != ACTIVE_STATUS:
+        raise AssignmentNotFoundError
+    if not user_is_workspace_member(int(assignment["workspace_id"]), student_user_id):
         raise AssignmentNotFoundError
 
     learning_item_ids = get_assignment_learning_item_ids(assignment_id)

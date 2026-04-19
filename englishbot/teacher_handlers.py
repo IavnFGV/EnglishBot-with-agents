@@ -6,7 +6,9 @@ from .homework import (
     AssignmentGroupNotFoundError,
     EmptyAssignmentError,
     LearningItemNotFoundError,
-    StudentLinkRequiredError,
+    MixedWorkspaceAssignmentError,
+    StudentWorkspaceMembershipRequiredError,
+    TeacherWorkspaceMembershipRequiredError,
     TeacherRoleRequiredError as HomeworkTeacherRoleRequiredError,
     create_assignment,
     create_assignment_from_group,
@@ -23,7 +25,8 @@ from .teacher_student import (
     join_with_invite,
 )
 from .topic_access import (
-    StudentLinkRequiredError as TopicAccessStudentLinkRequiredError,
+    StudentWorkspaceMembershipRequiredError as TopicAccessStudentWorkspaceMembershipRequiredError,
+    TeacherWorkspaceMembershipRequiredError as TopicAccessTeacherWorkspaceMembershipRequiredError,
     TeacherRoleRequiredError as TopicAccessTeacherRoleRequiredError,
     TopicNotFoundError,
     grant_topic_access,
@@ -139,14 +142,20 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
     except HomeworkTeacherRoleRequiredError:
         await message.answer("Команда /assign доступна только пользователю с ролью teacher.")
         return
-    except StudentLinkRequiredError:
-        await message.answer("Этот ученик не привязан к вашему teacher-профилю.")
+    except TeacherWorkspaceMembershipRequiredError:
+        await message.answer("У вас нет teacher-доступа к workspace этого контента.")
+        return
+    except StudentWorkspaceMembershipRequiredError:
+        await message.answer("Этот ученик не состоит с вами в общем workspace.")
         return
     except EmptyAssignmentError:
         await message.answer("Нужно передать хотя бы один learning_item_id.")
         return
     except LearningItemNotFoundError:
         await message.answer("Один из learning_item_id не найден.")
+        return
+    except MixedWorkspaceAssignmentError:
+        await message.answer("Нельзя назначать learning_item из разных workspace в одном задании.")
         return
     except AssignmentGroupNotFoundError:
         await message.answer(_build_assign_usage_message())
@@ -194,8 +203,11 @@ async def grant_topic(message: Message, command: CommandObject | None = None) ->
     except TopicAccessTeacherRoleRequiredError:
         await message.answer("Команда /granttopic доступна только пользователю с ролью teacher.")
         return
-    except TopicAccessStudentLinkRequiredError:
-        await message.answer("Этот ученик не привязан к вашему teacher-профилю.")
+    except TopicAccessTeacherWorkspaceMembershipRequiredError:
+        await message.answer("У вас нет teacher-доступа к workspace этой темы.")
+        return
+    except TopicAccessStudentWorkspaceMembershipRequiredError:
+        await message.answer("Этот ученик не состоит с вами в общем workspace.")
         return
     except TopicNotFoundError:
         await message.answer(_build_grant_topic_usage_message())

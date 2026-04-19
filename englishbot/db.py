@@ -372,10 +372,12 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS student_topic_access (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id INTEGER,
                 student_user_id INTEGER NOT NULL,
                 topic_id INTEGER NOT NULL,
                 granted_by_teacher_user_id INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
+                FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
                 FOREIGN KEY (student_user_id) REFERENCES users (telegram_user_id),
                 FOREIGN KEY (topic_id) REFERENCES topics (id),
                 FOREIGN KEY (granted_by_teacher_user_id) REFERENCES users (telegram_user_id),
@@ -383,10 +385,46 @@ def init_db() -> None:
             )
             """
         )
+        student_topic_access_columns = get_table_columns(connection, "student_topic_access")
+        if "workspace_id" not in student_topic_access_columns:
+            connection.execute(
+                """
+                ALTER TABLE student_topic_access
+                ADD COLUMN workspace_id INTEGER
+                REFERENCES workspaces (id)
+                """
+            )
+        connection.execute(
+            """
+            UPDATE student_topic_access
+            SET workspace_id = COALESCE(
+                (
+                    SELECT topics.workspace_id
+                    FROM topics
+                    WHERE topics.id = student_topic_access.topic_id
+                ),
+                ?
+            )
+            WHERE workspace_id IS NULL
+            """,
+            (default_content_workspace_id,),
+        )
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_student_topic_access_student_user_id
             ON student_topic_access (student_user_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_student_topic_access_workspace_student
+            ON student_topic_access (workspace_id, student_user_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_student_topic_access_workspace_student_topic
+            ON student_topic_access (workspace_id, student_user_id, topic_id)
             """
         )
         connection.execute(
@@ -442,6 +480,7 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS assignments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id INTEGER,
                 teacher_user_id INTEGER NOT NULL,
                 student_user_id INTEGER NOT NULL,
                 title TEXT,
@@ -449,6 +488,7 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 completed_at TEXT,
+                FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
                 FOREIGN KEY (teacher_user_id) REFERENCES users (telegram_user_id),
                 FOREIGN KEY (student_user_id) REFERENCES users (telegram_user_id)
             )
@@ -469,6 +509,14 @@ def init_db() -> None:
                 ADD COLUMN title TEXT
                 """
             )
+        if "workspace_id" not in assignment_columns:
+            connection.execute(
+                """
+                ALTER TABLE assignments
+                ADD COLUMN workspace_id INTEGER
+                REFERENCES workspaces (id)
+                """
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS assignment_items (
@@ -483,8 +531,33 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            UPDATE assignments
+            SET workspace_id = COALESCE(
+                (
+                    SELECT learning_items.workspace_id
+                    FROM assignment_items
+                    JOIN learning_items
+                      ON learning_items.id = assignment_items.learning_item_id
+                    WHERE assignment_items.assignment_id = assignments.id
+                    ORDER BY assignment_items.item_order
+                    LIMIT 1
+                ),
+                ?
+            )
+            WHERE workspace_id IS NULL
+            """,
+            (default_content_workspace_id,),
+        )
+        connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_assignments_student_status
             ON assignments (student_user_id, status)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_assignments_workspace_student_status
+            ON assignments (workspace_id, student_user_id, status)
             """
         )
         connection.execute(

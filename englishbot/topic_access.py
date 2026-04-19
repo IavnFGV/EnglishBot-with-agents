@@ -1,10 +1,11 @@
 import sqlite3
 
 from .db import get_connection, utc_now
-from .teacher_student import ROLE_TEACHER, get_teacher_link
+from .teacher_student import ROLE_TEACHER
 from .topics import get_topic, get_topic_by_name, get_topic_learning_item_ids
 from .training import create_training_session_for_learning_items
 from .user_profiles import get_user_role
+from .workspaces import find_shared_workspace_for_teacher_and_student, user_is_workspace_member
 
 
 class TopicAccessError(Exception):
@@ -15,7 +16,11 @@ class TeacherRoleRequiredError(TopicAccessError):
     pass
 
 
-class StudentLinkRequiredError(TopicAccessError):
+class TeacherWorkspaceMembershipRequiredError(TopicAccessError):
+    pass
+
+
+class StudentWorkspaceMembershipRequiredError(TopicAccessError):
     pass
 
 
@@ -39,11 +44,16 @@ def grant_topic_access(
     if get_user_role(teacher_user_id) != ROLE_TEACHER:
         raise TeacherRoleRequiredError
 
-    teacher_link = get_teacher_link(student_user_id)
-    if teacher_link is None or int(teacher_link["teacher_user_id"]) != teacher_user_id:
-        raise StudentLinkRequiredError
+    workspace = find_shared_workspace_for_teacher_and_student(teacher_user_id, student_user_id)
+    if workspace is None:
+        raise StudentWorkspaceMembershipRequiredError
+    workspace_id = int(workspace["id"])
+    if not user_is_workspace_member(workspace_id, teacher_user_id, ROLE_TEACHER):
+        raise TeacherWorkspaceMembershipRequiredError
+    if not user_is_workspace_member(workspace_id, student_user_id):
+        raise StudentWorkspaceMembershipRequiredError
 
-    topic = get_topic_by_name(topic_name.strip())
+    topic = get_topic_by_name(topic_name.strip(), workspace_id=workspace_id)
     if topic is None:
         raise TopicNotFoundError
 
@@ -52,14 +62,16 @@ def grant_topic_access(
         cursor = connection.execute(
             """
             INSERT OR IGNORE INTO student_topic_access (
+                workspace_id,
                 student_user_id,
                 topic_id,
                 granted_by_teacher_user_id,
                 created_at
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
+                workspace_id,
                 student_user_id,
                 int(topic["id"]),
                 teacher_user_id,
@@ -87,6 +99,7 @@ def get_student_topic_access(
             """
             SELECT
                 id,
+                workspace_id,
                 student_user_id,
                 topic_id,
                 granted_by_teacher_user_id,
@@ -104,6 +117,7 @@ def list_accessible_topics(student_user_id: int) -> list[sqlite3.Row]:
             """
             SELECT
                 topics.id,
+                student_topic_access.workspace_id,
                 topics.name,
                 topics.title,
                 topics.created_at,
@@ -115,6 +129,9 @@ def list_accessible_topics(student_user_id: int) -> list[sqlite3.Row]:
               ON topics.id = student_topic_access.topic_id
             LEFT JOIN topic_learning_items
               ON topic_learning_items.topic_id = topics.id
+            JOIN workspace_members
+              ON workspace_members.workspace_id = student_topic_access.workspace_id
+             AND workspace_members.telegram_user_id = student_topic_access.student_user_id
             WHERE student_topic_access.student_user_id = ?
             GROUP BY topics.id, student_topic_access.id
             ORDER BY topics.id
@@ -135,6 +152,8 @@ def start_topic_training_session(
     if topic is None:
         raise TopicNotFoundError
     if not student_has_topic_access(student_user_id, topic_id):
+        raise TopicAccessDeniedError
+    if not user_is_workspace_member(int(topic["workspace_id"]), student_user_id):
         raise TopicAccessDeniedError
 
     learning_item_ids = get_topic_learning_item_ids(topic_id)

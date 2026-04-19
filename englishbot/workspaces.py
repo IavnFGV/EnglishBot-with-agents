@@ -133,6 +133,65 @@ def find_workspaces_for_user_by_role(
         ).fetchall()
 
 
+def get_workspace_member(
+    workspace_id: int,
+    telegram_user_id: int,
+) -> sqlite3.Row | None:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT
+                workspace_id,
+                telegram_user_id,
+                role,
+                created_at,
+                updated_at
+            FROM workspace_members
+            WHERE workspace_id = ? AND telegram_user_id = ?
+            """,
+            (workspace_id, telegram_user_id),
+        ).fetchone()
+
+
+def user_is_workspace_member(
+    workspace_id: int,
+    telegram_user_id: int,
+    role: str | None = None,
+) -> bool:
+    membership = get_workspace_member(workspace_id, telegram_user_id)
+    if membership is None:
+        return False
+    if role is None:
+        return True
+    return str(membership["role"]) == _normalize_workspace_role(role)
+
+
+def find_shared_workspace_for_teacher_and_student(
+    teacher_user_id: int,
+    student_user_id: int,
+) -> sqlite3.Row | None:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT
+                workspaces.id,
+                workspaces.name,
+                workspaces.created_at
+            FROM workspace_members AS teacher_membership
+            JOIN workspace_members AS student_membership
+              ON student_membership.workspace_id = teacher_membership.workspace_id
+            JOIN workspaces
+              ON workspaces.id = teacher_membership.workspace_id
+            WHERE teacher_membership.telegram_user_id = ?
+              AND teacher_membership.role = ?
+              AND student_membership.telegram_user_id = ?
+            ORDER BY workspaces.id
+            LIMIT 1
+            """,
+            (teacher_user_id, ROLE_TEACHER, student_user_id),
+        ).fetchone()
+
+
 def _normalize_workspace_role(role: str) -> str:
     if not isinstance(role, str):
         raise InvalidWorkspaceRoleError
