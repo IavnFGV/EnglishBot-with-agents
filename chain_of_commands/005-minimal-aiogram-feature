@@ -1,0 +1,12 @@
+Task: extend the current aiogram bot with one regular text handler and one inline button flow.
+
+Requirements:
+- Keep /start -> "Привет"
+- Add text message handler: reply with "Ты написал: <text>"
+- Add one inline button in /start response: "Нажми меня"
+- Add callback handler for this button
+- On button click, reply with "Кнопка нажата"
+- Keep code minimal
+- No FSM yet
+- No extra layers
+- Update CHANGELOG.md and context/current_state.md

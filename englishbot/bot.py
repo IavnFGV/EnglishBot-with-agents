@@ -2,18 +2,36 @@ import logging
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.filters import CommandStart
-from aiogram.types import ErrorEvent, Message
+from aiogram.types import CallbackQuery, ErrorEvent, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from .config import load_config
 
 
 logger = logging.getLogger(__name__)
 router = Router()
+start_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text="Нажми меня", callback_data="press_me")]
+    ]
+)
 
 
 @router.message(CommandStart())
 async def start(message: Message) -> None:
-    await message.answer("Привет")
+    await message.answer("Привет", reply_markup=start_keyboard)
+
+
+@router.callback_query(lambda callback: callback.data == "press_me")
+async def press_me(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.answer("Кнопка нажата")
+
+
+@router.message()
+async def echo_text(message: Message) -> None:
+    if message.text is not None:
+        await message.answer(f"Ты написал: {message.text}")
 
 
 @router.errors()
