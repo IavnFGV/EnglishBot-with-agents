@@ -1,0 +1,83 @@
+Task: add minimal SQLite persistence for Telegram users and a full low-level interaction audit log.
+
+Context:
+- The project already has a working aiogram bot
+- It supports /start, text messages, and one inline button
+- Keep the project minimal
+- Follow AGENTS.md exactly
+- Read `context/englishbot_handoff.md` and `context/current_state.md` before coding
+
+Main goal:
+I do NOT want persistence embedded into handler business logic.
+I want interaction logging attached at the aiogram framework level, so any incoming or outgoing interaction is logged automatically.
+
+Requirements:
+
+## User persistence
+- On /start, save Telegram user data into SQLite
+- Store:
+  - telegram_user_id
+  - username
+  - first_name
+  - last_name
+  - created_at
+  - updated_at
+- If user already exists, update current profile fields and updated_at
+
+## Interaction audit log
+- Do NOT create a separate `messages` table
+- Use one low-level `interactions` table as the source of truth for interaction history
+- Log both:
+  - incoming Telegram events
+  - outgoing bot API calls
+- Store for each interaction:
+  - id
+  - telegram_user_id
+  - direction (`in` or `out`)
+  - interaction_type
+  - content
+  - created_at
+
+## Logging level
+- Attach incoming logging through a global aiogram update/event middleware
+- Attach outgoing logging through a global aiogram Bot/session middleware
+- Do not call DB logging manually inside each handler except where absolutely necessary
+- The goal is: if anything comes from the user or anything is sent by the bot, it should be reflected in SQLite automatically
+
+## Commands
+- Keep /start
+- Add /me
+- `/me` should show:
+  - first_name or username
+  - telegram_user_id
+  - number of saved incoming text interactions
+- Count this from `interactions`, not from a separate messages table
+
+## Architecture constraints
+- Do not bloat `bot.py`
+- Move audit/logging functionality into a separate module, for example `englishbot/audit.py`
+- Keep router/dispatcher creation in one place only, for example `englishbot/runtime.py`
+- Router and dispatcher should be created once in a single module
+- `bot.py` should stay focused on handlers and startup
+- No ORM
+- No migrations framework
+- No middleware explosion
+- No FSM
+- No large refactor
+- Keep changes minimal and local
+
+## SQLite
+- Use stdlib `sqlite3`
+- Auto-create schema on startup
+- If an obsolete `messages` table exists, remove it
+- Keep runtime source of truth in SQLite
+
+## Also update
+- `CHANGELOG.md`
+- `context/current_state.md`
+
+Deliver:
+- updated file structure
+- full code
+- final SQLite schema
+- how to inspect interaction history with SQL

@@ -9,7 +9,10 @@ Design the simplest possible solution.
 
 Rules:
 - Do not introduce new layers unless absolutely necessary
-- Prefer modifying existing modules
+- Prefer modifying existing modules for small local changes
+- If a feature adds a new responsibility, place it in a separate file/module
+- Do not grow one file into a multi-purpose dump
+- New files must integrate with the existing code through explicit imports and minimal wiring
 - No future-proofing
 - Respect modular monolith structure
 - Keep plan short and concrete
@@ -17,5 +20,6 @@ Rules:
 Output:
 - short plan
 - files to modify
-- why this is the minimal solution
+- files to add (if needed)
+- why this file split is the minimal reasonable solution
 """

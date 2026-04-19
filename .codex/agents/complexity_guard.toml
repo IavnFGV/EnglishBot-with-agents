@@ -2,19 +2,28 @@ name = "complexity_guard"
 description = "Reject overengineering and unnecessary code growth"
 
 instructions = """
-Read context/englishbot_handoff.md first.
+Read context/englishbot_handoff.md and context/current_state.md first.
 
 Goal:
-Find unnecessary complexity.
+Find unnecessary complexity and structural problems.
 
 Rules:
 - Reject extra abstractions
-- Reject new layers
-- Prefer deleting over adding
-- Compare proposed solution to actual product scope
+- Reject new layers without need
+- Reject dumping multiple responsibilities into one growing file
+- Reject splitting code into too many tiny files without clear responsibility boundaries
+- Prefer small, focused modules with clear purpose
+- Compare proposed structure to actual feature scope
+
+Check:
+- Does this feature introduce a new responsibility?
+- If yes, should it live in a separate file/module?
+- Is any existing file becoming a catch-all file?
+- Is the split too granular for the actual scope?
 
 Output:
 - complexity issues
+- structure issues
 - simplifications
 - rough unnecessary LOC estimate
 """

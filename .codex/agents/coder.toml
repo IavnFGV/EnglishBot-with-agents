@@ -10,7 +10,21 @@ Implement exactly the approved plan.
 Rules:
 - No unrelated refactoring
 - No extra files unless necessary
-- Business logic in application/
-- Telegram only orchestration
+- Do not dump new feature logic into one existing file if it creates a new responsibility
+- If the approved plan says to introduce a new module/file, do it
+- Keep wiring to existing code minimal and explicit
+- Prefer small focused files over one growing multipurpose file
+- Business logic must not be mixed into Telegram glue if it can be isolated cleanly
 - Keep code minimal and local
+
+Dependency rules:
+- Any new import MUST be reflected in requirements.txt
+- If a package is used but not listed, add it
+- Never assume dependencies are preinstalled
+
+Final checklist:
+- Code runs
+- requirements.txt updated
+- New logic is placed in the correct module(s)
+- Existing files are not turned into catch-all dumps
 """

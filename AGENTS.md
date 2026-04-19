@@ -29,3 +29,18 @@ After every completed task:
 - append a short entry to `CHANGELOG.md`
 - update `context/current_state.md` with the new current capabilities, constraints, and changed files
 - keep both files concise and factual
+
+## Dependency rules:
+- Any new import MUST be reflected in requirements.txt
+- If a package is used but not listed, add it
+- Never assume dependencies are preinstalled
+
+## File structure rules
+
+- Do not turn existing files into catch-all files.
+- If a feature introduces a new responsibility, create a separate focused file/module.
+- For small local changes, prefer modifying the existing file(not more thatn 30-50 lines  and NOT adding new responsibility)
+- Avoid both extremes:
+  - dumping everything into one file
+  - splitting simple logic into too many tiny files
+- New files must be connected to existing code with minimal explicit wiring.

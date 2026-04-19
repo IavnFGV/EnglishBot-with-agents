@@ -3,13 +3,21 @@
 - Repository currently contains a minimal runnable Telegram bot foundation at `englishbot/`.
 - Entry point is `python -m englishbot`.
 - Runtime uses long polling with `aiogram 3.x`.
-- `/start` replies with `Привет`.
+- `/start` replies with `Привет` and upserts the Telegram user into SQLite.
 - `/start` also includes one inline button labeled `Нажми меня`.
 - Pressing the inline button triggers a callback handler that replies with `Кнопка нажата`.
-- Plain text messages are echoed back as `Ты написал: <text>`.
+- Plain text messages are echoed back as `Ты написал: <text>` and are tracked only through the low-level `interactions` audit log.
+- `/me` shows the user's first name or username, the `telegram_user_id`, and the number of saved text messages.
 - Configuration is read from `TELEGRAM_BOT_TOKEN`, with `.env` support via `python-dotenv`.
+- SQLite storage uses the stdlib `sqlite3` module with a local `englishbot.sqlite3` file by default, overridable through `ENGLISHBOT_DB_PATH`.
+- `requirements.txt` intentionally stays minimal: only third-party runtime packages are listed; SQLite is not listed because it comes from the Python standard library.
+- SQLite schema is created automatically on startup with two active tables: `users` and `interactions`.
+- `interactions` is the low-level audit table for Telegram traffic and stores `telegram_user_id`, `direction` (`in` or `out`), `interaction_type`, `content`, and `created_at`.
+- `/me` counts saved user text messages by counting `interactions` rows where `direction='in'` and `interaction_type='text'`.
+- Startup removes the old `messages` table if it exists, because it is no longer used.
+- Interaction logging is attached at the aiogram framework level instead of inside specific handlers: incoming updates go through a dispatcher update middleware, and outgoing Bot API requests go through session middleware.
 - If the bot token is missing, startup fails with a clear `RuntimeError`.
 - Logging is configured at INFO level, and update-handling exceptions are logged through an aiogram router error handler.
 - Repository now includes a root `.gitignore` covering local env files, Python caches, virtual environments, logs, IDE files, and local SQLite databases.
-- Current bot structure stays minimal and explicit: `englishbot/config.py` loads `.env` and validates `TELEGRAM_BOT_TOKEN`; `englishbot/bot.py` defines one `Router`, one `/start` handler with inline keyboard, one callback handler, one plain text message handler, one error logger, and aiogram polling startup.
-- Changed files for the current bot slice: `englishbot/bot.py`, `CHANGELOG.md`, `context/current_state.md`.
+- Current bot structure stays minimal and explicit: `englishbot/config.py` loads `.env` and validates `TELEGRAM_BOT_TOKEN`; `englishbot/db.py` owns the small SQLite schema and CRUD helpers for `users` and `interactions`; `englishbot/audit.py` owns interaction extraction and aiogram logging middleware; `englishbot/runtime.py` creates the singleton `router` and `dispatcher` and wires the middleware once; `englishbot/bot.py` now stays focused on handlers, error logging, and polling startup.
+- Changed files for the current bot slice: `englishbot/bot.py`, `englishbot/db.py`, `englishbot/audit.py`, `englishbot/runtime.py`, `requirements.txt`, `CHANGELOG.md`, `context/current_state.md`.
