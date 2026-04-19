@@ -211,6 +211,45 @@ def init_db() -> None:
             ON learning_item_translations (learning_item_id)
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS training_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_user_id INTEGER NOT NULL,
+                current_index INTEGER NOT NULL DEFAULT 0,
+                correct_answers INTEGER NOT NULL DEFAULT 0,
+                total_questions INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS training_session_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                learning_item_id INTEGER NOT NULL,
+                item_order INTEGER NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES training_sessions (id),
+                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_training_sessions_user_status
+            ON training_sessions (telegram_user_id, status)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_training_session_items_session_order
+            ON training_session_items (session_id, item_order)
+            """
+        )
         connection.execute("DROP TABLE IF EXISTS messages")
 
 

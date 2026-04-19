@@ -1,0 +1,157 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Implement the next minimal product step: a working training session over stored vocabulary.
+
+Context:
+The project already has:
+- Telegram bot foundation
+- teacher-student MVP
+- SQLite persistence
+- lexemes, learning_items, learning_item_translations
+- asset references (image_ref, audio_ref)
+
+What is missing:
+There is still no actual learning loop. The user cannot go through a real training session.
+
+We need the smallest possible end-to-end learner flow.
+
+---
+
+Feature:
+Minimal Training Session MVP
+
+---
+
+Scope (STRICT):
+
+1. Add `/learn` command.
+
+2. When `/learn` is called:
+   - create a training session for the user
+   - select a small fixed number of learning_items (e.g. 5)
+   - store their order
+
+3. The bot must:
+   - ask one question at a time
+   - question = translation (e.g. ru or uk) if available, fallback to lexeme if not
+   - expected answer = lexeme headword
+
+4. When user sends a text message:
+   - if there is an active session → treat it as answer
+   - validate answer (case-insensitive, normalized)
+   - respond:
+     - correct / incorrect
+   - move to next question
+
+5. When session ends:
+   - send short summary:
+     - total questions
+     - correct answers count
+
+---
+
+Out of scope (DO NOT IMPLEMENT):
+
+- FSM
+- inline keyboards for answers
+- difficulty modes (easy/medium/hard)
+- topics / lessons selection
+- assignments / homework
+- teacher integration
+- UI complexity
+- asset playback (images/audio)
+- statistics persistence (optional, skip unless trivial)
+- multiple concurrent sessions
+- advanced normalization
+- retries / spaced repetition
+- ANY future-proof abstractions
+
+---
+
+Data model:
+
+Add minimal tables:
+
+- training_sessions:
+  - id
+  - telegram_user_id
+  - current_index
+  - correct_answers
+  - total_questions
+  - status (active/completed)
+
+- training_session_items:
+  - id
+  - session_id
+  - learning_item_id
+  - item_order
+
+Do NOT introduce extra tables unless absolutely necessary.
+
+---
+
+Architecture constraints:
+
+- Keep business logic outside Telegram handlers
+- Do not grow bot.py into a catch-all
+- If new responsibility appears → create a focused module (e.g. training.py)
+- Keep wiring minimal and explicit
+- Reuse vocabulary persistence instead of duplicating logic
+
+---
+
+Testing requirements (MANDATORY):
+
+Add focused tests for:
+
+- session creation
+- item selection and ordering
+- retrieving current question
+- correct answer handling
+- incorrect answer handling
+- session completion
+
+Tests must not depend on Telegram runtime.
+
+---
+
+Workflow:
+
+1. architect:
+   - propose minimal design
+   - list files to modify/add
+   - explain why this is minimal
+
+2. complexity_guard:
+   - reject overengineering
+   - ensure no unnecessary abstractions
+   - ensure test requirement is respected
+
+3. coder:
+   - implement ONLY approved plan
+   - add tests
+   - update requirements.txt if needed
+   - update CHANGELOG.md
+   - update context/current_state.md
+
+4. complexity_guard:
+   - verify:
+     - no catch-all files
+     - no unnecessary layers
+     - tests exist and are focused
+     - feature scope respected
+
+---
+
+Definition of done:
+
+- `/learn` works end-to-end
+- user can answer questions via plain text
+- session progresses correctly
+- session completes with summary
+- tests cover core behavior
+- code remains small and modular

@@ -65,6 +65,28 @@ def get_learning_item(learning_item_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
+def list_learning_items(limit: int | None = None) -> list[sqlite3.Row]:
+    query = """
+        SELECT
+            learning_items.id,
+            learning_items.lexeme_id,
+            learning_items.text,
+            learning_items.image_ref,
+            learning_items.audio_ref,
+            learning_items.created_at,
+            learning_items.updated_at
+        FROM learning_items
+        ORDER BY learning_items.id
+    """
+    parameters: tuple[int, ...] = ()
+    if limit is not None:
+        query = f"{query}\nLIMIT ?"
+        parameters = (limit,)
+
+    with get_connection() as connection:
+        return connection.execute(query, parameters).fetchall()
+
+
 def create_learning_item_translation(
     learning_item_id: int,
     language_code: str,

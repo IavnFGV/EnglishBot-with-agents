@@ -8,6 +8,7 @@ from .db import count_text_interactions, get_user, init_db, save_user
 from .runtime import build_bot, dispatcher, router
 from .user_profiles import get_user_role
 from . import teacher_handlers  # noqa: F401
+from . import training_handlers  # noqa: F401
 
 
 logger = logging.getLogger(__name__)

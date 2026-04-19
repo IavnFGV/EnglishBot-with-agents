@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-04-19
+- Added a minimal `/learn` training session MVP over stored vocabulary: SQLite now persists `training_sessions` and ordered `training_session_items`, the bot asks one prompt at a time from translations with lexeme fallback, validates plain-text answers case-insensitively, and finishes with a short summary.
+- Added focused training tests covering session creation, ordered item selection, question retrieval, correct and incorrect answer handling, session completion, and thin non-runtime handler coverage for `/learn`.
 - Added minimal SQLite vocabulary persistence for `lexemes`, `learning_items`, and multilingual `learning_item_translations`, including nullable `image_ref` and `audio_ref` fields, enforced SQLite foreign keys, and focused create/read tests for schema, migration, integrity, and content readback.
 - Expanded `export_ai_file_report.py` so the generated report now includes the full contents of each discovered `AGENTS.md` or agent-related file, making it usable as a one-run AI context dump.
 - Added `export_ai_file_report.py`, a minimal script that scans the repository for `AGENTS.md` and agent-related files and writes their names, relative paths, full paths, and sizes into a text report file.
