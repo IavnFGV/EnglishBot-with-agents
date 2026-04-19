@@ -13,3 +13,14 @@ Project rules:
 - Reject overengineering and future-proofing.
 - Keep changes minimal and local.
 - Use tests as specification.
+
+## Devcontainer rules
+
+For development environment tasks:
+- Share Codex config between host and container via ~/.codex bind mount
+- Preserve pip cache across rebuilds
+- Preserve SSH access via readonly ~/.ssh mount when needed
+- Install useful VS Code extensions automatically
+- Prefer practical minimalism, not extreme minimalism
+- Do not add optional AI services by default
+- Do not add permission-fix scripts unless a real permission problem exists
