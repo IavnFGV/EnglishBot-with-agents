@@ -1,0 +1,57 @@
+Task: implement a minimal working Telegram bot that can run locally and inside a devcontainer.
+
+Context:
+- Python project
+- Use python-telegram-bot >= 20
+- This is the initial foundation of a larger project (EnglishBot)
+- The goal is to get a working bot as fast as possible
+
+Requirements:
+
+## Bot functionality
+- Use long polling (no webhook)
+- Handle /start command
+- Reply with "Привет"
+- Add basic logging (INFO level)
+- Add basic error handling (log exceptions in handlers)
+
+## Configuration
+- Read TELEGRAM_BOT_TOKEN from environment variables
+- Support loading variables from .env file
+- Fail with clear error if token is missing
+
+## Project structure
+Create minimal structure:
+
+englishbot/
+  __init__.py
+  __main__.py
+  config.py
+  bot.py
+
+## Implementation rules
+- Keep code minimal
+- No unnecessary abstractions
+- No classes unless absolutely needed
+- No frameworks
+- No overengineering
+- Use async API from python-telegram-bot
+
+## Devcontainer compatibility
+- The code must work inside devcontainer
+- No OS-specific hacks
+- No external services required
+
+## Deliver:
+1. Full file structure
+2. Full code for all files
+3. Example .env file
+4. Exact commands to run locally
+5. Exact commands to run inside devcontainer
+6. What to expect when running (how to test in Telegram)
+
+## Extra
+- Do NOT add Dockerfile or deployment logic yet
+- Do NOT add database or persistence
+- Do NOT add nginx or web server
+- Keep everything максимально простым
