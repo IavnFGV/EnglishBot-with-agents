@@ -1,5 +1,10 @@
 import sqlite3
 
+from .basic_topics_seed import (
+    get_basic_topic_group,
+    list_basic_topic_groups,
+    resolve_basic_topic_learning_item_ids,
+)
 from .db import get_connection, utc_now
 from .teacher_student import ROLE_TEACHER, get_teacher_link
 from .user_profiles import get_user_role
@@ -9,6 +14,7 @@ from .training import create_training_session_for_learning_items
 
 ACTIVE_STATUS = "active"
 COMPLETED_STATUS = "completed"
+DEFAULT_ASSIGNMENT_TITLE = "Домашка"
 
 
 class HomeworkError(Exception):
@@ -31,6 +37,10 @@ class LearningItemNotFoundError(HomeworkError):
     pass
 
 
+class AssignmentGroupNotFoundError(HomeworkError):
+    pass
+
+
 class AssignmentNotFoundError(HomeworkError):
     pass
 
@@ -39,6 +49,7 @@ def create_assignment(
     teacher_user_id: int,
     student_user_id: int,
     learning_item_ids: list[int],
+    title: str | None = None,
 ) -> dict[str, object]:
     if get_user_role(teacher_user_id) != ROLE_TEACHER:
         raise TeacherRoleRequiredError
@@ -50,6 +61,7 @@ def create_assignment(
     normalized_learning_item_ids = [int(learning_item_id) for learning_item_id in learning_item_ids]
     if not normalized_learning_item_ids:
         raise EmptyAssignmentError
+    stored_title = title.strip() if title is not None and title.strip() else DEFAULT_ASSIGNMENT_TITLE
 
     for learning_item_id in normalized_learning_item_ids:
         if get_learning_item(learning_item_id) is None:
@@ -62,15 +74,17 @@ def create_assignment(
             INSERT INTO assignments (
                 teacher_user_id,
                 student_user_id,
+                title,
                 status,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 teacher_user_id,
                 student_user_id,
+                stored_title,
                 ACTIVE_STATUS,
                 timestamp,
                 timestamp,
@@ -91,12 +105,35 @@ def create_assignment(
     return {
         "assignment_id": assignment_id,
         "student_user_id": student_user_id,
+        "title": stored_title,
         "learning_item_ids": normalized_learning_item_ids,
         "notification": {
             "student_user_id": student_user_id,
-            "text": "Вам назначено новое задание",
+            "text": f"Вам назначено новое задание: {stored_title}",
         },
     }
+
+
+def list_assignable_groups() -> list[dict[str, object]]:
+    return list_basic_topic_groups()
+
+
+def create_assignment_from_group(
+    teacher_user_id: int,
+    student_user_id: int,
+    group_name: str,
+) -> dict[str, object]:
+    group = get_basic_topic_group(group_name)
+    learning_item_ids = resolve_basic_topic_learning_item_ids(group_name)
+    if group is None or not learning_item_ids:
+        raise AssignmentGroupNotFoundError
+
+    return create_assignment(
+        teacher_user_id,
+        student_user_id,
+        learning_item_ids,
+        title=str(group["title"]),
+    )
 
 
 def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
@@ -107,6 +144,7 @@ def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
                 assignments.id,
                 assignments.teacher_user_id,
                 assignments.student_user_id,
+                assignments.title,
                 assignments.status,
                 assignments.created_at,
                 assignments.updated_at,
@@ -132,6 +170,7 @@ def get_assignment(assignment_id: int) -> sqlite3.Row | None:
                 id,
                 teacher_user_id,
                 student_user_id,
+                title,
                 status,
                 created_at,
                 updated_at,
@@ -177,11 +216,13 @@ def start_assignment_training_session(
     if not learning_item_ids:
         raise EmptyAssignmentError
 
-    return create_training_session_for_learning_items(
+    result = create_training_session_for_learning_items(
         student_user_id,
         learning_item_ids,
         assignment_id=assignment_id,
     )
+    result["assignment_title"] = assignment["title"]
+    return result
 
 
 def mark_assignment_completed(assignment_id: int) -> None:

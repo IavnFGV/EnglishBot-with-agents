@@ -29,7 +29,7 @@ def build_assignments_keyboard(assignments: list[dict[str, object]]) -> InlineKe
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=f"Задание #{assignment['id']}",
+                    text=str(assignment["title"] or f"Задание #{assignment['id']}"),
                     callback_data=f"{HOMEWORK_START_PREFIX}{assignment['id']}",
                 )
             ]
@@ -95,8 +95,9 @@ async def start_homework(callback: CallbackQuery) -> None:
         await callback.message.answer("Не удалось начать домашку.")
         return
 
+    assignment_title = str(result.get("assignment_title") or "Домашка")
     await callback.message.answer(
-        f"Домашка началась.\n"
+        f"Домашка «{assignment_title}» началась.\n"
         f"Вопрос {question['question_number']}/{question['total_questions']}: "
         f"{question['prompt']}"
     )

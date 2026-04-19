@@ -44,3 +44,17 @@ def test_set_user_role_updates_profile_without_touching_telegram_user_row(tmp_pa
     assert telegram_user is not None
     assert "role" not in telegram_user.keys()
     assert get_user_role(user.id) == "teacher"
+
+
+def test_save_interaction_creates_stub_user_for_new_telegram_user_id(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+
+    db.save_interaction(999001, "in", "text", "hello")
+
+    profile = get_user_profile(999001)
+    telegram_user = db.get_user(999001)
+    assert profile is not None
+    assert profile["role"] == "student"
+    assert telegram_user is not None
+    assert telegram_user["telegram_user_id"] == 999001
+    assert telegram_user["username"] is None

@@ -8,9 +8,11 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.basic_topics_seed import seed_basic_topics
 from englishbot.homework import (
     StudentLinkRequiredError,
     create_assignment,
+    create_assignment_from_group,
     get_assignment_learning_item_ids,
     list_active_assignments,
     start_assignment_training_session,
@@ -86,14 +88,16 @@ def test_create_assignment_persists_header_and_item_order(tmp_path: Path) -> Non
 
     assignments = list_active_assignments(student.id)
     assert result["assignment_id"] == assignments[0]["id"]
+    assert assignments[0]["title"] == "Домашка"
     assert assignments[0]["item_count"] == 2
     assert get_assignment_learning_item_ids(result["assignment_id"]) == [
         learning_item_ids[1],
         learning_item_ids[0],
     ]
+    assert result["title"] == "Домашка"
     assert result["notification"] == {
         "student_user_id": student.id,
-        "text": "Вам назначено новое задание",
+        "text": "Вам назначено новое задание: Домашка",
     }
 
 
@@ -120,6 +124,21 @@ def test_student_has_active_homework_tracks_active_assignments(tmp_path: Path) -
     create_assignment(teacher.id, student.id, learning_item_ids[:1])
 
     assert student_has_active_homework(student.id) is True
+
+
+def test_create_assignment_from_group_uses_named_seeded_pack(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    seed_basic_topics()
+
+    result = create_assignment_from_group(teacher.id, student.id, "weekdays")
+
+    assignments = list_active_assignments(student.id)
+    assert result["title"] == "Дни недели"
+    assert assignments[0]["title"] == "Дни недели"
+    assert assignments[0]["item_count"] == 7
+    assert len(get_assignment_learning_item_ids(int(result["assignment_id"]))) == 7
+    assert result["notification"]["text"] == "Вам назначено новое задание: Дни недели"
 
 
 def test_start_assignment_training_session_uses_assigned_items_and_completes_assignment(

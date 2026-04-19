@@ -1,0 +1,71 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Implement the next minimal product step from the handoff: make homework assignments meaningful and usable without requiring raw learning_item ids.
+
+Context:
+The project already has:
+- teacher-student invite/link MVP
+- vocabulary persistence
+- seeded starter packs (`weekdays`, `months`, `colors`)
+- minimal /learn flow
+- homework-first /start flow
+- teacher assignment by explicit learning_item ids
+- student homework launch from assigned items
+
+Problem:
+Assignments currently require raw learning_item ids, which is too technical and not a usable product flow.
+We need the smallest possible improvement aligned with the handoff: teacher should assign meaningful content groups, not manual id lists.
+
+Feature:
+Minimal named content-group assignment MVP
+
+Scope:
+1. Reuse existing seeded starter packs / grouped content as assignable named groups.
+2. Add the minimum persistence/read helpers needed to:
+   - list available named groups
+   - resolve a group name to its learning_items
+3. Extend teacher assignment flow so a teacher can assign a named group to a linked student.
+4. Store assignment title/name so the student sees meaningful homework labels.
+5. Keep existing assignment-by-item-id support only if already present, but do not make it the primary UX path.
+6. Student homework UI should show assignment names, not only anonymous homework entries.
+
+Out of scope:
+- full topic/lesson model
+- complex authoring UI
+- FSM
+- multiple homework types
+- combo logic
+- asset playback
+- analytics
+- billing
+- deep links
+
+Architecture constraints:
+- Keep business logic outside Telegram handlers
+- Do not turn bot.py into a catch-all
+- Reuse existing seed/grouping logic if possible
+- Introduce new modules only if the responsibility is genuinely new
+- Keep the change minimal and product-focused
+
+Testing requirements:
+- tests for listing/resolving named groups
+- tests for assignment creation from a named group
+- tests that student-visible homework includes assignment title/name
+- thin handler tests where practical
+
+Workflow:
+1. architect: propose the smallest design aligned with the handoff
+2. complexity_guard: reject overengineering and unnecessary new abstractions
+3. coder: implement only the approved minimal plan with tests
+4. complexity_guard: verify structure, scope, and test coverage
+
+Definition of done:
+- teacher can assign a named content group instead of raw item ids
+- student sees meaningful homework names
+- existing homework flow continues to work
+- tests cover persistence and core behavior
+- CHANGELOG.md and context/current_state.md are updated

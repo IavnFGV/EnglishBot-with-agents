@@ -5,7 +5,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.basic_topics_seed import BASIC_TOPICS, seed_basic_topics
+from englishbot.basic_topics_seed import (
+    BASIC_TOPICS,
+    list_basic_topic_groups,
+    resolve_basic_topic_learning_item_ids,
+    seed_basic_topics,
+)
 
 
 def setup_db(tmp_path: Path) -> None:
@@ -84,3 +89,57 @@ def test_seed_basic_topics_is_idempotent(tmp_path: Path) -> None:
         assert connection.execute(
             "SELECT COUNT(*) FROM learning_item_translations"
         ).fetchone()[0] == (expected_item_count * 3)
+
+
+def test_list_basic_topic_groups_returns_named_seeded_packs(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+
+    groups = list_basic_topic_groups()
+
+    assert groups == [
+        {"name": "weekdays", "title": "Дни недели", "item_count": 7},
+        {"name": "months", "title": "Месяцы", "item_count": 6},
+        {"name": "colors", "title": "Цвета", "item_count": 6},
+    ]
+
+
+def test_resolve_basic_topic_learning_item_ids_uses_seeded_learning_items(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    seed_basic_topics()
+
+    learning_item_ids = resolve_basic_topic_learning_item_ids("weekdays")
+
+    assert len(learning_item_ids) == 7
+    with sqlite3.connect(db.DB_PATH) as connection:
+        lemmas = [
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT lexemes.lemma
+                FROM learning_items
+                JOIN lexemes
+                  ON lexemes.id = learning_items.lexeme_id
+                WHERE learning_items.id IN (?, ?, ?, ?, ?, ?, ?)
+                ORDER BY CASE learning_items.id
+                    WHEN ? THEN 0
+                    WHEN ? THEN 1
+                    WHEN ? THEN 2
+                    WHEN ? THEN 3
+                    WHEN ? THEN 4
+                    WHEN ? THEN 5
+                    WHEN ? THEN 6
+                END
+                """,
+                tuple(learning_item_ids + learning_item_ids),
+            ).fetchall()
+        ]
+
+    assert lemmas == [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    ]

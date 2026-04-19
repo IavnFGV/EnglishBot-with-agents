@@ -4,6 +4,7 @@ from .db import get_connection, init_db, utc_now
 BASIC_TOPICS: tuple[dict[str, object], ...] = (
     {
         "topic": "weekdays",
+        "title": "Дни недели",
         "items": (
             {"lemma": "monday", "ru": "понедельник", "uk": "понеділок", "bg": "понеделник"},
             {"lemma": "tuesday", "ru": "вторник", "uk": "вівторок", "bg": "вторник"},
@@ -16,6 +17,7 @@ BASIC_TOPICS: tuple[dict[str, object], ...] = (
     },
     {
         "topic": "months",
+        "title": "Месяцы",
         "items": (
             {"lemma": "january", "ru": "январь", "uk": "січень", "bg": "януари"},
             {"lemma": "february", "ru": "февраль", "uk": "лютий", "bg": "февруари"},
@@ -27,6 +29,7 @@ BASIC_TOPICS: tuple[dict[str, object], ...] = (
     },
     {
         "topic": "colors",
+        "title": "Цвета",
         "items": (
             {"lemma": "red", "ru": "красный", "uk": "червоний", "bg": "червен"},
             {"lemma": "blue", "ru": "синий", "uk": "синій", "bg": "син"},
@@ -37,6 +40,54 @@ BASIC_TOPICS: tuple[dict[str, object], ...] = (
         ),
     },
 )
+
+
+def list_basic_topic_groups() -> list[dict[str, object]]:
+    return [
+        {
+            "name": str(topic["topic"]),
+            "title": str(topic["title"]),
+            "item_count": len(topic["items"]),
+        }
+        for topic in BASIC_TOPICS
+    ]
+
+
+def get_basic_topic_group(topic_name: str) -> dict[str, object] | None:
+    normalized_topic_name = topic_name.strip().casefold()
+    for topic in BASIC_TOPICS:
+        if str(topic["topic"]).casefold() == normalized_topic_name:
+            return topic
+    return None
+
+
+def resolve_basic_topic_learning_item_ids(topic_name: str) -> list[int]:
+    topic = get_basic_topic_group(topic_name)
+    if topic is None:
+        return []
+
+    lemmas = [str(item["lemma"]) for item in topic["items"]]
+    placeholders = ", ".join("?" for _ in lemmas)
+    with get_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT lexemes.lemma, learning_items.id
+            FROM learning_items
+            JOIN lexemes
+              ON lexemes.id = learning_items.lexeme_id
+            WHERE lexemes.lemma IN ({placeholders})
+            """,
+            tuple(lemmas),
+        ).fetchall()
+
+    learning_item_ids_by_lemma = {
+        str(row["lemma"]): int(row["id"])
+        for row in rows
+    }
+    if any(lemma not in learning_item_ids_by_lemma for lemma in lemmas):
+        return []
+
+    return [learning_item_ids_by_lemma[lemma] for lemma in lemmas]
 
 
 def seed_basic_topics() -> dict[str, int]:

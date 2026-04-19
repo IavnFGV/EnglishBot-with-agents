@@ -8,6 +8,7 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.basic_topics_seed import seed_basic_topics
 from englishbot.teacher_handlers import assign, invite, join
 from englishbot.teacher_student import get_invite, get_teacher_link
 from englishbot.user_profiles import get_user_role, set_user_role
@@ -183,6 +184,30 @@ def test_assign_handler_creates_assignment_and_notifies_student(tmp_path: Path) 
     setup_db(tmp_path)
     teacher = make_user(213, "Teacher")
     student = make_user(214, "Student")
+    db.save_user(teacher)
+    db.save_user(student)
+    set_user_role(teacher.id, "teacher")
+    seed_basic_topics()
+
+    invite_message = FakeMessage(teacher)
+    asyncio.run(invite(invite_message))
+    code = invite_message.answers[0].split(": ", 1)[1]
+    asyncio.run(join(FakeMessage(student), SimpleNamespace(args=code)))
+
+    assign_message = FakeMessage(teacher)
+    asyncio.run(assign(assign_message, SimpleNamespace(args=f"{student.id} weekdays")))
+
+    assert assign_message.answers == ["Задание создано. assignment_id: 1. Название: Дни недели"]
+    assert assign_message.bot.sent_messages[0]["chat_id"] == student.id
+    assert assign_message.bot.sent_messages[0]["text"] == "Вам назначено новое задание: Дни недели"
+    reply_markup = assign_message.bot.sent_messages[0]["kwargs"]["reply_markup"]
+    assert reply_markup.inline_keyboard[0][0].text == "Домашка"
+
+
+def test_assign_handler_keeps_legacy_learning_item_id_support(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher = make_user(217, "Teacher")
+    student = make_user(218, "Student")
     learning_item_id = seed_learning_item()
     db.save_user(teacher)
     db.save_user(student)
@@ -196,11 +221,8 @@ def test_assign_handler_creates_assignment_and_notifies_student(tmp_path: Path) 
     assign_message = FakeMessage(teacher)
     asyncio.run(assign(assign_message, SimpleNamespace(args=f"{student.id} {learning_item_id}")))
 
-    assert assign_message.answers == ["Задание создано. assignment_id: 1"]
-    assert assign_message.bot.sent_messages[0]["chat_id"] == student.id
-    assert assign_message.bot.sent_messages[0]["text"] == "Вам назначено новое задание"
-    reply_markup = assign_message.bot.sent_messages[0]["kwargs"]["reply_markup"]
-    assert reply_markup.inline_keyboard[0][0].text == "Домашка"
+    assert assign_message.answers == ["Задание создано. assignment_id: 1. Название: Домашка"]
+    assert assign_message.bot.sent_messages[0]["text"] == "Вам назначено новое задание: Домашка"
 
 
 def test_assign_handler_rejects_unlinked_student(tmp_path: Path) -> None:

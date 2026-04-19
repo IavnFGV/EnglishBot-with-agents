@@ -266,6 +266,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 teacher_user_id INTEGER NOT NULL,
                 student_user_id INTEGER NOT NULL,
+                title TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -281,6 +282,13 @@ def init_db() -> None:
                 """
                 ALTER TABLE assignments
                 ADD COLUMN completed_at TEXT
+                """
+            )
+        if "title" not in assignment_columns:
+            connection.execute(
+                """
+                ALTER TABLE assignments
+                ADD COLUMN title TEXT
                 """
             )
         connection.execute(
@@ -353,12 +361,44 @@ def save_user(user: User) -> None:
         )
 
 
+def ensure_user_exists(telegram_user_id: int) -> None:
+    timestamp = utc_now()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO users (
+                telegram_user_id,
+                username,
+                first_name,
+                last_name,
+                created_at,
+                updated_at
+            )
+            VALUES (?, NULL, NULL, NULL, ?, ?)
+            """,
+            (telegram_user_id, timestamp, timestamp),
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO user_profiles (
+                telegram_user_id,
+                role,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (telegram_user_id, DEFAULT_USER_ROLE, timestamp, timestamp),
+        )
+
+
 def save_interaction(
     telegram_user_id: int,
     direction: str,
     interaction_type: str,
     content: str,
 ) -> None:
+    ensure_user_exists(telegram_user_id)
     with get_connection() as connection:
         connection.execute(
             """

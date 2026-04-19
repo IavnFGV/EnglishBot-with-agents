@@ -7,6 +7,10 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.basic_topics_seed import (
+    resolve_basic_topic_learning_item_ids,
+    seed_basic_topics,
+)
 from englishbot.homework import create_assignment
 from englishbot.homework_handlers import (
     HOMEWORK_OPEN_CALLBACK,
@@ -101,7 +105,7 @@ def test_open_homework_lists_active_assignments(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
     learning_item_id = seed_learning_item()
-    assignment = create_assignment(teacher.id, student.id, [learning_item_id])
+    assignment = create_assignment(teacher.id, student.id, [learning_item_id], title="Фрукты")
     callback_message = FakeMessage(student)
     callback = FakeCallback(student, HOMEWORK_OPEN_CALLBACK, callback_message)
 
@@ -110,14 +114,20 @@ def test_open_homework_lists_active_assignments(tmp_path: Path) -> None:
     assert callback.answered is True
     assert callback_message.answers[0]["text"] == "Ваши задания:"
     keyboard = callback_message.answers[0]["kwargs"]["reply_markup"]
-    assert keyboard.inline_keyboard[0][0].text == f"Задание #{assignment['assignment_id']}"
+    assert keyboard.inline_keyboard[0][0].text == assignment["title"]
 
 
 def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
-    learning_item_id = seed_learning_item()
-    assignment = create_assignment(teacher.id, student.id, [learning_item_id])
+    seed_basic_topics()
+    learning_item_id = resolve_basic_topic_learning_item_ids("weekdays")[0]
+    assignment = create_assignment(
+        teacher.id,
+        student.id,
+        [learning_item_id],
+        title="Тестовая домашка",
+    )
     callback_message = FakeMessage(student)
     callback = FakeCallback(
         student,
@@ -129,7 +139,7 @@ def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
 
     assert callback.answered is True
     assert callback_message.answers == [
-        {"text": "Домашка началась.\nВопрос 1/1: яблоко", "kwargs": {}}
+        {"text": "Домашка «Тестовая домашка» началась.\nВопрос 1/1: понедельник", "kwargs": {}}
     ]
 
 

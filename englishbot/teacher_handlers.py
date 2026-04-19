@@ -3,11 +3,14 @@ from aiogram.types import Message
 
 from .db import save_user
 from .homework import (
+    AssignmentGroupNotFoundError,
     EmptyAssignmentError,
     LearningItemNotFoundError,
     StudentLinkRequiredError,
     TeacherRoleRequiredError as HomeworkTeacherRoleRequiredError,
     create_assignment,
+    create_assignment_from_group,
+    list_assignable_groups,
 )
 from .homework_handlers import build_homework_button
 from .runtime import router
@@ -19,6 +22,18 @@ from .teacher_student import (
     create_invite,
     join_with_invite,
 )
+
+
+def _build_assign_usage_message() -> str:
+    groups = ", ".join(
+        f"{group['name']} ({group['title']})"
+        for group in list_assignable_groups()
+    )
+    return (
+        "Использование: /assign <student_user_id> <group_name>\n"
+        "Или: /assign <student_user_id> <learning_item_id,learning_item_id,...>\n"
+        f"Доступные группы: {groups}"
+    )
 
 
 @router.message(Command("invite"))
@@ -70,27 +85,40 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
     save_user(message.from_user)
     raw_args = (command.args if command is not None and command.args is not None else "").strip()
     if not raw_args:
-        await message.answer("Использование: /assign <student_user_id> <learning_item_id,learning_item_id,...>")
+        await message.answer(_build_assign_usage_message())
         return
 
     parts = raw_args.split(maxsplit=1)
     if len(parts) != 2:
-        await message.answer("Использование: /assign <student_user_id> <learning_item_id,learning_item_id,...>")
+        await message.answer(_build_assign_usage_message())
         return
 
     try:
         student_user_id = int(parts[0])
-        learning_item_ids = [
-            int(item_id.strip())
-            for item_id in parts[1].split(",")
-            if item_id.strip()
-        ]
     except ValueError:
-        await message.answer("Использование: /assign <student_user_id> <learning_item_id,learning_item_id,...>")
+        await message.answer(_build_assign_usage_message())
         return
 
+    assignment_target = parts[1].strip()
+    raw_learning_item_ids = [
+        item_id.strip()
+        for item_id in assignment_target.split(",")
+        if item_id.strip()
+    ]
+
     try:
-        result = create_assignment(message.from_user.id, student_user_id, learning_item_ids)
+        if raw_learning_item_ids and all(item_id.isdigit() for item_id in raw_learning_item_ids):
+            result = create_assignment(
+                message.from_user.id,
+                student_user_id,
+                [int(item_id) for item_id in raw_learning_item_ids],
+            )
+        else:
+            result = create_assignment_from_group(
+                message.from_user.id,
+                student_user_id,
+                assignment_target,
+            )
     except HomeworkTeacherRoleRequiredError:
         await message.answer("Команда /assign доступна только пользователю с ролью teacher.")
         return
@@ -103,8 +131,14 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
     except LearningItemNotFoundError:
         await message.answer("Один из learning_item_id не найден.")
         return
+    except AssignmentGroupNotFoundError:
+        await message.answer(_build_assign_usage_message())
+        return
 
-    await message.answer(f"Задание создано. assignment_id: {result['assignment_id']}")
+    await message.answer(
+        f"Задание создано. assignment_id: {result['assignment_id']}. "
+        f"Название: {result['title']}"
+    )
     await message.bot.send_message(
         chat_id=int(result["notification"]["student_user_id"]),
         text=str(result["notification"]["text"]),
