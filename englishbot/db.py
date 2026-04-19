@@ -216,16 +216,26 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS training_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 telegram_user_id INTEGER NOT NULL,
+                assignment_id INTEGER,
                 current_index INTEGER NOT NULL DEFAULT 0,
                 correct_answers INTEGER NOT NULL DEFAULT 0,
                 total_questions INTEGER NOT NULL,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id)
+                FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id),
+                FOREIGN KEY (assignment_id) REFERENCES assignments (id)
             )
             """
         )
+        training_session_columns = get_table_columns(connection, "training_sessions")
+        if "assignment_id" not in training_session_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_sessions
+                ADD COLUMN assignment_id INTEGER
+                """
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS training_session_items (
@@ -248,6 +258,53 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_training_session_items_session_order
             ON training_session_items (session_id, item_order)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_user_id INTEGER NOT NULL,
+                student_user_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY (teacher_user_id) REFERENCES users (telegram_user_id),
+                FOREIGN KEY (student_user_id) REFERENCES users (telegram_user_id)
+            )
+            """
+        )
+        assignment_columns = get_table_columns(connection, "assignments")
+        if "completed_at" not in assignment_columns:
+            connection.execute(
+                """
+                ALTER TABLE assignments
+                ADD COLUMN completed_at TEXT
+                """
+            )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS assignment_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                assignment_id INTEGER NOT NULL,
+                learning_item_id INTEGER NOT NULL,
+                item_order INTEGER NOT NULL,
+                FOREIGN KEY (assignment_id) REFERENCES assignments (id),
+                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_assignments_student_status
+            ON assignments (student_user_id, status)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_assignment_items_assignment_order
+            ON assignment_items (assignment_id, item_order)
             """
         )
         connection.execute("DROP TABLE IF EXISTS messages")

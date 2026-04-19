@@ -25,6 +25,17 @@ def create_training_session(
     if not learning_item_ids:
         raise NoLearningItemsError
 
+    return create_training_session_for_learning_items(telegram_user_id, learning_item_ids)
+
+
+def create_training_session_for_learning_items(
+    telegram_user_id: int,
+    learning_item_ids: list[int],
+    assignment_id: int | None = None,
+) -> dict[str, object]:
+    if not learning_item_ids:
+        raise NoLearningItemsError
+
     timestamp = utc_now()
     with get_connection() as connection:
         connection.execute(
@@ -39,6 +50,7 @@ def create_training_session(
             """
             INSERT INTO training_sessions (
                 telegram_user_id,
+                assignment_id,
                 current_index,
                 correct_answers,
                 total_questions,
@@ -46,10 +58,11 @@ def create_training_session(
                 created_at,
                 updated_at
             )
-            VALUES (?, 0, 0, ?, ?, ?, ?)
+            VALUES (?, ?, 0, 0, ?, ?, ?, ?)
             """,
             (
                 telegram_user_id,
+                assignment_id,
                 len(learning_item_ids),
                 ACTIVE_STATUS,
                 timestamp,
@@ -83,6 +96,7 @@ def get_active_training_session(telegram_user_id: int) -> sqlite3.Row | None:
             SELECT
                 id,
                 telegram_user_id,
+                assignment_id,
                 current_index,
                 correct_answers,
                 total_questions,
@@ -172,6 +186,10 @@ def submit_training_answer(
         "total_questions": session["total_questions"],
     }
     if is_completed:
+        if session["assignment_id"] is not None:
+            from .homework import mark_assignment_completed
+
+            mark_assignment_completed(int(session["assignment_id"]))
         result["summary"] = {
             "total_questions": session["total_questions"],
             "correct_answers": updated_correct_answers,

@@ -1,29 +1,18 @@
 import logging
 
 from aiogram import F
-from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, ErrorEvent, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.filters import Command
+from aiogram.types import ErrorEvent, Message
 
-from .db import count_text_interactions, get_user, init_db, save_user
+from .db import count_text_interactions, get_user, init_db
 from .runtime import build_bot, dispatcher, router
 from .user_profiles import get_user_role
+from . import homework_handlers  # noqa: F401
 from . import teacher_handlers  # noqa: F401
 from . import training_handlers  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
-start_keyboard = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [InlineKeyboardButton(text="Нажми меня", callback_data="press_me")]
-    ]
-)
-
-
-@router.message(CommandStart())
-async def start(message: Message) -> None:
-    if message.from_user is not None:
-        save_user(message.from_user)
-    await message.answer("Привет", reply_markup=start_keyboard)
 
 
 @router.message(Command("me"))
@@ -45,13 +34,6 @@ async def me(message: Message) -> None:
         f"role: {get_user_role(message.from_user.id)}\n"
         f"saved_text_messages: {message_count}"
     )
-
-
-@router.callback_query(lambda callback: callback.data == "press_me")
-async def press_me(callback: CallbackQuery) -> None:
-    await callback.answer()
-    if callback.message is not None:
-        await callback.message.answer("Кнопка нажата")
 
 
 @router.message(F.text)

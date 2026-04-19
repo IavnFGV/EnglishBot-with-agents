@@ -1,0 +1,82 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Shift the product flow from command-driven training to homework-first student UX, aligned with the handoff.
+
+Context:
+The project already has:
+- Telegram bot foundation
+- teacher-student invite/link MVP
+- vocabulary persistence
+- minimal /learn training session
+
+New product direction:
+The main student entry point should not be /learn.
+The bot is for studying, so after /start the student should immediately see the main action based on assigned homework.
+If a teacher assigns homework, the student should receive a notification.
+
+Feature:
+Minimal Homework-First Entry MVP
+
+Scope:
+1. Add minimal assignment/homework persistence:
+   - teacher can assign a fixed set of learning_items to one linked student
+2. After /start:
+   - if the student has active assignments, show a main inline button: "Домашка"
+   - if there is no active assignment, show a simple "no homework yet" message
+   - optional: keep /learn as fallback, but do not make it the main UX path
+3. Add minimal student homework flow:
+   - button "Домашка" opens available assignments
+   - student can start one assignment
+   - existing training session logic should be reused for assigned learning_items
+4. When a teacher creates a new assignment:
+   - send a Telegram notification to the student:
+     "Вам назначено новое задание"
+   - include a simple action button if practical
+5. Keep everything minimal and local.
+
+Out of scope:
+- multiple homework types
+- combo logic
+- level progression
+- visual progress track
+- admin dashboards
+- topic/lesson management UI
+- FSM
+- deep links
+- asset playback
+- analytics expansion
+- billing
+
+Architecture constraints:
+- Keep business logic outside Telegram handlers
+- Do not turn bot.py into a catch-all
+- Reuse existing training logic where possible
+- Add focused modules only for genuinely new responsibilities
+- Keep /learn available only as secondary fallback if already present
+
+Testing requirements:
+- persistence tests for assignments
+- business logic tests for student-visible active homework
+- tests for /start behavior with and without homework
+- tests for starting homework from assigned content
+- handler-level tests where practical
+- notification behavior should be covered at least at the service level
+
+Workflow:
+1. architect: propose the smallest design aligned with the handoff and homework-first UX
+2. complexity_guard: reject overengineering and command-centric UX drift
+3. coder: implement only the approved minimal plan with tests
+4. complexity_guard: verify scope, structure, and test coverage
+
+Definition of done:
+- /start shows homework-first entry when homework exists
+- teacher can assign content to a linked student
+- student can open and start assigned homework
+- student receives notification about new homework
+- /learn is no longer the main UX path
+- tests cover persistence and core flow
+- CHANGELOG.md and context/current_state.md are updated

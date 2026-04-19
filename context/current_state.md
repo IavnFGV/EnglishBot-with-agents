@@ -3,26 +3,24 @@
 - Repository currently contains a minimal runnable Telegram bot foundation at `englishbot/`.
 - Entry point is `python -m englishbot`.
 - Runtime uses long polling with `aiogram 3.x`.
-- `/start` replies with `Привет` and upserts the Telegram user into SQLite.
-- `/start` also includes one inline button labeled `Нажми меня`.
-- Pressing the inline button triggers a callback handler that replies with `Кнопка нажата`.
+- `/start` is now homework-first for students: it upserts the Telegram user into SQLite, shows a main inline button labeled `Домашка` when the student has active assignments, and otherwise replies that homework is not assigned yet while keeping `/learn` as a fallback.
 - Plain text messages are echoed back as `Ты написал: <text>` and are tracked only through the low-level `interactions` audit log.
 - `/me` shows the user's first name or username, the `telegram_user_id`, and the number of saved text messages.
 - `/me` also shows the user's stored `role`.
 - Configuration is read from `TELEGRAM_BOT_TOKEN`, with `.env` support via `python-dotenv`.
 - SQLite storage uses the stdlib `sqlite3` module with a local `englishbot.sqlite3` file by default, overridable through `ENGLISHBOT_DB_PATH`.
 - `requirements.txt` stays minimal but now includes both runtime packages (`aiogram`, `python-dotenv`) and the test dependency `pytest`; SQLite is not listed because it comes from the Python standard library.
-- SQLite schema is created automatically on startup and now bootstraps `users`, `user_profiles`, `interactions`, `invites`, `teacher_student_links`, `lexemes`, `learning_items`, and `learning_item_translations`.
+- SQLite schema is created automatically on startup and now bootstraps `users`, `user_profiles`, `interactions`, `invites`, `teacher_student_links`, `lexemes`, `learning_items`, `learning_item_translations`, `training_sessions`, `training_session_items`, `assignments`, and `assignment_items`.
 - Product-level user data is now separated from Telegram transport data: `users` stores Telegram identity fields, while `user_profiles` stores runtime profile fields such as `role`.
 - `interactions` is the low-level audit table for Telegram traffic and stores `telegram_user_id`, `direction` (`in` or `out`), `interaction_type`, `content`, and `created_at`.
 - Minimal vocabulary persistence is now present in SQLite: `lexemes` stores the headword, `learning_items` stores the main learning unit linked to a lexeme, and `learning_item_translations` stores multiple translations per learning item by language.
 - `learning_items` now supports nullable local asset references through `image_ref` and `audio_ref`, with a small startup migration that adds those columns if an older `learning_items` table already exists without them.
-- Minimal learner training is now present: `/learn` creates one active training session per user, stores a fixed ordered slice of up to 5 `learning_items`, asks one prompt at a time, validates plain-text answers against the lexeme headword, and ends with a short total/correct summary.
-- Training persistence now uses two SQLite tables: `training_sessions` for active/completed session state and `training_session_items` for the ordered `learning_item` ids inside a session.
+- Minimal learner training is now present: `/learn` still creates one active training session per user over a fixed ordered slice of up to 5 `learning_items`, asks one prompt at a time, validates plain-text answers against the lexeme headword, and ends with a short total/correct summary.
+- Training persistence now uses `training_sessions` for active/completed session state and `training_session_items` for the ordered `learning_item` ids inside a session; `training_sessions.assignment_id` is nullable so the same session flow can be reused for homework.
 - Training prompt selection is intentionally narrow: prefer a `ru` translation, then `uk`, then the first stored translation, and finally fall back to the lexeme headword when no translation exists.
 - SQLite connections now enable foreign key enforcement, so `learning_items.lexeme_id` and `learning_item_translations.learning_item_id` are validated at runtime instead of acting as soft references.
 - Vocabulary create/read persistence lives in `englishbot/vocabulary.py`; it intentionally exposes only the minimal helpers needed to create lexemes, learning items, translations, and read one learning item together with its translations.
-- Training business logic lives in `englishbot/training.py`, thin Telegram wrappers live in `englishbot/training_handlers.py`, and `englishbot/bot.py` still only wires handlers plus the fallback echo flow.
+- Homework business logic now lives in `englishbot/homework.py`; thin student homework Telegram wrappers live in `englishbot/homework_handlers.py`; `englishbot/training.py` is reused for both `/learn` and homework sessions; and `englishbot/bot.py` still only wires handlers plus `/me`, echo, and startup.
 - `/me` counts saved user text messages by counting `interactions` rows where `direction='in'` and `interaction_type='text'`.
 - Startup removes the old `messages` table if it exists, because it is no longer used.
 - Interaction logging is attached at the aiogram framework level instead of inside specific handlers: incoming updates go through a dispatcher update middleware, and outgoing Bot API requests go through session middleware.
@@ -31,9 +29,10 @@
 - Repository now includes a root `.gitignore` covering local env files, Python caches, virtual environments, logs, IDE files, and local SQLite databases.
 - Minimal teacher-student MVP flow is now present: `/invite` works only for users whose persisted role is `teacher`, generates a one-time invite code, and `/join <code>` lets an unlinked user consume that code once to create a teacher-student link.
 - A `teacher` can also consume their own invite code for self-testing/self-learning, creating a self-link while preserving the `teacher` role.
-- Teacher-student business rules live in `englishbot/teacher_student.py`; profile persistence lives in `englishbot/user_profiles.py`; thin Telegram command wrappers live in `englishbot/teacher_handlers.py`; `englishbot/bot.py` only imports those handlers for registration and extends `/me`.
+- Teachers now also have one minimal homework command: `/assign <student_user_id> <learning_item_id,learning_item_id,...>` creates a fixed assignment for one linked student and immediately sends the student `Вам назначено новое задание` with a `Домашка` button.
+- Teacher-student business rules live in `englishbot/teacher_student.py`; homework business rules live in `englishbot/homework.py`; profile persistence lives in `englishbot/user_profiles.py`; thin Telegram command wrappers live in `englishbot/teacher_handlers.py` and `englishbot/homework_handlers.py`; `englishbot/bot.py` only imports those handlers for registration and extends `/me`.
 - Repository now includes a small report utility: `export_ai_file_report.py` writes a text file with each discovered `AGENTS.md` or agent-related file name, relative path, full path, size, and full file contents; discovery logic lives in `englishbot/ai_file_report.py`.
-- Focused tests now live in `tests/test_user_profiles.py`, `tests/test_teacher_student.py`, `tests/test_teacher_handlers.py`, `tests/test_vocabulary.py`, `tests/test_training.py`, and `tests/test_training_handlers.py`.
-- Current constraints stay intentionally narrow: no FSM, no deep links, no middleware changes, no topic or lesson selection for training, no answer history persistence, no statistics beyond per-session counters, no asset playback, and no assignment logic.
+- Focused tests now live in `tests/test_user_profiles.py`, `tests/test_teacher_student.py`, `tests/test_teacher_handlers.py`, `tests/test_vocabulary.py`, `tests/test_training.py`, `tests/test_training_handlers.py`, `tests/test_homework.py`, and `tests/test_homework_handlers.py`.
+- Current constraints stay intentionally narrow: no FSM, no deep links, no middleware changes, no topic or lesson selection for training, no answer history persistence, no statistics beyond per-session counters, no asset playback, and only one minimal fixed-set homework type over assigned `learning_item` ids.
 - Focused tests now also cover training service behavior and thin `/learn` command flow without depending on Telegram runtime.
-- Changed files for the current slice: `englishbot/db.py`, `englishbot/bot.py`, `englishbot/vocabulary.py`, `englishbot/training.py`, `englishbot/training_handlers.py`, `tests/test_training.py`, `tests/test_training_handlers.py`, `CHANGELOG.md`, `context/current_state.md`.
+- Changed files for the current slice: `englishbot/db.py`, `englishbot/bot.py`, `englishbot/training.py`, `englishbot/training_handlers.py`, `englishbot/teacher_handlers.py`, `englishbot/homework.py`, `englishbot/homework_handlers.py`, `tests/test_homework.py`, `tests/test_homework_handlers.py`, `tests/test_teacher_handlers.py`, `CHANGELOG.md`, `context/current_state.md`.

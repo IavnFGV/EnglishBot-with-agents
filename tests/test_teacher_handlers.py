@@ -8,18 +8,30 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.teacher_handlers import invite, join
+from englishbot.teacher_handlers import assign, invite, join
 from englishbot.teacher_student import get_invite, get_teacher_link
 from englishbot.user_profiles import get_user_role, set_user_role
+from englishbot.vocabulary import create_learning_item, create_learning_item_translation, create_lexeme
 
 
 class FakeMessage:
     def __init__(self, user: User) -> None:
         self.from_user = user
         self.answers: list[str] = []
+        self.bot = FakeBot()
 
     async def answer(self, text: str, **_: object) -> None:
         self.answers.append(text)
+
+
+class FakeBot:
+    def __init__(self) -> None:
+        self.sent_messages: list[dict[str, object]] = []
+
+    async def send_message(self, chat_id: int, text: str, **kwargs: object) -> None:
+        self.sent_messages.append(
+            {"chat_id": chat_id, "text": text, "kwargs": kwargs}
+        )
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -29,6 +41,13 @@ def make_user(user_id: int, first_name: str) -> User:
 def setup_db(tmp_path: Path) -> None:
     db.DB_PATH = tmp_path / "teacher_handlers.sqlite3"
     db.init_db()
+
+
+def seed_learning_item() -> int:
+    lexeme_id = create_lexeme("apple")
+    learning_item_id = create_learning_item(lexeme_id, "apple")
+    create_learning_item_translation(learning_item_id, "ru", "яблоко")
+    return learning_item_id
 
 
 def test_invite_handler_rejects_non_teacher(tmp_path: Path) -> None:
@@ -158,3 +177,42 @@ def test_join_handler_allows_teacher_to_join_own_invite_for_testing(tmp_path: Pa
     assert link["teacher_user_id"] == teacher.id
     assert link["student_user_id"] == teacher.id
     assert teacher_role == "teacher"
+
+
+def test_assign_handler_creates_assignment_and_notifies_student(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher = make_user(213, "Teacher")
+    student = make_user(214, "Student")
+    learning_item_id = seed_learning_item()
+    db.save_user(teacher)
+    db.save_user(student)
+    set_user_role(teacher.id, "teacher")
+
+    invite_message = FakeMessage(teacher)
+    asyncio.run(invite(invite_message))
+    code = invite_message.answers[0].split(": ", 1)[1]
+    asyncio.run(join(FakeMessage(student), SimpleNamespace(args=code)))
+
+    assign_message = FakeMessage(teacher)
+    asyncio.run(assign(assign_message, SimpleNamespace(args=f"{student.id} {learning_item_id}")))
+
+    assert assign_message.answers == ["Задание создано. assignment_id: 1"]
+    assert assign_message.bot.sent_messages[0]["chat_id"] == student.id
+    assert assign_message.bot.sent_messages[0]["text"] == "Вам назначено новое задание"
+    reply_markup = assign_message.bot.sent_messages[0]["kwargs"]["reply_markup"]
+    assert reply_markup.inline_keyboard[0][0].text == "Домашка"
+
+
+def test_assign_handler_rejects_unlinked_student(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher = make_user(215, "Teacher")
+    student = make_user(216, "Student")
+    learning_item_id = seed_learning_item()
+    db.save_user(teacher)
+    db.save_user(student)
+    set_user_role(teacher.id, "teacher")
+    message = FakeMessage(teacher)
+
+    asyncio.run(assign(message, SimpleNamespace(args=f"{student.id} {learning_item_id}")))
+
+    assert message.answers == ["Этот ученик не привязан к вашему teacher-профилю."]

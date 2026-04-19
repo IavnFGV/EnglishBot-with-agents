@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-04-19
+- Shifted the student UX to homework-first: `/start` now shows a main `Домашка` entry when active assignments exist, otherwise a simple no-homework message, while `/learn` stays available only as a fallback command.
+- Added minimal homework persistence and flow: SQLite now stores `assignments` plus ordered `assignment_items`, teachers can create fixed `learning_item` assignments for linked students via `/assign`, students can open and start assigned homework from inline buttons, and finishing an assignment marks it completed.
+- Added student homework notifications for new assignments and focused tests covering assignment persistence, active-homework visibility, homework-first `/start`, homework launch from assigned content, teacher assignment handling, and notification delivery.
 - Added a minimal `/learn` training session MVP over stored vocabulary: SQLite now persists `training_sessions` and ordered `training_session_items`, the bot asks one prompt at a time from translations with lexeme fallback, validates plain-text answers case-insensitively, and finishes with a short summary.
 - Added focused training tests covering session creation, ordered item selection, question retrieval, correct and incorrect answer handling, session completion, and thin non-runtime handler coverage for `/learn`.
 - Added minimal SQLite vocabulary persistence for `lexemes`, `learning_items`, and multilingual `learning_item_translations`, including nullable `image_ref` and `audio_ref` fields, enforced SQLite foreign keys, and focused create/read tests for schema, migration, integrity, and content readback.
