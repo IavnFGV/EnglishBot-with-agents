@@ -1,41 +1,47 @@
 import logging
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from aiogram import Bot, Dispatcher, Router
+from aiogram.filters import CommandStart
+from aiogram.types import ErrorEvent, Message
 
 from .config import load_config
 
 
 logger = logging.getLogger(__name__)
+router = Router()
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.effective_message
-    if message is None:
-        logger.info("Received /start without a message payload")
-        return
-
-    await message.reply_text("Привет")
+@router.message(CommandStart())
+async def start(message: Message) -> None:
+    await message.answer("Привет")
 
 
-async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.exception("Unhandled exception while processing an update", exc_info=context.error)
+@router.errors()
+async def on_error(event: ErrorEvent) -> None:
+    logger.exception(
+        "Unhandled exception while processing an update",
+        exc_info=event.exception,
+    )
 
 
-def build_application() -> Application:
+def build_dispatcher() -> Dispatcher:
+    dispatcher = Dispatcher()
+    dispatcher.include_router(router)
+    return dispatcher
+
+
+def build_bot() -> Bot:
     token = load_config()
-    application = Application.builder().token(token).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_error_handler(on_error)
-    return application
+    return Bot(token=token)
 
 
-def main() -> None:
+async def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    application = build_application()
+    bot = build_bot()
+    dispatcher = build_dispatcher()
     logger.info("Starting EnglishBot with long polling")
-    application.run_polling()
+    await dispatcher.start_polling(bot)

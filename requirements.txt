@@ -1,2 +1,2 @@
-python-telegram-bot>=20,<23
+aiogram>=3,<4
 python-dotenv>=1,<2

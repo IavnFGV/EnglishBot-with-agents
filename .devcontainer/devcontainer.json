@@ -16,7 +16,9 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "charliermarsh.ruff",
-        "openai.chatgpt"
+        "openai.chatgpt",
+        "k--kato.intellij-idea-keybindings",
+        "ms-azuretools.vscode-containers"
       ]
     }
   }

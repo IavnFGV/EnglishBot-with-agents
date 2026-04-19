@@ -1,0 +1,48 @@
+Task: migrate the current minimal Telegram bot from python-telegram-bot to aiogram 3.x.
+
+Context:
+- The repository already contains a minimal working Telegram bot
+- The current bot uses long polling and replies "Привет" to /start
+- We want to switch to aiogram early, before more product logic is added
+- The reason is future stateful Telegram UI: dialogs, callbacks, message updates, and transient interaction state
+
+Requirements:
+- Replace python-telegram-bot usage with aiogram 3.x
+- Use long polling
+- Keep the same user-visible behavior:
+  - /start -> "Привет"
+- Keep TELEGRAM_BOT_TOKEN from environment
+- Keep .env loading support
+- Keep basic logging
+- Keep basic error logging
+- Keep the code minimal
+
+Architecture requirements:
+- Use aiogram Dispatcher + Router
+- Keep the structure simple and explicit
+- Do NOT introduce FSM yet unless truly needed for startup
+- Do NOT add aiogram-dialog
+- Do NOT add middleware unless required
+- Do NOT add database, storage, or extra layers
+- Do NOT overengineer
+
+Project structure:
+- englishbot/__init__.py
+- englishbot/__main__.py
+- englishbot/config.py
+- englishbot/bot.py
+
+Migration tasks:
+1. Remove python-telegram-bot dependency usage from code
+2. Add aiogram-based startup
+3. Register /start handler through Router
+4. Keep configuration loading minimal and clear
+5. Update dependency declarations
+6. Update CHANGELOG.md
+7. Update context/current_state.md
+
+Deliver:
+- full updated code
+- dependency changes
+- exact command to run inside devcontainer
+- short explanation of what changed and why
