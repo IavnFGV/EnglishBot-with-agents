@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-04-19
+- Added a minimal basic-vocabulary seeder for the current SQLite runtime: it populates 3 starter topic packs (`weekdays`, `months`, `colors`) as regular `learning_items` with `ru`, `uk`, and `bg` translations, keeps reruns idempotent, and is covered by focused tests.
 - Shifted the student UX to homework-first: `/start` now shows a main `Домашка` entry when active assignments exist, otherwise a simple no-homework message, while `/learn` stays available only as a fallback command.
 - Added minimal homework persistence and flow: SQLite now stores `assignments` plus ordered `assignment_items`, teachers can create fixed `learning_item` assignments for linked students via `/assign`, students can open and start assigned homework from inline buttons, and finishing an assignment marks it completed.
 - Added student homework notifications for new assignments and focused tests covering assignment persistence, active-homework visibility, homework-first `/start`, homework launch from assigned content, teacher assignment handling, and notification delivery.
