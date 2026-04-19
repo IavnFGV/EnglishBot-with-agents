@@ -1,0 +1,74 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Implement the first workspace slice as the new domain foundation for shared learning ownership.
+
+Context:
+The current model has teacher-student links, assignments, topics, topic access, and training sessions.
+The product now needs workspace-based ownership because multiple adults may collaborate around the same student and shared learning catalog.
+
+Feature:
+Workspace Foundation MVP
+
+Scope:
+1. Add SQLite persistence for:
+   - `workspaces`
+   - `workspace_members`
+
+2. Keep roles minimal in this slice:
+   - `teacher`
+   - `student`
+
+3. Add minimal business logic to:
+   - create a workspace
+   - add a member to a workspace with a role
+   - list workspaces for a user
+   - find workspaces for a user by role
+
+4. Do not yet migrate the whole product to workspaces in this step.
+   This slice is only the foundation.
+
+5. Keep current bot behavior working.
+
+Cleanup rules:
+- Remove clearly obsolete comments if they describe the old model incorrectly
+- Update comments that still refer to teacher-student ownership as the long-term model
+- Do not keep dead compatibility code unless it is still required by current behavior
+- If a helper/module becomes obviously obsolete during this slice and is no longer used, remove it
+
+Out of scope:
+- full migration of all flows to workspace ownership
+- workspace invitation UX
+- workspace switching UX
+- new Telegram command UX for workspace management unless absolutely necessary
+- replacing teacher-student links in this slice
+
+Architecture constraints:
+- Keep business logic outside Telegram handlers
+- Do not turn bot.py into a catch-all
+- Add focused new module(s) only for genuinely new responsibility
+- Keep the change minimal and staged
+
+Testing requirements:
+- schema creation for `workspaces` and `workspace_members`
+- creating a workspace
+- adding members
+- listing workspaces for a user
+- focused tests without Telegram runtime where possible
+
+Workflow:
+1. architect: propose the smallest design and file split
+2. complexity_guard: reject overengineering and broad migration
+3. coder: implement only the approved minimal plan with tests
+4. complexity_guard: verify structure, cleanup, and test coverage
+
+Definition of done:
+- `workspaces` and `workspace_members` exist
+- basic workspace membership logic exists
+- current bot behavior still works
+- obsolete comments related to ownership assumptions are updated or removed
+- tests pass
+- CHANGELOG.md and context/current_state.md are updated
