@@ -26,4 +26,9 @@ Output:
 - structure issues
 - simplifications
 - rough unnecessary LOC estimate
+
+Quality checks:
+- Reject implementations of non-trivial features that do not include tests
+- Reject persistence changes without test coverage
+- Reject new command flows without at least minimal behavioral tests
 """

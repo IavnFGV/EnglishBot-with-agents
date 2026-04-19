@@ -1,0 +1,168 @@
+Task: implement minimal teacher-student binding via invite codes, with a separate user profile entity instead of storing product role inside Telegram transport data.
+
+Context:
+- The project already contains a working aiogram bot with SQLite persistence
+- Current bot supports /start, /me, text handling, callback handling, and low-level interactions audit logging
+- The product is evolving from a single-user training bot into a teacher-student learning product
+- This feature is non-trivial and must be implemented through the agent workflow
+- New feature logic should be introduced in focused modules where appropriate
+- New feature is not complete without tests
+
+Mandatory project rules:
+- Always read `context/englishbot_handoff.md` and `context/current_state.md` before planning or coding
+- Runtime source of truth is SQLite, not JSON
+- Business logic must stay out of Telegram glue when possible
+- Keep changes minimal and local
+- Reject overengineering
+- Update `CHANGELOG.md` and `context/current_state.md` after the task
+- If a new import is used, reflect it in `requirements.txt`
+- Every non-trivial feature must include automated tests
+
+Workflow:
+1. Use architect to propose the smallest correct design
+2. Use complexity_guard to review the design and remove unnecessary complexity
+3. Use coder to implement only the approved design
+4. Use complexity_guard again to review the implementation
+5. Add tests for the new feature
+6. Update CHANGELOG.md
+7. Update context/current_state.md
+
+Feature goal:
+Allow a teacher to generate an invite code and a student to join that teacher using the code.
+Also allow a teacher to consume their own invite code for self-testing, so they can bind themself to themself and later test assignment flows.
+Role and other future product-level profile fields must not live in the same SQLite table as Telegram transport metadata.
+
+Requirements:
+
+## Domain rules
+- One teacher can have multiple students
+- One student can be linked to only one teacher in MVP
+- Binding must be invite-based
+- Invite must be one-time use
+- If a student is already linked to a teacher, joining another teacher must be rejected
+- A teacher may use their own invite code on themself for testing
+- Self-join must preserve the teacher role so `/invite` still works afterward
+
+## Persistence
+Add minimal SQLite support for:
+- Telegram transport users
+- separate product user profiles
+- invites
+- teacher-student links
+
+Required persistence model:
+- `users` table stores only Telegram-facing metadata:
+  - `telegram_user_id`
+  - `username`
+  - `first_name`
+  - `last_name`
+  - timestamps
+- `user_profiles` table stores product-level profile data:
+  - `telegram_user_id`
+  - `role`
+  - timestamps
+- `invites`
+- `teacher_student_links`
+
+Important:
+- Role must be moved out of `users`
+- Role must be read from `user_profiles`
+- Keep the solution minimal, but make it structurally ready for future profile fields such as editable display name
+- If an old `users.role` column exists, migrate existing data into `user_profiles` during bootstrap in the smallest reasonable way
+- Runtime source of truth for role must be `user_profiles`
+
+## Commands
+### /invite
+- teacher only
+- generates one-time invite code
+- returns the code to the teacher
+
+### /join <code>
+- student uses invite code
+- validates invite
+- creates teacher-student link
+- marks invite as used
+- rejects invalid / already used invite
+- rejects join if student is already linked
+- allows self-join when teacher uses their own code
+- self-join must create a self-link and preserve the teacher role
+
+### /me
+- should continue working
+- should display role from `user_profiles`, not from `users`
+
+## Structural rules
+- Do not dump this into one existing file
+- Do not turn `bot.py` or `db.py` into catch-all files
+- Prefer focused modules/files for:
+  - profile persistence / access
+  - invite and teacher-student persistence / rules
+  - invite/join handlers if appropriate
+- Keep integration minimal and explicit
+- Avoid over-splitting into too many tiny files
+
+Minimal acceptable split:
+- `englishbot/db.py`:
+  - SQLite bootstrap
+  - low-level Telegram user persistence
+- `englishbot/user_profiles.py`:
+  - profile persistence helpers
+  - role read/write helpers
+- `englishbot/teacher_student.py`:
+  - invite persistence + teacher-student binding rules
+- `englishbot/teacher_handlers.py`:
+  - thin Telegram handlers for `/invite` and `/join`
+
+## Testing requirements
+Add automated tests for:
+- default profile creation in `user_profiles`
+- setting and reading role from `user_profiles`
+- confirming `users` no longer stores role as runtime source of truth
+- invite generation
+- successful join
+- invalid invite
+- already used invite
+- rejection when a student is already linked
+- successful teacher self-join
+- self-join preserving teacher role
+- command-flow behavior for `/invite`
+- command-flow behavior for `/join`
+- command-flow rejection when already linked
+- command-flow self-join success
+
+Keep tests focused and minimal.
+
+## Constraints
+- Keep implementation minimal
+- No FSM
+- No middleware changes unless truly required
+- No assignments yet
+- No groups yet
+- No billing yet
+- No web UI
+- No role-system redesign beyond introducing `user_profiles`
+- No generalized permissions framework
+- No unnecessary abstractions
+
+## Deliver
+- approved minimal design from architect
+- reviewed/simplified design from complexity_guard
+- final implementation
+- tests for the feature
+- updated file structure
+- SQLite schema changes
+- migration/bootstrap handling for old role data
+- short explanation of how to test manually:
+  - user runs `/start`
+  - developer sets role to `teacher` in `user_profiles`
+  - teacher generates code
+  - same teacher can join using own code
+  - `/me` still shows `teacher`
+  - teacher can still call `/invite`
+  - duplicate join is rejected for already linked student
+
+Also:
+- update requirements.txt if needed
+- update CHANGELOG.md
+- update context/current_state.md
+- run the relevant tests and report the result

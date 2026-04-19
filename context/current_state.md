@@ -8,10 +8,12 @@
 - Pressing the inline button triggers a callback handler that replies with `Кнопка нажата`.
 - Plain text messages are echoed back as `Ты написал: <text>` and are tracked only through the low-level `interactions` audit log.
 - `/me` shows the user's first name or username, the `telegram_user_id`, and the number of saved text messages.
+- `/me` also shows the user's stored `role`.
 - Configuration is read from `TELEGRAM_BOT_TOKEN`, with `.env` support via `python-dotenv`.
 - SQLite storage uses the stdlib `sqlite3` module with a local `englishbot.sqlite3` file by default, overridable through `ENGLISHBOT_DB_PATH`.
-- `requirements.txt` intentionally stays minimal: only third-party runtime packages are listed; SQLite is not listed because it comes from the Python standard library.
-- SQLite schema is created automatically on startup with two active tables: `users` and `interactions`.
+- `requirements.txt` stays minimal but now includes both runtime packages (`aiogram`, `python-dotenv`) and the test dependency `pytest`; SQLite is not listed because it comes from the Python standard library.
+- SQLite schema is created automatically on startup and now bootstraps `users`, `user_profiles`, `interactions`, `invites`, and `teacher_student_links`.
+- Product-level user data is now separated from Telegram transport data: `users` stores Telegram identity fields, while `user_profiles` stores runtime profile fields such as `role`.
 - `interactions` is the low-level audit table for Telegram traffic and stores `telegram_user_id`, `direction` (`in` or `out`), `interaction_type`, `content`, and `created_at`.
 - `/me` counts saved user text messages by counting `interactions` rows where `direction='in'` and `interaction_type='text'`.
 - Startup removes the old `messages` table if it exists, because it is no longer used.
@@ -19,5 +21,9 @@
 - If the bot token is missing, startup fails with a clear `RuntimeError`.
 - Logging is configured at INFO level, and update-handling exceptions are logged through an aiogram router error handler.
 - Repository now includes a root `.gitignore` covering local env files, Python caches, virtual environments, logs, IDE files, and local SQLite databases.
-- Current bot structure stays minimal and explicit: `englishbot/config.py` loads `.env` and validates `TELEGRAM_BOT_TOKEN`; `englishbot/db.py` owns the small SQLite schema and CRUD helpers for `users` and `interactions`; `englishbot/audit.py` owns interaction extraction and aiogram logging middleware; `englishbot/runtime.py` creates the singleton `router` and `dispatcher` and wires the middleware once; `englishbot/bot.py` now stays focused on handlers, error logging, and polling startup.
-- Changed files for the current bot slice: `englishbot/bot.py`, `englishbot/db.py`, `englishbot/audit.py`, `englishbot/runtime.py`, `requirements.txt`, `CHANGELOG.md`, `context/current_state.md`.
+- Minimal teacher-student MVP flow is now present: `/invite` works only for users whose persisted role is `teacher`, generates a one-time invite code, and `/join <code>` lets an unlinked user consume that code once to create a teacher-student link.
+- A `teacher` can also consume their own invite code for self-testing/self-learning, creating a self-link while preserving the `teacher` role.
+- Teacher-student business rules live in `englishbot/teacher_student.py`; profile persistence lives in `englishbot/user_profiles.py`; thin Telegram command wrappers live in `englishbot/teacher_handlers.py`; `englishbot/bot.py` only imports those handlers for registration and extends `/me`.
+- Focused tests now live in `tests/test_user_profiles.py`, `tests/test_teacher_student.py`, and `tests/test_teacher_handlers.py`.
+- Current constraints stay intentionally narrow: no FSM, no deep links, no middleware changes, no assignment logic, and one student can belong to only one teacher in this MVP.
+- Changed files for the current teacher-student slice: `englishbot/db.py`, `englishbot/user_profiles.py`, `englishbot/bot.py`, `englishbot/teacher_student.py`, `englishbot/teacher_handlers.py`, `tests/test_user_profiles.py`, `tests/test_teacher_student.py`, `tests/test_teacher_handlers.py`, `CHANGELOG.md`, `context/current_state.md`.

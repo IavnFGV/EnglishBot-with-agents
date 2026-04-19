@@ -6,6 +6,8 @@ from aiogram.types import CallbackQuery, ErrorEvent, InlineKeyboardButton, Inlin
 
 from .db import count_text_interactions, get_user, init_db, save_user
 from .runtime import build_bot, dispatcher, router
+from .user_profiles import get_user_role
+from . import teacher_handlers  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,7 @@ async def me(message: Message) -> None:
     await message.answer(
         f"{display_name}\n"
         f"telegram_user_id: {message.from_user.id}\n"
+        f"role: {get_user_role(message.from_user.id)}\n"
         f"saved_text_messages: {message_count}"
     )
 

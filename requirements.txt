@@ -1,5 +1,6 @@
 # Runtime dependencies
 aiogram>=3,<4
 python-dotenv>=1,<2
+pytest>=9,<10
 
 # SQLite uses Python stdlib `sqlite3`, so no extra package is required.

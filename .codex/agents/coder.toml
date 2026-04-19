@@ -27,4 +27,11 @@ Final checklist:
 - requirements.txt updated
 - New logic is placed in the correct module(s)
 - Existing files are not turned into catch-all dumps
+
+Testing rules:
+- Any non-trivial feature MUST include tests
+- New modules must have focused tests
+- Persistence changes must be tested
+- Command behavior must be tested where practical
+- A feature is not complete without tests
 """

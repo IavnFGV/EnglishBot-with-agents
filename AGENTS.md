@@ -30,6 +30,14 @@ After every completed task:
 - update `context/current_state.md` with the new current capabilities, constraints, and changed files
 - keep both files concise and factual
 
+## Development Rules
+
+- New non-trivial features must be implemented through the agent workflow.
+- New responsibilities should be introduced in focused modules instead of growing catch-all files.
+- New non-trivial features are considered incomplete without automated tests.
+- Documentation (`CHANGELOG.md` and `context/current_state.md`) must be updated after each completed task.
+Как
+
 ## Dependency rules:
 - Any new import MUST be reflected in requirements.txt
 - If a package is used but not listed, add it
@@ -44,3 +52,15 @@ After every completed task:
   - dumping everything into one file
   - splitting simple logic into too many tiny files
 - New files must be connected to existing code with minimal explicit wiring.
+
+## Testing rules
+
+- Every non-trivial feature must include automated tests.
+- New persistence logic must be covered by tests.
+- New command flows must be covered by tests.
+- Tests are required as part of feature completion, not as optional follow-up work.
+- Prefer focused tests for the new module(s) instead of broad end-to-end-only coverage.
+- A feature is not complete until:
+  - code is implemented
+  - tests are added
+  - relevant tests pass

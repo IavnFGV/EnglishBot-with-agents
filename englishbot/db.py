@@ -7,6 +7,7 @@ from aiogram.types import User
 
 
 DB_PATH = Path(os.getenv("ENGLISHBOT_DB_PATH", "englishbot.sqlite3"))
+DEFAULT_USER_ROLE = "student"
 
 
 def utc_now() -> str:
@@ -52,6 +53,95 @@ def init_db() -> None:
             ON interactions (telegram_user_id)
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                telegram_user_id INTEGER PRIMARY KEY,
+                role TEXT NOT NULL DEFAULT 'student',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id)
+            )
+            """
+        )
+        user_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(users)").fetchall()
+        }
+        if "role" in user_columns:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO user_profiles (
+                    telegram_user_id,
+                    role,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    telegram_user_id,
+                    COALESCE(NULLIF(role, ''), ?),
+                    created_at,
+                    updated_at
+                FROM users
+                """,
+                (DEFAULT_USER_ROLE,),
+            )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO user_profiles (
+                telegram_user_id,
+                role,
+                created_at,
+                updated_at
+            )
+            SELECT
+                telegram_user_id,
+                ?,
+                created_at,
+                updated_at
+            FROM users
+            """,
+            (DEFAULT_USER_ROLE,),
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS invites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code TEXT NOT NULL UNIQUE,
+                teacher_user_id INTEGER NOT NULL,
+                used_by_user_id INTEGER,
+                created_at TEXT NOT NULL,
+                used_at TEXT,
+                FOREIGN KEY (teacher_user_id) REFERENCES users (telegram_user_id),
+                FOREIGN KEY (used_by_user_id) REFERENCES users (telegram_user_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_invites_teacher_user_id
+            ON invites (teacher_user_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS teacher_student_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_user_id INTEGER NOT NULL,
+                student_user_id INTEGER NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_user_id) REFERENCES users (telegram_user_id),
+                FOREIGN KEY (student_user_id) REFERENCES users (telegram_user_id),
+                UNIQUE (teacher_user_id, student_user_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_teacher_student_links_teacher_user_id
+            ON teacher_student_links (teacher_user_id)
+            """
+        )
         connection.execute("DROP TABLE IF EXISTS messages")
 
 
@@ -83,6 +173,18 @@ def save_user(user: User) -> None:
                 timestamp,
                 timestamp,
             ),
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO user_profiles (
+                telegram_user_id,
+                role,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (user.id, DEFAULT_USER_ROLE, timestamp, timestamp),
         )
 
 
