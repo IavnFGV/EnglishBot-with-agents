@@ -14,7 +14,7 @@ Requirements:
 - The devcontainer must share Codex configuration between host and container
 - Add a bind mount from host ~/.codex to /home/vscode/.codex
 - Preserve SSH access with a readonly mount from host ~/.ssh to /home/vscode/.ssh
-- Preserve pip cache across rebuilds using /home/vscode/.cache/pip
+- Preserve pip cache across rebuilds using /home/vscode/.cache/pip -"source=englishbot-pip-cache,target=/home/vscode/.cache/pip,type=volume",
 - Set PIP_CACHE_DIR accordingly
 - Automatically install useful VS Code extensions for this repository
 - Keep the default profile lightweight

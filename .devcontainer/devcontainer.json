@@ -1,4 +1,23 @@
 {
   "name": "EnglishBot",
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bullseye"
+  "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "PIP_CACHE_DIR": "/home/vscode/.cache/pip"
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind",
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly",
+    "source=englishbot-pip-cache,target=/home/vscode/.cache/pip,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "openai.chatgpt"
+      ]
+    }
+  }
 }
