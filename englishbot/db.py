@@ -213,6 +213,40 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS topic_learning_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic_id INTEGER NOT NULL,
+                learning_item_id INTEGER NOT NULL,
+                FOREIGN KEY (topic_id) REFERENCES topics (id),
+                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id),
+                UNIQUE (topic_id, learning_item_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_topics_name
+            ON topics (name)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_topic_learning_items_topic_id
+            ON topic_learning_items (topic_id)
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS training_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 telegram_user_id INTEGER NOT NULL,

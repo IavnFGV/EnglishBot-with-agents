@@ -1,4 +1,5 @@
 from .db import get_connection, init_db, utc_now
+from .topics import get_topic_by_name, get_topic_learning_item_ids, list_topics
 
 
 BASIC_TOPICS: tuple[dict[str, object], ...] = (
@@ -43,62 +44,69 @@ BASIC_TOPICS: tuple[dict[str, object], ...] = (
 
 
 def list_basic_topic_groups() -> list[dict[str, object]]:
+    init_db()
     return [
         {
-            "name": str(topic["topic"]),
+            "name": str(topic["name"]),
             "title": str(topic["title"]),
-            "item_count": len(topic["items"]),
+            "item_count": int(topic["item_count"]),
         }
-        for topic in BASIC_TOPICS
+        for topic in list_topics()
     ]
 
 
 def get_basic_topic_group(topic_name: str) -> dict[str, object] | None:
-    normalized_topic_name = topic_name.strip().casefold()
-    for topic in BASIC_TOPICS:
-        if str(topic["topic"]).casefold() == normalized_topic_name:
-            return topic
-    return None
+    init_db()
+    topic = get_topic_by_name(topic_name.strip())
+    if topic is None:
+        return None
+    return {
+        "id": int(topic["id"]),
+        "name": str(topic["name"]),
+        "title": str(topic["title"]),
+    }
 
 
 def resolve_basic_topic_learning_item_ids(topic_name: str) -> list[int]:
+    init_db()
     topic = get_basic_topic_group(topic_name)
     if topic is None:
         return []
-
-    lemmas = [str(item["lemma"]) for item in topic["items"]]
-    placeholders = ", ".join("?" for _ in lemmas)
-    with get_connection() as connection:
-        rows = connection.execute(
-            f"""
-            SELECT lexemes.lemma, learning_items.id
-            FROM learning_items
-            JOIN lexemes
-              ON lexemes.id = learning_items.lexeme_id
-            WHERE lexemes.lemma IN ({placeholders})
-            """,
-            tuple(lemmas),
-        ).fetchall()
-
-    learning_item_ids_by_lemma = {
-        str(row["lemma"]): int(row["id"])
-        for row in rows
-    }
-    if any(lemma not in learning_item_ids_by_lemma for lemma in lemmas):
-        return []
-
-    return [learning_item_ids_by_lemma[lemma] for lemma in lemmas]
+    return get_topic_learning_item_ids(int(topic["id"]))
 
 
 def seed_basic_topics() -> dict[str, int]:
     init_db()
     timestamp = utc_now()
+    created_topics = 0
     created_lexemes = 0
     created_learning_items = 0
     created_translations = 0
+    created_topic_links = 0
 
     with get_connection() as connection:
         for topic in BASIC_TOPICS:
+            topic_row = connection.execute(
+                """
+                SELECT id
+                FROM topics
+                WHERE name = ?
+                """,
+                (str(topic["topic"]),),
+            ).fetchone()
+            if topic_row is None:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO topics (name, title, created_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (str(topic["topic"]), str(topic["title"]), timestamp),
+                )
+                topic_id = int(cursor.lastrowid)
+                created_topics += 1
+            else:
+                topic_id = int(topic_row["id"])
+
             for item in topic["items"]:
                 lemma = item["lemma"]
                 lexeme_row = connection.execute(
@@ -186,9 +194,21 @@ def seed_basic_topics() -> dict[str, int]:
                     )
                     created_translations += 1
 
+                cursor = connection.execute(
+                    """
+                    INSERT OR IGNORE INTO topic_learning_items (topic_id, learning_item_id)
+                    VALUES (?, ?)
+                    """,
+                    (topic_id, learning_item_id),
+                )
+                if cursor.rowcount > 0:
+                    created_topic_links += 1
+
     return {
         "topics": len(BASIC_TOPICS),
+        "created_topics": created_topics,
         "created_lexemes": created_lexemes,
         "created_learning_items": created_learning_items,
         "created_translations": created_translations,
+        "created_topic_links": created_topic_links,
     }

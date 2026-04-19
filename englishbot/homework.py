@@ -1,12 +1,8 @@
 import sqlite3
 
-from .basic_topics_seed import (
-    get_basic_topic_group,
-    list_basic_topic_groups,
-    resolve_basic_topic_learning_item_ids,
-)
 from .db import get_connection, utc_now
 from .teacher_student import ROLE_TEACHER, get_teacher_link
+from .topics import get_topic_by_name, get_topic_learning_item_ids, list_topics
 from .user_profiles import get_user_role
 from .vocabulary import get_learning_item
 from .training import create_training_session_for_learning_items
@@ -115,7 +111,14 @@ def create_assignment(
 
 
 def list_assignable_groups() -> list[dict[str, object]]:
-    return list_basic_topic_groups()
+    return [
+        {
+            "name": str(topic["name"]),
+            "title": str(topic["title"]),
+            "item_count": int(topic["item_count"]),
+        }
+        for topic in list_topics()
+    ]
 
 
 def create_assignment_from_group(
@@ -123,16 +126,19 @@ def create_assignment_from_group(
     student_user_id: int,
     group_name: str,
 ) -> dict[str, object]:
-    group = get_basic_topic_group(group_name)
-    learning_item_ids = resolve_basic_topic_learning_item_ids(group_name)
-    if group is None or not learning_item_ids:
+    topic = get_topic_by_name(group_name.strip())
+    if topic is None:
+        raise AssignmentGroupNotFoundError
+
+    learning_item_ids = get_topic_learning_item_ids(int(topic["id"]))
+    if not learning_item_ids:
         raise AssignmentGroupNotFoundError
 
     return create_assignment(
         teacher_user_id,
         student_user_id,
         learning_item_ids,
-        title=str(group["title"]),
+        title=str(topic["title"]),
     )
 
 

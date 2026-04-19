@@ -4,6 +4,7 @@ from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import ErrorEvent, Message
 
+from .basic_topics_seed import seed_basic_topics
 from .db import count_text_interactions, get_user, init_db
 from .runtime import build_bot, dispatcher, router
 from .user_profiles import get_user_role
@@ -61,6 +62,7 @@ async def main() -> None:
     )
 
     init_db()
+    seed_basic_topics()
     bot = build_bot()
     logger.info("Starting EnglishBot with long polling")
     await dispatcher.start_polling(bot)

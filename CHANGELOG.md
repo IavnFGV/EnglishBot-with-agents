@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-04-19
+- Added persistent topic MVP in SQLite: runtime now stores first-class `topics` plus `topic_learning_items`, starter packs (`weekdays`, `months`, `colors`) seed as real topics linked to existing `learning_items`, `/assign <student_user_id> <topic_name>` now resolves persisted topics while keeping the raw `learning_item_id` fallback, and focused tests cover topic schema, persistence, seeding, and topic-based assignment titles.
 - Fixed a startup/runtime audit bug for new Telegram users: incoming and outgoing interaction logging now creates a minimal `users`/`user_profiles` stub before writing to `interactions`, so fresh updates no longer fail with `sqlite3.IntegrityError: FOREIGN KEY constraint failed`.
 - Added minimal named-group homework assignment on top of the seeded starter packs: `/assign` now prefers pack names like `weekdays`, `months`, and `colors`, assignments store a human-readable title, student homework lists show that title, and the legacy raw `learning_item_id` path still works as a fallback.
 - Added a minimal basic-vocabulary seeder for the current SQLite runtime: it populates 3 starter topic packs (`weekdays`, `months`, `colors`) as regular `learning_items` with `ru`, `uk`, and `bg` translations, keeps reruns idempotent, and is covered by focused tests.

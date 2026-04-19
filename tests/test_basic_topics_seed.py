@@ -27,18 +27,24 @@ def test_seed_basic_topics_populates_expected_multilingual_content(
     expected_item_count = sum(len(topic["items"]) for topic in BASIC_TOPICS)
     assert result == {
         "topics": 3,
+        "created_topics": 3,
         "created_lexemes": expected_item_count,
         "created_learning_items": expected_item_count,
         "created_translations": expected_item_count * 3,
+        "created_topic_links": expected_item_count,
     }
 
     with sqlite3.connect(db.DB_PATH) as connection:
+        topic_count = connection.execute("SELECT COUNT(*) FROM topics").fetchone()[0]
         lexeme_count = connection.execute("SELECT COUNT(*) FROM lexemes").fetchone()[0]
         learning_item_count = connection.execute(
             "SELECT COUNT(*) FROM learning_items"
         ).fetchone()[0]
         translation_count = connection.execute(
             "SELECT COUNT(*) FROM learning_item_translations"
+        ).fetchone()[0]
+        topic_link_count = connection.execute(
+            "SELECT COUNT(*) FROM topic_learning_items"
         ).fetchone()[0]
 
         monday_translations = connection.execute(
@@ -54,9 +60,11 @@ def test_seed_basic_topics_populates_expected_multilingual_content(
             """
         ).fetchall()
 
+    assert topic_count == len(BASIC_TOPICS)
     assert lexeme_count == expected_item_count
     assert learning_item_count == expected_item_count
     assert translation_count == expected_item_count * 3
+    assert topic_link_count == expected_item_count
     assert monday_translations == [
         ("bg", "понеделник"),
         ("ru", "понедельник"),
@@ -74,12 +82,15 @@ def test_seed_basic_topics_is_idempotent(tmp_path: Path) -> None:
     assert first_run["created_learning_items"] == expected_item_count
     assert second_run == {
         "topics": 3,
+        "created_topics": 0,
         "created_lexemes": 0,
         "created_learning_items": 0,
         "created_translations": 0,
+        "created_topic_links": 0,
     }
 
     with sqlite3.connect(db.DB_PATH) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM topics").fetchone()[0] == len(BASIC_TOPICS)
         assert connection.execute("SELECT COUNT(*) FROM lexemes").fetchone()[0] == (
             expected_item_count
         )
@@ -89,10 +100,14 @@ def test_seed_basic_topics_is_idempotent(tmp_path: Path) -> None:
         assert connection.execute(
             "SELECT COUNT(*) FROM learning_item_translations"
         ).fetchone()[0] == (expected_item_count * 3)
+        assert connection.execute("SELECT COUNT(*) FROM topic_learning_items").fetchone()[0] == (
+            expected_item_count
+        )
 
 
 def test_list_basic_topic_groups_returns_named_seeded_packs(tmp_path: Path) -> None:
     setup_db(tmp_path)
+    seed_basic_topics()
 
     groups = list_basic_topic_groups()
 

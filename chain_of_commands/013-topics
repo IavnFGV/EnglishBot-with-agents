@@ -1,0 +1,141 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Implement the next minimal domain step from the handoff: persistent topics in SQLite as first-class content groups.
+
+Context:
+The project already has:
+- Telegram bot foundation
+- user/profile persistence
+- teacher-student invite/link MVP
+- vocabulary persistence (`lexemes`, `learning_items`, `learning_item_translations`)
+- minimal training session logic
+- homework-first `/start`
+- assignments
+- assignment by seeded named groups (`weekdays`, `months`, `colors`)
+
+Current limitation:
+There is still no real topic model in persistence.
+Seeded named groups are only a temporary grouping mechanism and are not first-class runtime entities.
+
+We need to introduce real topics in SQLite and connect them to learning_items, while keeping the implementation minimal.
+
+Feature:
+Persistent Topics MVP
+
+Scope:
+1. Add SQLite persistence for:
+   - `topics`
+   - `topic_learning_items`
+
+2. `topics` should be minimal first-class entities:
+   - `id`
+   - `name` (stable key, unique, e.g. `months`)
+   - `title` (human-readable label, e.g. `Месяцы`)
+   - optional `created_at` only if it matches current schema style
+
+3. `topic_learning_items` should link topics to learning_items:
+   - `topic_id`
+   - `learning_item_id`
+   - no extra metadata unless absolutely necessary
+
+4. Rework starter vocabulary seeding:
+   - seeded groups (`weekdays`, `months`, `colors`) must now be created as real `topics`
+   - their learning_items must be linked through `topic_learning_items`
+   - do not duplicate content or keep parallel grouping models unless required for migration compatibility
+
+5. Add minimal topic persistence/read helpers:
+   - create topic
+   - link learning item to topic
+   - list topics
+   - get learning items for one topic
+   - resolve topic by name
+
+6. Rework assignment flow to use real topics as the primary named-group path:
+   - `/assign <student_user_id> <topic_name>` should resolve from `topics.name`
+   - keep legacy raw-id assignment path if it already exists
+   - do not require any new UI beyond the current minimal command flow unless clearly needed
+
+7. Student homework should continue showing human-readable assignment titles.
+   - use topic title when assignment is created from a topic unless explicit title handling already exists
+
+8. Keep `/learn` behavior unchanged in this slice unless topic integration is trivial and clearly minimal.
+   - Topic-based learner selection is NOT required in this task.
+
+Out of scope:
+- lessons
+- nested topics
+- topic ordering UI
+- topic editing UI in Telegram
+- topic deletion flows
+- FSM
+- deep links
+- asset playback
+- homework type variants
+- advanced statistics
+- billing
+- web app topic management
+- broad refactors
+
+Architecture constraints:
+- Keep business logic outside Telegram handlers
+- Do not turn `bot.py` into a catch-all
+- Reuse existing vocabulary/homework modules where reasonable
+- Add focused new module(s) only if topics introduce a clearly separate responsibility
+- Avoid parallel models for "seed groups" and "topics" unless migration compatibility truly requires it
+- Keep the change minimal and product-driven
+
+Data model expectations:
+- Topics are first-class persisted entities
+- One topic can contain many learning_items
+- One learning_item may be linked to multiple topics if needed by the model
+- Do not redesign lexeme/learning_item structure
+
+Testing requirements (MANDATORY):
+Add focused automated tests for:
+- schema creation for `topics` and `topic_learning_items`
+- creating and reading topics
+- linking learning_items to topics
+- resolving topic by name
+- seeded topics creation
+- assignment creation from a persisted topic
+- student-visible assignment title/name when created from topic
+- keep tests focused and avoid Telegram runtime dependency where possible
+
+Workflow:
+1. architect:
+   - propose the smallest design
+   - list files to modify
+   - list files to add
+   - explain why this is the minimal reasonable topic model
+
+2. complexity_guard:
+   - reject overengineering
+   - reject lesson/nesting/editor creep
+   - reject unnecessary abstractions
+   - reject missing tests
+
+3. coder:
+   - implement only the approved minimal plan
+   - add focused tests
+   - update requirements.txt only if needed
+   - update CHANGELOG.md
+   - update context/current_state.md
+
+4. complexity_guard:
+   - verify:
+     - no catch-all files
+     - no duplicate grouping model left without reason
+     - tests exist and are focused
+     - scope stayed limited to topics MVP
+
+Definition of done:
+- `topics` and `topic_learning_items` exist in SQLite
+- seeded starter groups are represented as real topics
+- assignment by topic name works through persisted topics
+- student-facing homework still shows meaningful titles
+- tests cover schema, persistence, seeding, and topic-based assignment behavior
+- CHANGELOG.md and context/current_state.md are updated
