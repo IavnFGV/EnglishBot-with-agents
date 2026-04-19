@@ -12,9 +12,13 @@
 - Configuration is read from `TELEGRAM_BOT_TOKEN`, with `.env` support via `python-dotenv`.
 - SQLite storage uses the stdlib `sqlite3` module with a local `englishbot.sqlite3` file by default, overridable through `ENGLISHBOT_DB_PATH`.
 - `requirements.txt` stays minimal but now includes both runtime packages (`aiogram`, `python-dotenv`) and the test dependency `pytest`; SQLite is not listed because it comes from the Python standard library.
-- SQLite schema is created automatically on startup and now bootstraps `users`, `user_profiles`, `interactions`, `invites`, and `teacher_student_links`.
+- SQLite schema is created automatically on startup and now bootstraps `users`, `user_profiles`, `interactions`, `invites`, `teacher_student_links`, `lexemes`, `learning_items`, and `learning_item_translations`.
 - Product-level user data is now separated from Telegram transport data: `users` stores Telegram identity fields, while `user_profiles` stores runtime profile fields such as `role`.
 - `interactions` is the low-level audit table for Telegram traffic and stores `telegram_user_id`, `direction` (`in` or `out`), `interaction_type`, `content`, and `created_at`.
+- Minimal vocabulary persistence is now present in SQLite: `lexemes` stores the headword, `learning_items` stores the main learning unit linked to a lexeme, and `learning_item_translations` stores multiple translations per learning item by language.
+- `learning_items` now supports nullable local asset references through `image_ref` and `audio_ref`, with a small startup migration that adds those columns if an older `learning_items` table already exists without them.
+- SQLite connections now enable foreign key enforcement, so `learning_items.lexeme_id` and `learning_item_translations.learning_item_id` are validated at runtime instead of acting as soft references.
+- Vocabulary create/read persistence lives in `englishbot/vocabulary.py`; it intentionally exposes only the minimal helpers needed to create lexemes, learning items, translations, and read one learning item together with its translations.
 - `/me` counts saved user text messages by counting `interactions` rows where `direction='in'` and `interaction_type='text'`.
 - Startup removes the old `messages` table if it exists, because it is no longer used.
 - Interaction logging is attached at the aiogram framework level instead of inside specific handlers: incoming updates go through a dispatcher update middleware, and outgoing Bot API requests go through session middleware.
@@ -25,6 +29,7 @@
 - A `teacher` can also consume their own invite code for self-testing/self-learning, creating a self-link while preserving the `teacher` role.
 - Teacher-student business rules live in `englishbot/teacher_student.py`; profile persistence lives in `englishbot/user_profiles.py`; thin Telegram command wrappers live in `englishbot/teacher_handlers.py`; `englishbot/bot.py` only imports those handlers for registration and extends `/me`.
 - Repository now includes a small report utility: `export_ai_file_report.py` writes a text file with each discovered `AGENTS.md` or agent-related file name, relative path, full path, size, and full file contents; discovery logic lives in `englishbot/ai_file_report.py`.
-- Focused tests now live in `tests/test_user_profiles.py`, `tests/test_teacher_student.py`, and `tests/test_teacher_handlers.py`.
-- Current constraints stay intentionally narrow: no FSM, no deep links, no middleware changes, no assignment logic, and one student can belong to only one teacher in this MVP.
-- Changed files for the current slice: `englishbot/db.py`, `englishbot/user_profiles.py`, `englishbot/bot.py`, `englishbot/teacher_student.py`, `englishbot/teacher_handlers.py`, `englishbot/ai_file_report.py`, `export_ai_file_report.py`, `tests/test_user_profiles.py`, `tests/test_teacher_student.py`, `tests/test_teacher_handlers.py`, `CHANGELOG.md`, `context/current_state.md`.
+- Focused tests now live in `tests/test_user_profiles.py`, `tests/test_teacher_student.py`, `tests/test_teacher_handlers.py`, and `tests/test_vocabulary.py`.
+- Current constraints stay intentionally narrow: no FSM, no deep links, no middleware changes, no assignment logic, no training session logic, and vocabulary persistence is create/read only in this slice.
+- Current constraints stay intentionally narrow: no FSM, no deep links, no middleware changes, no assignment logic, no training session logic, no content selection UI, and vocabulary persistence is create/read only in this slice.
+- Changed files for the current slice: `englishbot/db.py`, `englishbot/vocabulary.py`, `tests/test_vocabulary.py`, `CHANGELOG.md`, `context/current_state.md`.

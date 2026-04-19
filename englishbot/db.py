@@ -17,7 +17,15 @@ def utc_now() -> str:
 def get_connection() -> sqlite3.Connection:
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
     return connection
+
+
+def get_table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    return {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
 
 
 def init_db() -> None:
@@ -64,10 +72,7 @@ def init_db() -> None:
             )
             """
         )
-        user_columns = {
-            row["name"]
-            for row in connection.execute("PRAGMA table_info(users)").fetchall()
-        }
+        user_columns = get_table_columns(connection, "users")
         if "role" in user_columns:
             connection.execute(
                 """
@@ -140,6 +145,70 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_teacher_student_links_teacher_user_id
             ON teacher_student_links (teacher_user_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lexemes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lemma TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS learning_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lexeme_id INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                image_ref TEXT,
+                audio_ref TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (lexeme_id) REFERENCES lexemes (id)
+            )
+            """
+        )
+        learning_item_columns = get_table_columns(connection, "learning_items")
+        if "image_ref" not in learning_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE learning_items
+                ADD COLUMN image_ref TEXT
+                """
+            )
+        if "audio_ref" not in learning_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE learning_items
+                ADD COLUMN audio_ref TEXT
+                """
+            )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS learning_item_translations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                learning_item_id INTEGER NOT NULL,
+                language_code TEXT NOT NULL,
+                translation_text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_learning_items_lexeme_id
+            ON learning_items (lexeme_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_learning_item_translations_learning_item_id
+            ON learning_item_translations (learning_item_id)
             """
         )
         connection.execute("DROP TABLE IF EXISTS messages")

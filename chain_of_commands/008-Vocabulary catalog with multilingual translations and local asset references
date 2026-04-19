@@ -1,0 +1,72 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Task:
+Implement the next minimal product step for EnglishBot.
+
+Feature goal:
+Introduce persistent vocabulary storage for real learning content, including:
+- lexemes
+- learning_items
+- multilingual translations for learning items
+- local asset references for images and audio
+
+Why now:
+The bot currently has teacher-student invite MVP, but no real learning content model yet.
+We need the smallest possible persistent content foundation that will support future learner flows.
+
+Scope:
+1. Add SQLite persistence for:
+   - lexemes
+   - learning_items
+   - learning_item_translations
+2. Keep the model simple:
+   - lexeme remains the main headword entity
+   - learning_item remains the main learning unit
+   - learning_item_translations stores multiple translations per learning_item for different languages
+3. Support asset references in learning_items:
+   - image_ref (nullable)
+   - audio_ref (nullable)
+4. Do NOT implement:
+   - TTS generation
+   - image generation
+   - workbook import/export
+   - WebApp
+   - assignments
+   - full training session
+5. Add only the minimum repository/service functions needed to create and read this content
+6. Add focused automated tests for:
+   - schema creation/migration
+   - storing lexemes
+   - storing learning_items
+   - storing multilingual translations
+   - storing nullable image_ref/audio_ref
+   - reading back learning item data correctly
+7. Update:
+   - CHANGELOG.md
+   - context/current_state.md
+
+Required architectural constraints:
+- Keep changes minimal and local
+- Do not introduce unnecessary layers
+- Do not turn one file into a catch-all dump
+- If new persistence responsibility appears, place it in a focused module
+- Business logic must not be mixed into Telegram glue
+- requirements.txt must reflect any new dependency
+- Feature is incomplete without tests
+
+Agent workflow:
+1. architect: propose the smallest possible design and file split
+2. complexity_guard: review the plan and reject overengineering
+3. coder: implement only the approved minimal plan
+4. complexity_guard: review resulting structure and test coverage
+
+Expected output from the workflow:
+- short plan
+- files to modify
+- files to add
+- implementation
+- tests
+- concise changelog/current_state updates
