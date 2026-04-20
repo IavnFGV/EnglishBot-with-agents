@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-04-20
+- Added a standalone staged-exercise domain module in `englishbot/exercises.py`: it defines explicit `easy`/`medium`/`hard` stages, `multiple_choice`/`jumbled_letters`/`typed_answer` exercise types, strict typed exercise payloads, domain-level distractor validation, localized hint fallback (`requested -> ru -> uk -> first available -> headword`), and focused unit tests in `tests/test_exercises.py` without changing training persistence or Telegram orchestration.
 - Reworked `context/englishbot_handoff.md` from a target-only architecture note into a merged technical specification: it now distinguishes current behavior from target behavior, documents the implemented workbook/workspace/publish/snapshot model, preserves future design sections, and aligns the handoff with `context/current_state.md`.
 - Added centralized bot-facing internationalization in `englishbot/i18n.py` with explicit support for `en`, `ru`, `uk`, and `bg`, wired touched Telegram replies/buttons/usage texts through i18n, and kept Telegram command descriptions centralized via i18n-backed keys in `englishbot/command_registry.py`.
 - Added persistent per-user bot language in `user_profiles.bot_language`, exposed focused `get_user_language`/`set_user_language` helpers, and introduced the minimal `/settings` inline flow for language selection with focused tests for lookup, fallback, persistence, and settings behavior.

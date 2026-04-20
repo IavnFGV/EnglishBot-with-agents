@@ -1,0 +1,221 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+---
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+---
+
+Task:
+Implement the exercise domain model for staged learning.
+
+IMPORTANT:
+This task is strictly limited to domain logic for exercise generation.
+
+DO NOT:
+
+* modify Telegram handlers
+* implement message edit/delete logic
+* modify `/learn` or homework UX
+* implement training session persistence or DB schema changes
+* mix logic into `training.py` or handlers
+* introduce new infrastructure layers
+
+---
+
+Goal:
+Introduce a clean, minimal module that can generate concrete exercise instances based on:
+
+* learning_item
+* stage (easy / medium / hard)
+* hint language
+
+This must be a standalone domain layer.
+
+---
+
+Implementation requirements:
+
+Create a new module:
+
+* `englishbot/exercises.py`
+
+Responsibilities:
+
+1. Define exercise stages:
+
+* "easy"
+* "medium"
+* "hard"
+
+2. Define exercise types:
+
+* "multiple_choice"
+* "jumbled_letters"
+* "typed_answer"
+
+3. Implement exercise instance builder:
+
+Input:
+
+* learning item (resolved with lexeme + translations)
+* stage
+* hint_language
+* pool of candidate distractors (list of other learning items or lexemes)
+
+Output (strict typed structure, no `any`):
+
+* exercise_type
+* stage
+* learning_item_id
+* prompt_payload
+* expected_answer
+* options (for multiple_choice only)
+* hint_text (if applicable)
+* image_ref (if available)
+* first_letter (for hard mode)
+
+Keep structure explicit and minimal.
+
+---
+
+Behavior rules:
+
+EASY:
+
+* type: multiple_choice
+* must include exactly 3 options:
+
+  * 1 correct
+  * 2 distractors
+* options must be shuffled
+* if fewer than 2 distractors are available:
+
+  * fail with a clear domain-level exception (do not silently degrade)
+
+MEDIUM:
+
+* type: jumbled_letters
+* build shuffled letters of the correct answer
+* include hint_text in requested hint_language
+* include image_ref if present
+
+HARD:
+
+* type: typed_answer
+* include first_letter
+* include hint_text in requested hint_language
+
+---
+
+Hint rules:
+
+* use translation in hint_language
+* fallback order must match current spec (ru → uk → first available → headword)
+* do not silently return empty hints
+
+---
+
+Architecture rules:
+
+* all logic must live in `englishbot/exercises.py`
+* do not leak exercise-building logic into training or handlers
+* do not introduce plugin systems, registries, or overengineered abstractions
+* keep the module focused and small
+
+---
+
+Testing:
+
+Add:
+
+* `tests/test_exercises.py`
+
+Cover:
+
+1. easy exercise:
+
+   * returns 3 options
+   * contains correct answer
+   * options are shuffled (test by membership, not order)
+
+2. easy failure:
+
+   * raises error if not enough distractors
+
+3. medium exercise:
+
+   * returns jumbled letters
+   * includes localized hint
+
+4. hard exercise:
+
+   * includes first_letter
+   * includes localized hint
+
+5. hint fallback:
+
+   * works when requested language is missing
+
+6. structure:
+
+   * returned object has consistent fields
+
+---
+
+Agent-specific rules:
+
+architect:
+
+* propose the smallest possible change set
+* define only necessary structures and functions
+
+complexity_guard:
+
+* reject:
+
+  * generic registries
+  * plugin-style architecture
+  * excessive file splitting
+  * unnecessary abstractions
+
+coder:
+
+* implement ONLY the approved plan
+* no refactoring outside scope
+* no extra files unless required
+* ensure tests pass
+
+---
+
+After implementation:
+
+Update:
+
+* CHANGELOG.md
+* context/current_state.md
+
+Current state must mention:
+
+* exercise domain model added
+* exercise generation implemented
+* training persistence and Telegram orchestration not yet implemented
+
+---
+
+Output:
+
+* minimal code changes
+* new module
+* focused tests
+* short summary of changes
