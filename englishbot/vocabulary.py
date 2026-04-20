@@ -1,6 +1,10 @@
 import sqlite3
 
-from .db import get_connection, get_default_content_workspace_id, utc_now
+from .db import (
+    get_connection,
+    get_default_content_workspace_id,
+    utc_now,
+)
 from .workspaces import ensure_teacher_can_edit_workspace_content
 
 
@@ -36,6 +40,7 @@ def create_learning_item(
     image_ref: str | None = None,
     audio_ref: str | None = None,
     source_learning_item_id: int | None = None,
+    workbook_key: str | None = None,
 ) -> int:
     timestamp = utc_now()
     stored_workspace_id = (
@@ -46,6 +51,7 @@ def create_learning_item(
             """
             INSERT INTO learning_items (
                 workspace_id,
+                workbook_key,
                 source_learning_item_id,
                 lexeme_id,
                 text,
@@ -54,10 +60,11 @@ def create_learning_item(
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 stored_workspace_id,
+                workbook_key,
                 source_learning_item_id,
                 lexeme_id,
                 text,
@@ -95,6 +102,7 @@ def get_learning_item(learning_item_id: int) -> sqlite3.Row | None:
             SELECT
                 id,
                 workspace_id,
+                workbook_key,
                 source_learning_item_id,
                 lexeme_id,
                 text,
@@ -122,6 +130,7 @@ def list_learning_items(
         SELECT
             learning_items.id,
             learning_items.workspace_id,
+            learning_items.workbook_key,
             learning_items.source_learning_item_id,
             learning_items.lexeme_id,
             learning_items.text,

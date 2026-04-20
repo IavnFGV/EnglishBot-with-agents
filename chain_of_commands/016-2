@@ -1,0 +1,47 @@
+## Промпт на исправление спецификации
+
+```text
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Rework the workbook specification before implementation.
+
+The previous proposal is not yet accepted.
+
+You must review and correct the spec with these constraints:
+
+1. Do NOT assume raw DB ids are the only workbook identity strategy unless you prove that this is the best fit for long-lived human-edited Google Sheets content.
+2. Prefer stable workbook keys / external keys if that is safer for manual editing and cross-environment portability.
+3. Empty translation cells must NOT silently delete translations in MVP unless there is a very strong justification.
+4. Unknown extra columns should preferably be ignored, not treated as fatal errors, unless there is a strong reason otherwise.
+5. Re-check all persistence field names against the actual codebase. Do not invent fields such as `lemma`, `name`, or `title` unless they really exist in the current repository.
+6. Re-evaluate whether `hint` should be included in workbook format if it is part of the learning content model.
+
+Task:
+Produce a corrected workbook spec for:
+- topics
+- topic_items
+- learning_items
+
+You must explicitly output:
+- accepted id/key strategy and justification
+- required columns
+- optional columns
+- safe import semantics
+- archive semantics
+- translation update semantics
+- unknown-column behavior
+- exact persistence mappings based only on real existing fields in the repo
+
+Workflow:
+1. architect
+2. complexity_guard
+3. coder
+4. complexity_guard
+
+Definition of done:
+- spec is safe for long-lived manual editing in Google Sheets
+- spec does not rely on guessed schema fields
+- spec keeps MVP import behavior safe and understandable

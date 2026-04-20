@@ -1,0 +1,107 @@
+
+## Промпт 1. Спецификация workbook-формата
+
+```text
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Introduce a stable workbook format for teacher-workspace content import/export using `.xlsx` files.
+
+Context:
+The project now needs a spreadsheet-based content workflow for teacher workspaces.
+
+Source of the file in MVP:
+- a human exports `.xlsx` manually from Google Sheets
+- the bot imports that `.xlsx` file
+- no direct Google Sheets API integration in this slice
+
+Agreed product decisions:
+- import mode is partial upsert
+- new rows without ids may create new entities
+- workbook is only for teacher workspace authoring content
+- student visibility / topic access is NOT part of this workbook slice
+
+Workbook must contain exactly 3 sheets:
+
+1) `topics`
+   Purpose:
+   - teacher-workspace topics catalog
+
+   Proposed columns:
+   - topic_id
+   - topic_name
+   - is_archived
+   - sort_order (optional if justified)
+   - description (optional if justified)
+
+2) `topic_items`
+   Purpose:
+   - topic membership inside teacher workspace
+
+   Proposed columns:
+   - topic_id
+   - learning_item_id
+   - sort_order
+
+3) `learning_items`
+   Purpose:
+   - teacher-workspace learning catalog
+
+   Proposed columns:
+   - learning_item_id
+   - lexeme_headword
+   - translation_ru
+   - translation_uk
+   - translation_bg
+   - image_url
+   - audio_url
+   - hint
+   - is_archived
+
+Task:
+Design the smallest stable workbook format and import/export rules.
+
+You must define:
+- exact required columns
+- optional columns
+- validation rules
+- how new rows are detected
+- how updates are matched
+- how archive flags behave
+- how topic membership updates behave
+- what happens when a topic_items row references a missing topic or learning item
+- how translations map into normalized persistence model
+- whether ids are internal ids, external ids, or existing DB ids
+- how to keep the format understandable for humans editing in Google Sheets
+
+Constraints:
+- keep format simple
+- avoid overengineering
+- do not introduce synchronization/versioning
+- do not include student workspace data in this workbook
+- SQLite remains the runtime source of truth
+
+Out of scope:
+- direct Google Sheets API
+- student topic access management
+- assignment management
+- session management
+- image upload flow
+- diff-based sync
+- content versioning
+
+Workflow:
+1. architect
+2. complexity_guard
+3. coder
+4. complexity_guard
+
+Expected output:
+- workbook schema proposal
+- import/export behavioral rules
+- list of files to add or modify for later implementation
+- explicit decisions about id strategy
+- PASS/FAIL from complexity_guard

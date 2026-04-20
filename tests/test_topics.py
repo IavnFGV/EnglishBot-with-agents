@@ -7,7 +7,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.db import get_default_content_workspace_id
+from englishbot.db import (
+    TOPIC_WORKBOOK_KEY_PREFIX,
+    build_workbook_key,
+    get_default_content_workspace_id,
+)
 from englishbot.topics import (
     TopicWorkspaceMismatchError,
     archive_topic,
@@ -59,6 +63,7 @@ def test_init_db_creates_topic_tables_with_archive_fields(tmp_path: Path) -> Non
     assert "topic_learning_items" in table_names
     assert "is_archived" in column_names
     assert "updated_at" in column_names
+    assert "workbook_key" in column_names
 
 
 def test_create_and_read_topic(tmp_path: Path) -> None:
@@ -73,11 +78,13 @@ def test_create_and_read_topic(tmp_path: Path) -> None:
 
     assert topic is not None
     assert topic["workspace_id"] == default_workspace_id
+    assert topic["workbook_key"].startswith(f"{TOPIC_WORKBOOK_KEY_PREFIX}-")
     assert topic["name"] == "months"
     assert topic["title"] == "Месяцы"
     assert resolved is not None
     assert resolved["id"] == topic_id
     assert topics[0]["workspace_id"] == default_workspace_id
+    assert topics[0]["workbook_key"] == topic["workbook_key"]
     assert topics[0]["name"] == "months"
     assert topics[0]["title"] == "Месяцы"
     assert topics[0]["item_count"] == 0
@@ -138,15 +145,17 @@ def test_init_db_migrates_topics_to_add_workspace_and_archive_columns(tmp_path: 
             row[1] for row in connection.execute("PRAGMA table_info(topics)").fetchall()
         }
         topic_row = connection.execute(
-            "SELECT workspace_id, is_archived, updated_at FROM topics WHERE name = 'legacy'"
+            "SELECT workspace_id, workbook_key, is_archived, updated_at FROM topics WHERE name = 'legacy'"
         ).fetchone()
 
     assert "workspace_id" in column_names
+    assert "workbook_key" in column_names
     assert "is_archived" in column_names
     assert "updated_at" in column_names
     assert topic_row[0] == default_workspace_id
-    assert topic_row[1] == 0
-    assert topic_row[2] == "2026-01-01T00:00:00+00:00"
+    assert topic_row[1] == build_workbook_key(TOPIC_WORKBOOK_KEY_PREFIX, 1)
+    assert topic_row[2] == 0
+    assert topic_row[3] == "2026-01-01T00:00:00+00:00"
 
 
 def test_topic_links_enforce_foreign_keys(tmp_path: Path) -> None:
@@ -211,10 +220,14 @@ def test_publish_topic_to_student_workspace_copies_and_updates_membership(tmp_pa
 
     first_publish = publish_topic_to_workspace(topic_id, target_workspace["workspace_id"])
     published_topic = get_topic(int(first_publish["topic_id"]))
+    source_topic = get_topic(topic_id)
 
     assert published_topic is not None
+    assert source_topic is not None
     assert published_topic["workspace_id"] == target_workspace["workspace_id"]
     assert int(published_topic["source_topic_id"]) == topic_id
+    assert published_topic["workbook_key"].startswith(f"{TOPIC_WORKBOOK_KEY_PREFIX}-")
+    assert published_topic["workbook_key"] != source_topic["workbook_key"]
     assert first_publish["learning_item_ids"] != [first_item_id, second_item_id]
 
     replace_topic_learning_items(401, topic_id, [second_item_id])
@@ -251,3 +264,30 @@ def test_find_topic_by_name_for_teacher_workspace_is_workspace_scoped(tmp_path: 
     assert second_topic is not None
     assert first_topic["id"] == first_topic_id
     assert second_topic["id"] == second_topic_id
+
+
+def test_topic_workbook_keys_are_unique_within_workspace(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    first_workspace = create_workspace("Authoring A", kind="teacher")
+    second_workspace = create_workspace("Authoring B", kind="teacher")
+
+    create_topic(
+        "shared-a",
+        "Первая",
+        workspace_id=first_workspace["workspace_id"],
+        workbook_key="shared-topic-key",
+    )
+    create_topic(
+        "shared-b",
+        "Вторая",
+        workspace_id=second_workspace["workspace_id"],
+        workbook_key="shared-topic-key",
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        create_topic(
+            "shared-c",
+            "Третья",
+            workspace_id=first_workspace["workspace_id"],
+            workbook_key="shared-topic-key",
+        )

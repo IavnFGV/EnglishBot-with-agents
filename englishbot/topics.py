@@ -1,6 +1,10 @@
 import sqlite3
 
-from .db import get_connection, get_default_content_workspace_id, utc_now
+from .db import (
+    get_connection,
+    get_default_content_workspace_id,
+    utc_now,
+)
 from .vocabulary import publish_learning_item_to_workspace
 from .workspaces import ensure_teacher_can_edit_workspace_content
 
@@ -14,6 +18,7 @@ def create_topic(
     title: str,
     workspace_id: int | None = None,
     source_topic_id: int | None = None,
+    workbook_key: str | None = None,
 ) -> int:
     timestamp = utc_now()
     stored_workspace_id = (
@@ -24,15 +29,24 @@ def create_topic(
             """
             INSERT INTO topics (
                 workspace_id,
+                workbook_key,
                 source_topic_id,
                 name,
                 title,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (stored_workspace_id, source_topic_id, name, title, timestamp, timestamp),
+            (
+                stored_workspace_id,
+                workbook_key,
+                source_topic_id,
+                name,
+                title,
+                timestamp,
+                timestamp,
+            ),
         )
     return int(cursor.lastrowid)
 
@@ -49,7 +63,16 @@ def create_topic_for_teacher_workspace(
 
 def get_topic(topic_id: int, include_archived: bool = False) -> sqlite3.Row | None:
     query = """
-        SELECT id, workspace_id, source_topic_id, name, title, is_archived, created_at, updated_at
+        SELECT
+            id,
+            workspace_id,
+            workbook_key,
+            source_topic_id,
+            name,
+            title,
+            is_archived,
+            created_at,
+            updated_at
         FROM topics
         WHERE id = ?
     """
@@ -68,7 +91,16 @@ def get_topic_by_name(
         get_default_content_workspace_id() if workspace_id is None else int(workspace_id)
     )
     query = """
-        SELECT id, workspace_id, source_topic_id, name, title, is_archived, created_at, updated_at
+        SELECT
+            id,
+            workspace_id,
+            workbook_key,
+            source_topic_id,
+            name,
+            title,
+            is_archived,
+            created_at,
+            updated_at
         FROM topics
         WHERE workspace_id = ? AND name = ?
     """
@@ -85,7 +117,16 @@ def get_published_topic(
     with get_connection() as connection:
         return connection.execute(
             """
-            SELECT id, workspace_id, source_topic_id, name, title, is_archived, created_at, updated_at
+            SELECT
+                id,
+                workspace_id,
+                workbook_key,
+                source_topic_id,
+                name,
+                title,
+                is_archived,
+                created_at,
+                updated_at
             FROM topics
             WHERE workspace_id = ? AND source_topic_id = ?
             ORDER BY id
@@ -115,6 +156,7 @@ def list_topics(
         SELECT
             topics.id,
             topics.workspace_id,
+            topics.workbook_key,
             topics.source_topic_id,
             topics.name,
             topics.title,

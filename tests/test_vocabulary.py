@@ -7,7 +7,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.db import get_default_content_workspace_id
+from englishbot.db import (
+    LEARNING_ITEM_WORKBOOK_KEY_PREFIX,
+    build_workbook_key,
+    get_default_content_workspace_id,
+)
 from englishbot.vocabulary import (
     archive_learning_item,
     create_learning_item,
@@ -57,6 +61,7 @@ def test_init_db_creates_vocabulary_tables_and_archive_columns(tmp_path: Path) -
     assert "learning_item_translations" in table_names
     assert "is_archived" in column_names
     assert "source_learning_item_id" in column_names
+    assert "workbook_key" in column_names
 
 
 def test_init_db_migrates_learning_items_to_add_workspace_and_archive_fields(
@@ -101,12 +106,21 @@ def test_init_db_migrates_learning_items_to_add_workspace_and_archive_fields(
             row[1] for row in connection.execute("PRAGMA table_info(learning_items)").fetchall()
         }
         stored_row = connection.execute(
-            "SELECT workspace_id, is_archived FROM learning_items WHERE id = 1"
+            """
+            SELECT workspace_id, workbook_key, is_archived
+            FROM learning_items
+            WHERE id = 1
+            """
         ).fetchone()
 
     assert "workspace_id" in column_names
+    assert "workbook_key" in column_names
     assert "is_archived" in column_names
-    assert stored_row == (default_workspace_id, 0)
+    assert stored_row == (
+        default_workspace_id,
+        build_workbook_key(LEARNING_ITEM_WORKBOOK_KEY_PREFIX, 1),
+        0,
+    )
 
 
 def test_create_and_get_lexeme(tmp_path: Path) -> None:
@@ -139,6 +153,8 @@ def test_create_and_get_learning_item_with_nullable_assets(tmp_path: Path) -> No
     assert with_assets is not None
     assert without_assets["workspace_id"] == default_workspace_id
     assert with_assets["workspace_id"] == default_workspace_id
+    assert without_assets["workbook_key"].startswith(f"{LEARNING_ITEM_WORKBOOK_KEY_PREFIX}-")
+    assert with_assets["workbook_key"].startswith(f"{LEARNING_ITEM_WORKBOOK_KEY_PREFIX}-")
     assert without_assets["is_archived"] == 0
     assert with_assets["text"] == "run fast"
     assert with_assets["image_ref"] == "assets/images/run-fast.png"
@@ -251,9 +267,13 @@ def test_publish_learning_item_to_student_workspace_reuses_existing_copy(tmp_pat
         target_workspace["workspace_id"],
     )
     published_learning_item = get_learning_item(first_published_id)
+    source_learning_item = get_learning_item(source_learning_item_id)
     assert published_learning_item is not None
+    assert source_learning_item is not None
     assert published_learning_item["workspace_id"] == target_workspace["workspace_id"]
     assert int(published_learning_item["source_learning_item_id"]) == source_learning_item_id
+    assert published_learning_item["workbook_key"].startswith(f"{LEARNING_ITEM_WORKBOOK_KEY_PREFIX}-")
+    assert published_learning_item["workbook_key"] != source_learning_item["workbook_key"]
 
     create_learning_item_translation(source_learning_item_id, "uk", "дерево-uk")
     second_published_id = publish_learning_item_to_workspace(
@@ -266,6 +286,34 @@ def test_publish_learning_item_to_student_workspace_reuses_existing_copy(tmp_pat
         "ru",
         "uk",
     ]
+
+
+def test_learning_item_workbook_keys_are_unique_within_workspace(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    first_workspace = create_workspace("Authoring A", kind="teacher")
+    second_workspace = create_workspace("Authoring B", kind="teacher")
+    lexeme_id = create_lexeme("shared-lemma")
+
+    create_learning_item(
+        lexeme_id,
+        "first text",
+        workspace_id=first_workspace["workspace_id"],
+        workbook_key="shared-item-key",
+    )
+    create_learning_item(
+        lexeme_id,
+        "second text",
+        workspace_id=second_workspace["workspace_id"],
+        workbook_key="shared-item-key",
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        create_learning_item(
+            lexeme_id,
+            "duplicate text",
+            workspace_id=first_workspace["workspace_id"],
+            workbook_key="shared-item-key",
+        )
 
 
 def test_vocabulary_foreign_keys_reject_orphaned_learning_content(tmp_path: Path) -> None:

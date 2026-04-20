@@ -1,4 +1,9 @@
-from .db import get_connection, get_default_content_workspace_id, init_db, utc_now
+from .db import (
+    get_connection,
+    get_default_content_workspace_id,
+    init_db,
+    utc_now,
+)
 from .topics import get_topic_by_name, get_topic_learning_item_ids, list_topics
 
 
@@ -104,6 +109,7 @@ def seed_basic_topics() -> dict[str, int]:
                     """
                     INSERT INTO topics (
                         workspace_id,
+                        workbook_key,
                         source_topic_id,
                         name,
                         title,
@@ -111,7 +117,7 @@ def seed_basic_topics() -> dict[str, int]:
                         created_at,
                         updated_at
                     )
-                    VALUES (?, NULL, ?, ?, 0, ?, ?)
+                    VALUES (?, NULL, NULL, ?, ?, 0, ?, ?)
                     """,
                     (
                         workspace_id,
@@ -162,6 +168,7 @@ def seed_basic_topics() -> dict[str, int]:
                         """
                         INSERT INTO learning_items (
                             workspace_id,
+                            workbook_key,
                             source_learning_item_id,
                             lexeme_id,
                             text,
@@ -171,7 +178,7 @@ def seed_basic_topics() -> dict[str, int]:
                             created_at,
                             updated_at
                         )
-                        VALUES (?, NULL, ?, ?, NULL, NULL, 0, ?, ?)
+                        VALUES (?, NULL, NULL, ?, ?, NULL, NULL, 0, ?, ?)
                         """,
                         (workspace_id, lexeme_id, lemma, timestamp, timestamp),
                     )

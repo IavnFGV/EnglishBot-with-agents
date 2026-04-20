@@ -11,6 +11,8 @@ DEFAULT_USER_ROLE = "student"
 DEFAULT_CONTENT_WORKSPACE_NAME = "Starter Content"
 WORKSPACE_KIND_TEACHER = "teacher"
 WORKSPACE_KIND_STUDENT = "student"
+TOPIC_WORKBOOK_KEY_PREFIX = "topic"
+LEARNING_ITEM_WORKBOOK_KEY_PREFIX = "learning-item"
 
 
 def utc_now() -> str:
@@ -29,6 +31,10 @@ def get_table_columns(connection: sqlite3.Connection, table_name: str) -> set[st
         row["name"]
         for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     }
+
+
+def build_workbook_key(prefix: str, row_id: int) -> str:
+    return f"{prefix}-{int(row_id)}"
 
 
 def _ensure_default_content_workspace(connection: sqlite3.Connection) -> int:
@@ -249,6 +255,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS learning_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 workspace_id INTEGER NOT NULL,
+                workbook_key TEXT,
                 source_learning_item_id INTEGER,
                 lexeme_id INTEGER NOT NULL,
                 text TEXT NOT NULL,
@@ -272,6 +279,13 @@ def init_db() -> None:
                 REFERENCES workspaces (id)
                 """
             )
+        if "workbook_key" not in learning_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE learning_items
+                ADD COLUMN workbook_key TEXT
+                """
+            )
         connection.execute(
             """
             UPDATE learning_items
@@ -280,6 +294,26 @@ def init_db() -> None:
             """,
             (default_content_workspace_id,),
         )
+        legacy_learning_items = connection.execute(
+            """
+            SELECT id
+            FROM learning_items
+            WHERE workbook_key IS NULL OR TRIM(workbook_key) = ''
+            ORDER BY id
+            """
+        ).fetchall()
+        for row in legacy_learning_items:
+            connection.execute(
+                """
+                UPDATE learning_items
+                SET workbook_key = ?
+                WHERE id = ?
+                """,
+                (
+                    build_workbook_key(LEARNING_ITEM_WORKBOOK_KEY_PREFIX, int(row["id"])),
+                    int(row["id"]),
+                ),
+            )
         if "image_ref" not in learning_item_columns:
             connection.execute(
                 """
@@ -342,6 +376,25 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_items_workspace_workbook_key_unique
+            ON learning_items (workspace_id, workbook_key)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_learning_items_set_workbook_key
+            AFTER INSERT ON learning_items
+            FOR EACH ROW
+            WHEN NEW.workbook_key IS NULL OR TRIM(NEW.workbook_key) = ''
+            BEGIN
+                UPDATE learning_items
+                SET workbook_key = 'learning-item-' || NEW.id
+                WHERE id = NEW.id;
+            END
+            """
+        )
+        connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_learning_item_translations_learning_item_id
             ON learning_item_translations (learning_item_id)
             """
@@ -351,6 +404,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS topics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 workspace_id INTEGER NOT NULL,
+                workbook_key TEXT,
                 source_topic_id INTEGER,
                 name TEXT NOT NULL,
                 title TEXT NOT NULL,
@@ -369,6 +423,13 @@ def init_db() -> None:
                 ALTER TABLE topics
                 ADD COLUMN workspace_id INTEGER
                 REFERENCES workspaces (id)
+                """
+            )
+        if "workbook_key" not in topic_columns:
+            connection.execute(
+                """
+                ALTER TABLE topics
+                ADD COLUMN workbook_key TEXT
                 """
             )
         if "is_archived" not in topic_columns:
@@ -401,6 +462,26 @@ def init_db() -> None:
             """,
             (default_content_workspace_id,),
         )
+        legacy_topics = connection.execute(
+            """
+            SELECT id
+            FROM topics
+            WHERE workbook_key IS NULL OR TRIM(workbook_key) = ''
+            ORDER BY id
+            """
+        ).fetchall()
+        for row in legacy_topics:
+            connection.execute(
+                """
+                UPDATE topics
+                SET workbook_key = ?
+                WHERE id = ?
+                """,
+                (
+                    build_workbook_key(TOPIC_WORKBOOK_KEY_PREFIX, int(row["id"])),
+                    int(row["id"]),
+                ),
+            )
         connection.execute(
             """
             UPDATE topics
@@ -442,6 +523,25 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_topics_workspace_source
             ON topics (workspace_id, source_topic_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_topics_workspace_workbook_key_unique
+            ON topics (workspace_id, workbook_key)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_topics_set_workbook_key
+            AFTER INSERT ON topics
+            FOR EACH ROW
+            WHEN NEW.workbook_key IS NULL OR TRIM(NEW.workbook_key) = ''
+            BEGIN
+                UPDATE topics
+                SET workbook_key = 'topic-' || NEW.id
+                WHERE id = NEW.id;
+            END
             """
         )
         connection.execute(
