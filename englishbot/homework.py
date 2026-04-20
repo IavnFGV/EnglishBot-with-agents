@@ -3,7 +3,12 @@ import sqlite3
 from .db import get_connection, utc_now
 from .teacher_student import ROLE_TEACHER
 from .topics import find_topic_by_name_for_teacher_workspace, publish_topic_to_workspace
-from .training import create_training_session_for_learning_items
+from .training import (
+    create_training_session_for_learning_items,
+    find_latest_incomplete_assignment_training_session,
+    get_current_question,
+    resume_training_session,
+)
 from .user_profiles import get_user_role
 from .vocabulary import get_learning_item, publish_learning_item_to_workspace
 from .workspaces import (
@@ -18,6 +23,9 @@ from .workspaces import (
 
 ACTIVE_STATUS = "active"
 COMPLETED_STATUS = "completed"
+ITEM_STATUS_NOT_STARTED = "not_started"
+ITEM_STATUS_IN_PROGRESS = "in_progress"
+ITEM_STATUS_COMPLETED = "completed"
 
 
 class HomeworkError(Exception):
@@ -233,12 +241,29 @@ def start_assignment_training_session(
     if not learning_item_ids:
         raise EmptyAssignmentError
 
+    active_session = find_latest_incomplete_assignment_training_session(
+        student_user_id,
+        assignment_id,
+    )
+    if active_session is not None:
+        resumed_session = resume_training_session(int(active_session["id"]))
+        if resumed_session is None:
+            raise AssignmentNotFoundError
+        return {
+            "session_id": int(resumed_session["id"]),
+            "total_questions": int(resumed_session["total_questions"]),
+            "question": get_current_question(student_user_id),
+            "assignment_title": assignment["title"],
+            "resumed": True,
+        }
+
     result = create_training_session_for_learning_items(
         student_user_id,
         learning_item_ids,
         assignment_id=assignment_id,
     )
     result["assignment_title"] = assignment["title"]
+    result["resumed"] = False
     return result
 
 
@@ -257,6 +282,101 @@ def mark_assignment_completed(assignment_id: int) -> None:
                 assignment_id,
             ),
         )
+
+
+def get_active_assignment_training_session(
+    student_user_id: int,
+    assignment_id: int,
+) -> sqlite3.Row | None:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT
+                id,
+                telegram_user_id,
+                assignment_id,
+                current_index,
+                correct_answers,
+                total_questions,
+                progress_message_id,
+                current_question_message_id,
+                status,
+                created_at,
+                updated_at
+            FROM training_sessions
+            WHERE telegram_user_id = ?
+              AND assignment_id = ?
+              AND status = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (student_user_id, assignment_id, ACTIVE_STATUS),
+        ).fetchone()
+
+
+def get_assignment_progress_snapshot(
+    assignment_id: int,
+    session_id: int,
+) -> dict[str, object]:
+    assignment = get_assignment(assignment_id)
+    if assignment is None:
+        raise AssignmentNotFoundError
+
+    with get_connection() as connection:
+        session = connection.execute(
+            """
+            SELECT id, current_index, total_questions, status
+            FROM training_sessions
+            WHERE id = ? AND assignment_id = ?
+            """,
+            (session_id, assignment_id),
+        ).fetchone()
+        item_rows = connection.execute(
+            """
+            SELECT item_order, current_stage, is_completed
+            FROM training_session_items
+            WHERE session_id = ?
+            ORDER BY item_order
+            """,
+            (session_id,),
+        ).fetchall()
+
+    if session is None:
+        raise AssignmentNotFoundError
+
+    total_items = len(item_rows)
+    completed_items = sum(1 for row in item_rows if int(row["is_completed"]) == 1)
+    current_index = int(session["current_index"])
+    is_session_completed = str(session["status"]) == COMPLETED_STATUS
+    if total_items == 0:
+        current_item_position = 0
+        current_stage = COMPLETED_STATUS if is_session_completed else ACTIVE_STATUS
+    else:
+        current_item_position = total_items if is_session_completed else min(current_index + 1, total_items)
+        current_stage = COMPLETED_STATUS
+        if not is_session_completed:
+            current_row = item_rows[min(current_index, total_items - 1)]
+            current_stage = str(current_row["current_stage"])
+
+    item_statuses: list[str] = []
+    for row in item_rows:
+        item_order = int(row["item_order"])
+        if int(row["is_completed"]) == 1:
+            item_statuses.append(ITEM_STATUS_COMPLETED)
+        elif not is_session_completed and item_order == current_index:
+            item_statuses.append(ITEM_STATUS_IN_PROGRESS)
+        else:
+            item_statuses.append(ITEM_STATUS_NOT_STARTED)
+
+    return {
+        "assignment_id": int(assignment["id"]),
+        "assignment_title": assignment["title"],
+        "completed_items": completed_items,
+        "total_items": total_items,
+        "current_item_position": current_item_position,
+        "current_stage": current_stage,
+        "item_statuses": item_statuses,
+    }
 
 
 def _get_student_workspace(

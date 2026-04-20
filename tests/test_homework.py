@@ -18,6 +18,7 @@ from englishbot.homework import (
     create_assignment_from_group,
     get_assignment,
     get_assignment_learning_item_ids,
+    get_assignment_progress_snapshot,
     list_active_assignments,
     start_assignment_training_session,
     student_has_active_homework,
@@ -29,7 +30,7 @@ from englishbot.topics import (
     rename_topic,
     replace_topic_learning_items,
 )
-from englishbot.training import get_active_training_session, submit_training_answer
+from englishbot.training import create_training_session, get_active_training_session, submit_training_answer
 from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import (
     archive_learning_item,
@@ -282,6 +283,68 @@ def test_assignment_completion_marks_homework_done(tmp_path: Path) -> None:
     assert answer_result is not None
     assert answer_result["status"] == "completed"
     assert list_active_assignments(student.id) == []
+
+
+def test_start_assignment_training_session_resumes_existing_active_session(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 1)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Resume me")
+
+    started = start_assignment_training_session(student.id, int(result["assignment_id"]))
+    first_session_id = int(started["session_id"])
+    first_answer = submit_training_answer(student.id, "lesson-1")
+    resumed = start_assignment_training_session(student.id, int(result["assignment_id"]))
+
+    assert first_answer is not None
+    assert resumed["resumed"] is True
+    assert int(resumed["session_id"]) == first_session_id
+    assert resumed["question"] is not None
+
+
+def test_start_assignment_training_session_resumes_persisted_state_after_switching_flows(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 1)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Resume later")
+
+    started = start_assignment_training_session(student.id, int(result["assignment_id"]))
+    first_session_id = int(started["session_id"])
+    answer_result = submit_training_answer(student.id, "lesson-1")
+    create_training_session(student.id, limit=1)
+
+    resumed = start_assignment_training_session(student.id, int(result["assignment_id"]))
+
+    assert answer_result is not None
+    assert resumed["resumed"] is True
+    assert int(resumed["session_id"]) == first_session_id
+    assert resumed["question"] is not None
+    assert resumed["question"]["current_stage"] == "easy"
+    assert resumed["question"]["easy_correct_count"] == 1
+
+
+def test_assignment_progress_snapshot_reports_compact_item_statuses(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 2)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Status test")
+
+    training_result = start_assignment_training_session(student.id, int(result["assignment_id"]))
+    first_session_id = int(training_result["session_id"])
+    for _ in range(4):
+        answer_result = submit_training_answer(student.id, "lesson-1")
+
+    snapshot = get_assignment_progress_snapshot(int(result["assignment_id"]), first_session_id)
+
+    assert answer_result is not None
+    assert snapshot["assignment_title"] == "Status test"
+    assert snapshot["completed_items"] == 1
+    assert snapshot["total_items"] == 2
+    assert snapshot["current_item_position"] == 2
+    assert snapshot["current_stage"] == "easy"
+    assert snapshot["item_statuses"] == ["completed", "in_progress"]
 
 
 def test_create_assignment_from_group_uses_explicit_teacher_workspace(tmp_path: Path) -> None:

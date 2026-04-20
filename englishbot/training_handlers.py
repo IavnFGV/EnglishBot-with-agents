@@ -4,6 +4,10 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from .command_registry import LEARN_COMMAND
 from .db import save_user
+from .homework import (
+    get_assignment_progress_snapshot,
+    get_assignment,
+)
 from .i18n import translate_for_user
 from .runtime import router
 from .training import (
@@ -18,6 +22,16 @@ from .training import (
 
 
 TRAINING_EASY_CALLBACK_PREFIX = "training:easy:"
+
+
+def _get_session_assignment_id(session: object) -> int | None:
+    if hasattr(session, "keys") and "assignment_id" in session.keys():
+        assignment_id = session["assignment_id"]
+        return None if assignment_id is None else int(assignment_id)
+    if isinstance(session, dict):
+        assignment_id = session.get("assignment_id")
+        return None if assignment_id is None else int(assignment_id)
+    return None
 
 
 def _build_easy_options_keyboard(question: dict[str, object]) -> InlineKeyboardMarkup | None:
@@ -64,6 +78,104 @@ def _render_progress_text(
     )
 
 
+def _resolve_assignment_title(telegram_user_id: int, assignment_id: int) -> str:
+    assignment = get_assignment(assignment_id)
+    if assignment is not None and assignment["title"] is not None and str(assignment["title"]).strip():
+        return str(assignment["title"])
+    return translate_for_user(
+        telegram_user_id,
+        "homework.assignment_fallback",
+        assignment_id=assignment_id,
+    )
+
+
+def _render_homework_progress_text(
+    telegram_user_id: int,
+    assignment_id: int,
+    session_id: int,
+) -> str:
+    snapshot = get_assignment_progress_snapshot(assignment_id, session_id)
+    item_statuses = " | ".join(
+        translate_for_user(
+            telegram_user_id,
+            "homework.item_status.entry",
+            item_number=item_number,
+            status_label=translate_for_user(
+                telegram_user_id,
+                f"homework.item_status.{status_key}",
+            ),
+        )
+        for item_number, status_key in enumerate(snapshot["item_statuses"], start=1)
+    )
+    return translate_for_user(
+        telegram_user_id,
+        "homework.progress",
+        assignment_title=_resolve_assignment_title(telegram_user_id, assignment_id),
+        completed_items=snapshot["completed_items"],
+        total_items=snapshot["total_items"],
+        current_item_position=snapshot["current_item_position"],
+        stage_label=translate_for_user(
+            telegram_user_id,
+            f"training.stage.{snapshot['current_stage']}",
+        ),
+        item_statuses=item_statuses,
+    )
+
+
+def _render_session_progress_text(
+    telegram_user_id: int,
+    session: object,
+    *,
+    question_number: int,
+    total_questions: int,
+    completed_items: int,
+    stage_key: str,
+    hard_unlocked: bool,
+) -> str:
+    assignment_id = _get_session_assignment_id(session)
+    if assignment_id is not None:
+        return _render_homework_progress_text(
+            telegram_user_id,
+            assignment_id,
+            int(session["id"]),
+        )
+    return _render_progress_text(
+        telegram_user_id,
+        question_number=question_number,
+        total_questions=total_questions,
+        completed_items=completed_items,
+        stage_key=stage_key,
+        hard_unlocked=hard_unlocked,
+    )
+
+
+def _render_session_summary_text(
+    telegram_user_id: int,
+    session: object,
+    *,
+    feedback: str,
+    total_questions: int,
+    correct_answers: int,
+) -> str:
+    assignment_id = _get_session_assignment_id(session)
+    if assignment_id is not None:
+        return translate_for_user(
+            telegram_user_id,
+            "homework.summary",
+            feedback=feedback,
+            assignment_title=_resolve_assignment_title(telegram_user_id, assignment_id),
+            total_questions=total_questions,
+            correct_answers=correct_answers,
+        )
+    return translate_for_user(
+        telegram_user_id,
+        "training.summary",
+        feedback=feedback,
+        total_questions=total_questions,
+        correct_answers=correct_answers,
+    )
+
+
 def _render_question_text(
     telegram_user_id: int,
     question: dict[str, object],
@@ -99,13 +211,15 @@ def _render_question_text(
 
 
 async def render_started_training_session(message: Message, telegram_user_id: int) -> None:
+    session = get_active_training_session(telegram_user_id)
     question = get_current_question(telegram_user_id)
-    if question is None:
+    if session is None or question is None:
         return
 
     progress_message = await message.answer(
-        _render_progress_text(
+        _render_session_progress_text(
             telegram_user_id,
+            session,
             question_number=int(question["question_number"]),
             total_questions=int(question["total_questions"]),
             completed_items=int(question["completed_items"]),
@@ -140,8 +254,9 @@ async def _edit_progress_message(
     hard_unlocked: bool,
 ) -> None:
     progress_message_id = session["progress_message_id"]
-    progress_text = _render_progress_text(
+    progress_text = _render_session_progress_text(
         telegram_user_id,
+        session,
         question_number=question_number,
         total_questions=total_questions,
         completed_items=completed_items,
@@ -237,9 +352,9 @@ async def _process_training_answer(
         set_training_session_current_question_message_id(int(session["id"]), None)
         summary = result["summary"]
         await anchor_message.answer(
-            translate_for_user(
+            _render_session_summary_text(
                 telegram_user_id,
-                "training.summary",
+                session,
                 feedback=feedback,
                 total_questions=summary["total_questions"],
                 correct_answers=summary["correct_answers"],

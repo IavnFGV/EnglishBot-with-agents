@@ -153,14 +153,44 @@ def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
     assert callback.answered is True
     assert callback_message.answers == [
         {
-            "text": "Item 1/1\nDone 0/1\nStage: easy",
+            "text": (
+                "Homework: Тестовая домашка\n"
+                "Done 0/1\n"
+                "Current item 1/1\n"
+                "Stage: easy\n"
+                "Items: 1 in progress"
+            ),
             "kwargs": {},
         },
         {
-            "text": "понедельник\nFirst letter: m",
+            "text": "Hint: понедельник\nFirst letter: m",
             "kwargs": {"reply_markup": None},
         }
     ]
+
+
+def test_start_homework_progress_shows_item_statuses_for_multiple_items(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    seed_basic_topics()
+    learning_item_ids = resolve_basic_topic_learning_item_ids("weekdays")[:2]
+    assignment = create_assignment(
+        teacher.id,
+        student.id,
+        learning_item_ids,
+        title="Два слова",
+    )
+    callback_message = FakeMessage(student)
+    callback = FakeCallback(
+        student,
+        f"homework:start:{assignment['assignment_id']}",
+        callback_message,
+    )
+
+    asyncio.run(start_homework(callback))
+
+    assert "Homework: Два слова" in callback_message.answers[0]["text"]
+    assert "Items: 1 in progress | 2 not started" in callback_message.answers[0]["text"]
 
 
 def test_build_homework_button_uses_homework_open_callback() -> None:

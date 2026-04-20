@@ -142,6 +142,106 @@ def get_active_training_session(telegram_user_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
+def get_training_session(session_id: int) -> sqlite3.Row | None:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT
+                id,
+                telegram_user_id,
+                assignment_id,
+                current_index,
+                correct_answers,
+                total_questions,
+                progress_message_id,
+                current_question_message_id,
+                status,
+                created_at,
+                updated_at
+            FROM training_sessions
+            WHERE id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+
+
+def find_latest_incomplete_assignment_training_session(
+    telegram_user_id: int,
+    assignment_id: int,
+) -> sqlite3.Row | None:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT
+                training_sessions.id,
+                training_sessions.telegram_user_id,
+                training_sessions.assignment_id,
+                training_sessions.current_index,
+                training_sessions.correct_answers,
+                training_sessions.total_questions,
+                training_sessions.progress_message_id,
+                training_sessions.current_question_message_id,
+                training_sessions.status,
+                training_sessions.created_at,
+                training_sessions.updated_at
+            FROM training_sessions
+            WHERE training_sessions.telegram_user_id = ?
+              AND training_sessions.assignment_id = ?
+              AND EXISTS (
+                    SELECT 1
+                    FROM training_session_items
+                    WHERE training_session_items.session_id = training_sessions.id
+                      AND training_session_items.is_completed = 0
+                )
+            ORDER BY training_sessions.id DESC
+            LIMIT 1
+            """,
+            (telegram_user_id, assignment_id),
+        ).fetchone()
+
+
+def resume_training_session(session_id: int) -> sqlite3.Row | None:
+    session = get_training_session(session_id)
+    if session is None:
+        return None
+
+    next_item = _find_next_incomplete_item(int(session["id"]), 0)
+    if next_item is None:
+        _mark_session_completed(session)
+        return None
+
+    timestamp = utc_now()
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET status = ?, current_index = total_questions, updated_at = ?
+            WHERE telegram_user_id = ? AND status = ? AND id != ?
+            """,
+            (
+                COMPLETED_STATUS,
+                timestamp,
+                int(session["telegram_user_id"]),
+                ACTIVE_STATUS,
+                int(session["id"]),
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET status = ?, current_index = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                ACTIVE_STATUS,
+                int(next_item["item_order"]),
+                timestamp,
+                int(session["id"]),
+            ),
+        )
+    return get_training_session(session_id)
+
+
 def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
     session = get_active_training_session(telegram_user_id)
     if session is None:

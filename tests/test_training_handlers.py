@@ -8,14 +8,18 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.homework import create_assignment, start_assignment_training_session
+from englishbot.teacher_student import create_invite, join_with_invite
 from englishbot.training import get_active_training_session
 from englishbot.training_handlers import (
     TRAINING_EASY_CALLBACK_PREFIX,
     answer_training_easy,
     answer_training_question,
     learn,
+    render_started_training_session,
 )
 from englishbot.user_profiles import set_user_hint_language
+from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import create_learning_item, create_learning_item_translation, create_lexeme
 from englishbot.workspaces import add_workspace_member
 
@@ -81,6 +85,17 @@ def seed_learning_items(item_count: int) -> None:
         lexeme_id = create_lexeme(f"word-{index + 1}")
         learning_item_id = create_learning_item(lexeme_id, f"text-{index + 1}")
         create_learning_item_translation(learning_item_id, "ru", f"слово-{index + 1}")
+
+
+def seed_linked_teacher_and_student() -> tuple[User, User]:
+    teacher = make_user(498, "Teacher")
+    student = make_user(497, "Student")
+    db.save_user(teacher)
+    db.save_user(student)
+    set_user_role(teacher.id, "teacher")
+    invite_code = create_invite(teacher.id)
+    join_with_invite(student.id, invite_code)
+    return teacher, student
 
 
 def _find_keyboard_index_by_label(keyboard, label: str) -> int:
@@ -282,3 +297,27 @@ def test_learn_renders_hint_prompt_from_persisted_hint_language(tmp_path: Path) 
     asyncio.run(learn(message))
 
     assert message.answers[1]["text"] == "дума-1"
+
+
+def test_homework_completion_uses_homework_specific_summary(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
+    lexeme_id = create_lexeme("homework-word")
+    learning_item_id = create_learning_item(lexeme_id, "homework-word")
+    create_learning_item_translation(learning_item_id, "ru", "домашка")
+    assignment = create_assignment(teacher.id, student.id, [learning_item_id], title="Homework set")
+    start_assignment_training_session(student.id, int(assignment["assignment_id"]))
+    start_message = FakeMessage(student)
+    asyncio.run(render_started_training_session(start_message, student.id))
+
+    active_message = start_message
+    for _ in range(4):
+        next_message = FakeMessage(student, text="homework-word", bot=active_message.bot)
+        next_message._next_message_id = active_message._next_message_id
+        asyncio.run(answer_training_question(next_message))
+        active_message = next_message
+
+    assert active_message.answers[0]["text"] == (
+        'Correct.\nHomework "Homework set" completed.\nResult: 1 questions, 4 correct answers.'
+    )

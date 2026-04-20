@@ -1,0 +1,100 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+Task:
+Implement a dedicated homework-oriented learner flow on top of the existing staged training engine.
+
+IMPORTANT:
+Do not redesign the core staged exercise domain.
+Do not add FSM.
+Do not introduce advanced graphics.
+Do not add new commands unless absolutely required.
+Do not refactor unrelated teacher/workbook/workspace code.
+
+Goal:
+Make homework sessions feel like a distinct product flow rather than just a generic `/learn` session entered from homework.
+
+Scope:
+
+1. Homework progress rendering
+
+* Update the learner-facing homework session rendering so that it clearly shows:
+
+  * assignment title
+  * completed item count / total
+  * current item position
+  * current stage
+* Keep rendering text-based and minimal
+
+2. Item-level homework status presentation
+
+* Add a compact textual status representation for assignment items in active homework flow
+* Minimal statuses are enough:
+
+  * not started
+  * in progress
+  * completed
+* Do not implement graphical circular progress UI in this step
+
+3. Homework completion semantics
+
+* Make homework completion behavior explicit and consistent:
+
+  * a homework assignment is completed when all assignment items are completed through the staged flow
+  * restarting an unfinished homework should continue from persisted state rather than silently starting a fresh independent flow, unless current architecture already requires a different behavior
+  * finishing homework should produce a homework-specific final summary
+
+4. Reuse the existing staged training engine
+
+* Do not duplicate progression logic
+* Keep business logic in domain modules
+* Keep Telegram handlers thin
+
+5. Architecture rules
+
+* Prefer extending existing homework/training modules over introducing new layers
+* No scene framework
+* No plugin systems
+* No generic UI rendering abstraction unless strictly necessary
+* Keep changes minimal and explicit
+
+Testing:
+Add or update focused tests to cover at least:
+
+1. homework start renders homework-specific progress context
+2. active homework progress text reflects assignment title and item progress
+3. unfinished homework resumes consistently from persisted state
+4. completed homework produces a homework-specific final summary
+5. generic `/learn` behavior is not broken by homework-specific changes
+
+Prefer updating existing focused homework/training handler tests instead of creating unnecessary new files.
+
+Documentation updates:
+After implementation, update:
+
+* CHANGELOG.md
+* context/current_state.md
+
+Current state must mention:
+
+* homework now has a dedicated learner-facing flow on top of the shared staged engine
+* homework progress rendering is more explicit
+* advanced graphical progress UI is still not implemented
+* no FSM was introduced
+
+Output:
+
+* minimal code changes
+* focused tests
+* short summary of what changed
