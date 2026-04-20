@@ -276,7 +276,8 @@ def test_assignment_completion_marks_homework_done(tmp_path: Path) -> None:
     result = create_assignment(teacher.id, student.id, learning_item_ids)
 
     start_assignment_training_session(student.id, int(result["assignment_id"]))
-    answer_result = submit_training_answer(student.id, "lesson-1")
+    for _ in range(4):
+        answer_result = submit_training_answer(student.id, "lesson-1")
 
     assert answer_result is not None
     assert answer_result["status"] == "completed"

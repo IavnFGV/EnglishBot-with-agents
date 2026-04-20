@@ -657,6 +657,12 @@ def init_db() -> None:
                 prompt_text TEXT NOT NULL,
                 expected_answer TEXT NOT NULL,
                 item_order INTEGER NOT NULL,
+                current_stage TEXT NOT NULL DEFAULT 'easy',
+                easy_correct_count INTEGER NOT NULL DEFAULT 0,
+                medium_correct_count INTEGER NOT NULL DEFAULT 0,
+                correct_streak INTEGER NOT NULL DEFAULT 0,
+                hard_unlocked INTEGER NOT NULL DEFAULT 0,
+                is_completed INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (session_id) REFERENCES training_sessions (id),
                 FOREIGN KEY (learning_item_id) REFERENCES learning_items (id)
             )
@@ -677,6 +683,61 @@ def init_db() -> None:
                 ADD COLUMN expected_answer TEXT
                 """
             )
+        if "current_stage" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN current_stage TEXT NOT NULL DEFAULT 'easy'
+                """
+            )
+        if "easy_correct_count" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN easy_correct_count INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "medium_correct_count" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN medium_correct_count INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "correct_streak" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN correct_streak INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "hard_unlocked" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN hard_unlocked INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "is_completed" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN is_completed INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        connection.execute(
+            """
+            UPDATE training_session_items
+            SET prompt_text = COALESCE(prompt_text, ''),
+                expected_answer = COALESCE(expected_answer, ''),
+                current_stage = COALESCE(NULLIF(TRIM(current_stage), ''), 'easy'),
+                easy_correct_count = COALESCE(easy_correct_count, 0),
+                medium_correct_count = COALESCE(medium_correct_count, 0),
+                correct_streak = COALESCE(correct_streak, 0),
+                hard_unlocked = COALESCE(hard_unlocked, 0),
+                is_completed = COALESCE(is_completed, 0)
+            """
+        )
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_training_sessions_user_status

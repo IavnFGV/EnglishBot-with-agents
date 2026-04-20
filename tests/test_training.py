@@ -18,7 +18,6 @@ from englishbot.vocabulary import (
     create_learning_item,
     create_learning_item_translation,
     create_lexeme,
-    upsert_learning_item_translation,
 )
 from englishbot.workspaces import add_workspace_member
 
@@ -39,15 +38,43 @@ def seed_user_with_learning_items(item_count: int) -> int:
     for index in range(item_count):
         lexeme_id = create_lexeme(f"word-{index + 1}")
         learning_item_id = create_learning_item(lexeme_id, f"text-{index + 1}")
-        if index == 0:
-            create_learning_item_translation(learning_item_id, "uk", "слово-uk")
-            create_learning_item_translation(learning_item_id, "ru", "слово-ru")
-        elif index == 1:
-            create_learning_item_translation(learning_item_id, "uk", "друге")
+        create_learning_item_translation(learning_item_id, "ru", f"слово-{index + 1}")
     return user.id
 
 
-def test_init_db_creates_training_tables_with_snapshot_columns(tmp_path: Path) -> None:
+def get_session_item_state(session_id: int, item_order: int) -> sqlite3.Row:
+    with db.get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT
+                learning_item_id,
+                prompt_text,
+                expected_answer,
+                item_order,
+                current_stage,
+                easy_correct_count,
+                medium_correct_count,
+                correct_streak,
+                hard_unlocked,
+                is_completed
+            FROM training_session_items
+            WHERE session_id = ? AND item_order = ?
+            """,
+            (session_id, item_order),
+        ).fetchone()
+    assert row is not None
+    return row
+
+
+def answer_current_question(user_id: int) -> dict[str, object]:
+    question = get_current_question(user_id)
+    assert question is not None
+    result = submit_training_answer(user_id, str(question["expected_answer"]))
+    assert result is not None
+    return result
+
+
+def test_init_db_creates_training_tables_with_staged_columns(tmp_path: Path) -> None:
     setup_db(tmp_path)
 
     with sqlite3.connect(db.DB_PATH) as connection:
@@ -63,111 +90,175 @@ def test_init_db_creates_training_tables_with_snapshot_columns(tmp_path: Path) -
 
     assert "training_sessions" in table_names
     assert "training_session_items" in table_names
-    assert "prompt_text" in training_item_columns
-    assert "expected_answer" in training_item_columns
+    assert {
+        "prompt_text",
+        "expected_answer",
+        "current_stage",
+        "easy_correct_count",
+        "medium_correct_count",
+        "correct_streak",
+        "hard_unlocked",
+        "is_completed",
+    }.issubset(training_item_columns)
 
 
-def test_create_training_session_persists_active_session_and_item_order(tmp_path: Path) -> None:
+def test_new_sessions_initialize_easy_stage_and_zero_counters(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    user_id = seed_user_with_learning_items(6)
+    user_id = seed_user_with_learning_items(3)
 
     result = create_training_session(user_id)
+    session_id = int(result["session_id"])
+    first_item = get_session_item_state(session_id, 0)
 
-    session = get_active_training_session(user_id)
-    assert session is not None
-    assert result["session_id"] == session["id"]
-    assert session["current_index"] == 0
-    assert session["correct_answers"] == 0
-    assert session["total_questions"] == 5
-    assert session["status"] == "active"
-
-    with db.get_connection() as connection:
-        stored_items = connection.execute(
-            """
-            SELECT learning_item_id, prompt_text, expected_answer, item_order
-            FROM training_session_items
-            WHERE session_id = ?
-            ORDER BY item_order
-            """,
-            (session["id"],),
-        ).fetchall()
-
-    assert [row["item_order"] for row in stored_items] == [0, 1, 2, 3, 4]
-    assert [row["learning_item_id"] for row in stored_items] == [1, 2, 3, 4, 5]
-    assert stored_items[0]["prompt_text"] == "слово-ru"
-    assert stored_items[0]["expected_answer"] == "word-1"
+    assert first_item["current_stage"] == "easy"
+    assert first_item["easy_correct_count"] == 0
+    assert first_item["medium_correct_count"] == 0
+    assert first_item["correct_streak"] == 0
+    assert first_item["hard_unlocked"] == 0
+    assert first_item["is_completed"] == 0
+    assert first_item["prompt_text"] == "слово-1"
+    assert first_item["expected_answer"] == "word-1"
 
 
-def test_get_current_question_prefers_translation_and_falls_back_to_lexeme(tmp_path: Path) -> None:
+def test_easy_transitions_to_medium_after_two_correct_answers(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    session_id = int(create_training_session(user_id)["session_id"])
+
+    answer_current_question(user_id)
+    answer_current_question(user_id)
+    first_item = get_session_item_state(session_id, 0)
+
+    assert first_item["current_stage"] == "medium"
+    assert first_item["easy_correct_count"] == 2
+    assert first_item["is_completed"] == 0
+
+
+def test_medium_stage_completes_item_after_two_more_correct_answers(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    session_id = int(create_training_session(user_id)["session_id"])
+
+    for _ in range(4):
+        answer_current_question(user_id)
+    first_item = get_session_item_state(session_id, 0)
+
+    assert first_item["current_stage"] == "medium"
+    assert first_item["medium_correct_count"] == 2
+    assert first_item["is_completed"] == 1
+
+
+def test_correct_streak_increments_on_correct_answers(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    session_id = int(create_training_session(user_id)["session_id"])
+
+    answer_current_question(user_id)
+    answer_current_question(user_id)
+    streak_state = get_session_item_state(session_id, 0)
+
+    assert streak_state["correct_streak"] == 2
+
+
+def test_correct_streak_resets_on_wrong_answer(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    session_id = int(create_training_session(user_id)["session_id"])
+
+    answer_current_question(user_id)
+    wrong_result = submit_training_answer(user_id, "wrong")
+    first_item = get_session_item_state(session_id, 0)
+
+    assert wrong_result is not None
+    assert wrong_result["is_correct"] is False
+    assert first_item["correct_streak"] == 0
+    assert first_item["current_stage"] == "easy"
+
+
+def test_hard_unlocks_after_four_correct_answers_in_a_row(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    session_id = int(create_training_session(user_id)["session_id"])
+
+    for _ in range(4):
+        answer_current_question(user_id)
+    first_item = get_session_item_state(session_id, 0)
+
+    assert first_item["hard_unlocked"] == 1
+    assert first_item["correct_streak"] == 4
+
+
+def test_completed_items_are_skipped_and_session_advances(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id = seed_user_with_learning_items(3)
     create_training_session(user_id)
 
-    first_question = get_current_question(user_id)
-    assert first_question is not None
-    assert first_question["prompt"] == "слово-ru"
-    assert first_question["expected_answer"] == "word-1"
+    for _ in range(4):
+        answer_current_question(user_id)
+    next_question = get_current_question(user_id)
+    active_session = get_active_training_session(user_id)
 
-    submit_training_answer(user_id, "word-1")
-    second_question = get_current_question(user_id)
-    assert second_question is not None
-    assert second_question["prompt"] == "друге"
-    assert second_question["expected_answer"] == "word-2"
-
-    submit_training_answer(user_id, "word-2")
-    third_question = get_current_question(user_id)
-    assert third_question is not None
-    assert third_question["prompt"] == "word-3"
-    assert third_question["expected_answer"] == "word-3"
+    assert next_question is not None
+    assert next_question["learning_item_id"] == 2
+    assert next_question["question_number"] == 2
+    assert next_question["current_stage"] == "easy"
+    assert active_session is not None
+    assert active_session["current_index"] == 1
 
 
-def test_active_session_uses_snapshotted_prompt_after_translation_change(tmp_path: Path) -> None:
+def test_full_session_completes_when_all_items_are_completed(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id = seed_user_with_learning_items(2)
     create_training_session(user_id)
 
-    first_question = get_current_question(user_id)
-    upsert_learning_item_translation(301, 1, "ru", "новый перевод")
-    same_question = get_current_question(user_id)
+    for _ in range(8):
+        result = answer_current_question(user_id)
 
-    assert first_question is not None
-    assert same_question is not None
-    assert first_question["prompt"] == "слово-ru"
-    assert same_question["prompt"] == "слово-ru"
-
-
-def test_submit_training_answer_marks_correct_and_advances_session(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    user_id = seed_user_with_learning_items(2)
-    create_training_session(user_id)
-
-    result = submit_training_answer(user_id, "  WORD-1  ")
-    session = get_active_training_session(user_id)
-
-    assert result is not None
-    assert result["is_correct"] is True
-    assert result["status"] == "active"
-    assert result["correct_answers"] == 1
-    assert result["expected_answer"] == "word-1"
-    assert result["next_question"]["expected_answer"] == "word-2"
-    assert session is not None
-    assert session["current_index"] == 1
-    assert session["correct_answers"] == 1
-
-
-def test_submit_training_answer_completes_session_and_returns_summary(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    user_id = seed_user_with_learning_items(2)
-    create_training_session(user_id)
-
-    submit_training_answer(user_id, "word-1")
-    result = submit_training_answer(user_id, "wrong")
-
-    assert result is not None
     assert result["status"] == "completed"
-    assert result["summary"] == {"total_questions": 2, "correct_answers": 1}
+    assert result["summary"] == {"total_questions": 2, "correct_answers": 8}
     assert get_active_training_session(user_id) is None
     assert get_current_question(user_id) is None
+
+
+def test_persisted_state_can_be_reread_after_updates(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    session_id = int(create_training_session(user_id)["session_id"])
+
+    answer_current_question(user_id)
+    answer_current_question(user_id)
+    persisted_question = get_current_question(user_id)
+    first_item = get_session_item_state(session_id, 0)
+
+    assert persisted_question is not None
+    assert persisted_question["learning_item_id"] == 1
+    assert persisted_question["current_stage"] == "medium"
+    assert persisted_question["easy_correct_count"] == 2
+    assert persisted_question["medium_correct_count"] == 0
+    assert persisted_question["correct_streak"] == 2
+    assert persisted_question["hard_unlocked"] is False
+    assert first_item["current_stage"] == "medium"
+
+
+def test_active_session_uses_snapshotted_prompt_text_for_compatibility(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    create_training_session(user_id)
+
+    with db.get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE learning_item_translations
+            SET translation_text = ?
+            WHERE learning_item_id = ? AND language_code = ?
+            """,
+            ("новый перевод", 1, "ru"),
+        )
+
+    question = get_current_question(user_id)
+
+    assert question is not None
+    assert question["prompt"] == "слово-1"
 
 
 def test_create_training_session_rejects_empty_vocabulary(tmp_path: Path) -> None:

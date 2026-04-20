@@ -55,16 +55,26 @@ def test_learn_handler_handles_empty_vocabulary(tmp_path: Path) -> None:
     assert message.answers == ["No learning items are available for training."]
 
 
-def test_answer_training_question_sends_feedback_and_summary(tmp_path: Path) -> None:
+def test_answer_training_question_repeats_item_until_stage_completion(tmp_path: Path) -> None:
     setup_db(tmp_path)
     seed_learning_item()
     user = make_user(403, "Learner")
 
     asyncio.run(learn(FakeMessage(user)))
 
-    answer_message = FakeMessage(user, text="APPLE")
-    asyncio.run(answer_training_question(answer_message))
+    first_answer = FakeMessage(user, text="APPLE")
+    second_answer = FakeMessage(user, text="APPLE")
+    third_answer = FakeMessage(user, text="APPLE")
+    fourth_answer = FakeMessage(user, text="APPLE")
 
-    assert answer_message.answers == [
-        "Correct.\nResult: 1 questions, 1 correct answers."
+    asyncio.run(answer_training_question(first_answer))
+    asyncio.run(answer_training_question(second_answer))
+    asyncio.run(answer_training_question(third_answer))
+    asyncio.run(answer_training_question(fourth_answer))
+
+    assert first_answer.answers == ["Correct.\nQuestion 1/1: яблоко"]
+    assert second_answer.answers == ["Correct.\nQuestion 1/1: яблоко"]
+    assert third_answer.answers == ["Correct.\nQuestion 1/1: яблоко"]
+    assert fourth_answer.answers == [
+        "Correct.\nResult: 1 questions, 4 correct answers."
     ]

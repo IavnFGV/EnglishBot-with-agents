@@ -1,0 +1,132 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+4. complexity_guard
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+Task:
+Implement staged training-session persistence and domain flow integration for exercises.
+
+IMPORTANT:
+This task is about training state and persistence only.
+
+DO NOT:
+
+* implement Telegram message edit/delete cleanup
+* implement progress-message rendering
+* implement final Telegram UX polishing
+* add FSM
+* add new commands
+* add hint_language persistence in this step unless it is required for a tiny compatibility helper
+* move business logic into Telegram handlers
+
+Goal:
+Wire the new exercise domain model into the training flow so that staged learning progress is stored in SQLite and can survive restarts.
+
+Scope:
+Update the current training domain/persistence so that one training session can track per-item staged progress.
+
+Required behavior:
+
+1. Each training item starts at stage:
+
+* easy
+
+2. Per-item state must persist:
+
+* current_stage
+* easy_correct_count
+* medium_correct_count
+* correct_streak
+* hard_unlocked
+* is_completed
+
+3. Progression rules:
+
+* 2 correct answers in easy -> move to medium
+* 2 correct answers in medium -> mark item completed
+* 4 correct answers in a row -> hard_unlocked = true
+* hard remains optional and must NOT block item completion
+
+4. Current training flow must use `englishbot/exercises.py` to build the current exercise instead of relying only on plain prompt_text / expected_answer assumptions, but keep the runtime UX minimal in this step.
+
+5. Active session state must survive restart because it is stored in DB.
+
+Architecture requirements:
+
+* Keep business logic in `englishbot/training.py` and related persistence helpers
+* Do not move progression logic into Telegram handlers
+* Keep handlers thin
+* Avoid overengineering
+* No generic state machine framework
+* No plugin systems
+* No extra abstraction layers unless strictly necessary
+
+Persistence requirements:
+
+* Extend the existing training persistence in the smallest reasonable way
+* Prefer updating `training_session_items` rather than introducing many new tables
+* Add only the fields required for staged item progress
+* Add migrations for older DBs
+* Keep compatibility with existing sessions as reasonably as possible
+* If legacy rows are missing new values, initialize them safely with explicit defaults
+
+Implementation expectations:
+
+* The training service should be able to:
+
+  * start a session with initial per-item state
+  * get the current exercise for the active item
+  * evaluate an answer
+  * update the item state
+  * move to next stage or next item
+  * mark the session completed when all items are completed
+
+* If the current implementation still needs a minimal prompt/answer snapshot for compatibility, keep it minimal and explicit.
+
+* Do not implement final Telegram-specific multiple-choice UI yet; domain flow and persistence come first.
+
+Testing:
+
+Add or update focused tests to cover:
+
+1. new sessions initialize item state as easy with zero counters
+2. easy -> medium transition after 2 correct answers
+3. medium completion after 2 correct answers
+4. correct_streak increments on correct answers
+5. correct_streak resets on wrong answers
+6. hard_unlocked becomes true after 4 correct answers in a row
+7. completed items are skipped correctly / session advances
+8. full session completes when all items are completed
+9. persisted state can be re-read correctly after updates
+
+Use focused tests in existing training-related test files or add a dedicated test file if truly needed, but do not oversplit the test suite.
+
+Documentation updates:
+After implementation, update:
+
+* CHANGELOG.md
+* context/current_state.md
+
+Current state must mention:
+
+* staged per-item training persistence now exists
+* exercises are now wired into the training domain flow
+* Telegram message orchestration/progress-message cleanup is still not implemented
+* hint_language persistence is still not implemented if it remains absent
+
+Output:
+
+* minimal persistence changes
+* minimal training flow changes
+* focused tests
+* short summary of what changed

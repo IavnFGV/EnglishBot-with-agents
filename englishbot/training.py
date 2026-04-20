@@ -1,16 +1,17 @@
 import sqlite3
 
 from .db import get_connection, utc_now
-from .vocabulary import (
-    get_learning_item_with_translations,
-    get_lexeme,
-    list_learning_items,
-)
+from .exercises import ExerciseBuildError, ResolvedLearningItem, TranslationEntry, build_exercise
+from .vocabulary import get_learning_item_with_translations, get_lexeme, list_learning_items
 
 
 ACTIVE_STATUS = "active"
 COMPLETED_STATUS = "completed"
 DEFAULT_SESSION_SIZE = 5
+EASY_STAGE = "easy"
+MEDIUM_STAGE = "medium"
+HARD_STAGE = "hard"
+DEFAULT_HINT_LANGUAGE = "ru"
 
 
 class NoLearningItemsError(Exception):
@@ -24,7 +25,6 @@ def create_training_session(
     learning_item_ids = [row["id"] for row in list_learning_items(limit)]
     if not learning_item_ids:
         raise NoLearningItemsError
-
     return create_training_session_for_learning_items(telegram_user_id, learning_item_ids)
 
 
@@ -36,7 +36,10 @@ def create_training_session_for_learning_items(
     if not learning_item_ids:
         raise NoLearningItemsError
 
-    item_snapshots = [_build_item_snapshot(int(learning_item_id)) for learning_item_id in learning_item_ids]
+    item_snapshots = [
+        _build_item_snapshot(int(learning_item_id), EASY_STAGE, learning_item_ids)
+        for learning_item_id in learning_item_ids
+    ]
     timestamp = utc_now()
     with get_connection() as connection:
         connection.execute(
@@ -78,9 +81,15 @@ def create_training_session_for_learning_items(
                 learning_item_id,
                 prompt_text,
                 expected_answer,
-                item_order
+                item_order,
+                current_stage,
+                easy_correct_count,
+                medium_correct_count,
+                correct_streak,
+                hard_unlocked,
+                is_completed
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0)
             """,
             [
                 (
@@ -89,6 +98,7 @@ def create_training_session_for_learning_items(
                     str(snapshot["prompt"]),
                     str(snapshot["expected_answer"]),
                     item_order,
+                    EASY_STAGE,
                 )
                 for item_order, snapshot in enumerate(item_snapshots)
             ],
@@ -130,18 +140,43 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
     if session is None:
         return None
 
-    item_snapshot = _get_session_learning_item(session["id"], session["current_index"])
-    if item_snapshot is None:
+    session = _synchronize_active_session(session)
+    if session is None:
         return None
 
+    item_snapshot = _get_session_learning_item(int(session["id"]), int(session["current_index"]))
+    if item_snapshot is None:
+        _mark_session_completed(session)
+        return None
+
+    exercise = _build_session_exercise(
+        int(session["id"]),
+        int(item_snapshot["learning_item_id"]),
+        str(item_snapshot["current_stage"]),
+    )
+    prompt_text = str(item_snapshot["prompt_text"]).strip() or exercise.prompt_payload.prompt_text
+    expected_answer = str(item_snapshot["expected_answer"]).strip() or exercise.expected_answer
     return {
-        "session_id": session["id"],
+        "session_id": int(session["id"]),
+        "session_item_id": int(item_snapshot["id"]),
         "learning_item_id": int(item_snapshot["learning_item_id"]),
-        "current_index": session["current_index"],
-        "question_number": session["current_index"] + 1,
-        "total_questions": session["total_questions"],
-        "prompt": str(item_snapshot["prompt_text"]),
-        "expected_answer": str(item_snapshot["expected_answer"]),
+        "current_index": int(session["current_index"]),
+        "question_number": int(session["current_index"]) + 1,
+        "total_questions": int(session["total_questions"]),
+        "current_stage": str(item_snapshot["current_stage"]),
+        "stage": str(item_snapshot["current_stage"]),
+        "exercise_type": exercise.exercise_type,
+        "options": exercise.options,
+        "hint_text": exercise.hint_text,
+        "image_ref": exercise.image_ref,
+        "first_letter": exercise.first_letter,
+        "correct_streak": int(item_snapshot["correct_streak"]),
+        "easy_correct_count": int(item_snapshot["easy_correct_count"]),
+        "medium_correct_count": int(item_snapshot["medium_correct_count"]),
+        "hard_unlocked": bool(item_snapshot["hard_unlocked"]),
+        "is_completed": bool(item_snapshot["is_completed"]),
+        "prompt": prompt_text,
+        "expected_answer": expected_answer,
     }
 
 
@@ -154,13 +189,89 @@ def submit_training_answer(
     if session is None or question is None:
         return None
 
-    is_correct = _normalize_answer(answer_text) == _normalize_answer(
-        str(question["expected_answer"])
+    is_correct = _normalize_answer(answer_text) == _normalize_answer(str(question["expected_answer"]))
+    next_item_state = _calculate_next_item_state(question, is_correct)
+    updated_correct_answers = int(session["correct_answers"]) + (1 if is_correct else 0)
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_session_items
+            SET prompt_text = ?,
+                expected_answer = ?,
+                current_stage = ?,
+                easy_correct_count = ?,
+                medium_correct_count = ?,
+                correct_streak = ?,
+                hard_unlocked = ?,
+                is_completed = ?
+            WHERE id = ?
+            """,
+            (
+                next_item_state["prompt_text"],
+                next_item_state["expected_answer"],
+                next_item_state["current_stage"],
+                next_item_state["easy_correct_count"],
+                next_item_state["medium_correct_count"],
+                next_item_state["correct_streak"],
+                1 if next_item_state["hard_unlocked"] else 0,
+                1 if next_item_state["is_completed"] else 0,
+                int(question["session_item_id"]),
+            ),
+        )
+
+    status, next_index = _update_session_after_answer(
+        session,
+        updated_correct_answers,
+        item_completed=bool(next_item_state["is_completed"]),
     )
-    updated_correct_answers = session["correct_answers"] + (1 if is_correct else 0)
-    updated_index = session["current_index"] + 1
-    is_completed = updated_index >= session["total_questions"]
-    new_status = COMPLETED_STATUS if is_completed else ACTIVE_STATUS
+
+    result: dict[str, object] = {
+        "is_correct": is_correct,
+        "expected_answer": question["expected_answer"],
+        "status": status,
+        "correct_answers": updated_correct_answers,
+        "total_questions": int(session["total_questions"]),
+    }
+    if status == COMPLETED_STATUS:
+        if session["assignment_id"] is not None:
+            from .homework import mark_assignment_completed
+
+            mark_assignment_completed(int(session["assignment_id"]))
+        result["summary"] = {
+            "total_questions": int(session["total_questions"]),
+            "correct_answers": updated_correct_answers,
+        }
+        return result
+
+    next_question = get_current_question(telegram_user_id)
+    if next_question is None:
+        result["status"] = COMPLETED_STATUS
+        result["summary"] = {
+            "total_questions": int(session["total_questions"]),
+            "correct_answers": updated_correct_answers,
+        }
+    else:
+        result["next_question"] = next_question
+        result["current_index"] = next_index
+    return result
+
+
+def _update_session_after_answer(
+    session: sqlite3.Row,
+    updated_correct_answers: int,
+    *,
+    item_completed: bool,
+) -> tuple[str, int]:
+    updated_index = int(session["current_index"])
+    status = ACTIVE_STATUS
+    if item_completed:
+        next_item = _find_next_incomplete_item(int(session["id"]), updated_index + 1)
+        if next_item is None:
+            status = COMPLETED_STATUS
+            updated_index = int(session["total_questions"])
+        else:
+            updated_index = int(next_item["item_order"])
 
     with get_connection() as connection:
         connection.execute(
@@ -175,38 +286,30 @@ def submit_training_answer(
             (
                 updated_index,
                 updated_correct_answers,
-                new_status,
+                status,
                 utc_now(),
-                session["id"],
+                int(session["id"]),
             ),
         )
-
-    result: dict[str, object] = {
-        "is_correct": is_correct,
-        "expected_answer": question["expected_answer"],
-        "status": "completed" if is_completed else "active",
-        "correct_answers": updated_correct_answers,
-        "total_questions": session["total_questions"],
-    }
-    if is_completed:
-        if session["assignment_id"] is not None:
-            from .homework import mark_assignment_completed
-
-            mark_assignment_completed(int(session["assignment_id"]))
-        result["summary"] = {
-            "total_questions": session["total_questions"],
-            "correct_answers": updated_correct_answers,
-        }
-    else:
-        result["next_question"] = get_current_question(telegram_user_id)
-    return result
+    return status, updated_index
 
 
 def _get_session_learning_item(session_id: int, item_order: int) -> sqlite3.Row | None:
     with get_connection() as connection:
         return connection.execute(
             """
-            SELECT learning_item_id, prompt_text, expected_answer, item_order
+            SELECT
+                id,
+                learning_item_id,
+                prompt_text,
+                expected_answer,
+                item_order,
+                current_stage,
+                easy_correct_count,
+                medium_correct_count,
+                correct_streak,
+                hard_unlocked,
+                is_completed
             FROM training_session_items
             WHERE session_id = ? AND item_order = ?
             """,
@@ -214,34 +317,222 @@ def _get_session_learning_item(session_id: int, item_order: int) -> sqlite3.Row 
         ).fetchone()
 
 
-def _build_item_snapshot(learning_item_id: int) -> dict[str, object]:
+def _build_item_snapshot(
+    learning_item_id: int,
+    stage: str,
+    session_learning_item_ids: list[int],
+) -> dict[str, object]:
+    exercise = _build_session_exercise_from_ids(
+        learning_item_id,
+        stage,
+        session_learning_item_ids,
+    )
+    return {
+        "learning_item_id": learning_item_id,
+        "prompt": exercise.prompt_payload.prompt_text,
+        "expected_answer": exercise.expected_answer,
+    }
+
+
+def _calculate_next_item_state(question: dict[str, object], is_correct: bool) -> dict[str, object]:
+    current_stage = str(question["current_stage"])
+    easy_correct_count = int(question["easy_correct_count"])
+    medium_correct_count = int(question["medium_correct_count"])
+    correct_streak = int(question["correct_streak"])
+    hard_unlocked = bool(question["hard_unlocked"])
+    is_completed = bool(question["is_completed"])
+
+    if is_correct:
+        correct_streak += 1
+        if current_stage == EASY_STAGE:
+            easy_correct_count += 1
+            if easy_correct_count >= 2:
+                current_stage = MEDIUM_STAGE
+        elif current_stage == MEDIUM_STAGE:
+            medium_correct_count += 1
+            if medium_correct_count >= 2:
+                is_completed = True
+        if correct_streak >= 4:
+            hard_unlocked = True
+    else:
+        correct_streak = 0
+
+    session_learning_item_ids = _list_session_learning_item_ids(int(question["session_id"]))
+    snapshot = _build_item_snapshot(
+        int(question["learning_item_id"]),
+        current_stage,
+        session_learning_item_ids,
+    )
+    return {
+        "prompt_text": snapshot["prompt"],
+        "expected_answer": snapshot["expected_answer"],
+        "current_stage": current_stage,
+        "easy_correct_count": easy_correct_count,
+        "medium_correct_count": medium_correct_count,
+        "correct_streak": correct_streak,
+        "hard_unlocked": hard_unlocked,
+        "is_completed": is_completed,
+    }
+
+
+def _synchronize_active_session(session: sqlite3.Row) -> sqlite3.Row | None:
+    current_item = _get_session_learning_item(int(session["id"]), int(session["current_index"]))
+    if current_item is not None and not bool(current_item["is_completed"]):
+        return session
+
+    next_item = _find_next_incomplete_item(int(session["id"]), int(session["current_index"]))
+    if next_item is None:
+        _mark_session_completed(session)
+        return None
+
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET current_index = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (int(next_item["item_order"]), utc_now(), int(session["id"])),
+        )
+    return get_active_training_session(int(session["telegram_user_id"]))
+
+
+def _mark_session_completed(session: sqlite3.Row) -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET current_index = total_questions,
+                status = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (COMPLETED_STATUS, utc_now(), int(session["id"])),
+        )
+    if session["assignment_id"] is not None:
+        from .homework import mark_assignment_completed
+
+        mark_assignment_completed(int(session["assignment_id"]))
+
+
+def _find_next_incomplete_item(session_id: int, start_item_order: int) -> sqlite3.Row | None:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT id, item_order, learning_item_id, is_completed
+            FROM training_session_items
+            WHERE session_id = ? AND item_order >= ? AND is_completed = 0
+            ORDER BY item_order
+            LIMIT 1
+            """,
+            (session_id, start_item_order),
+        ).fetchone()
+
+
+def _build_session_exercise(
+    session_id: int,
+    learning_item_id: int,
+    stage: str,
+):
+    session_learning_item_ids = _list_session_learning_item_ids(session_id)
+    return _build_session_exercise_from_ids(
+        learning_item_id,
+        stage,
+        session_learning_item_ids,
+    )
+
+
+def _build_session_exercise_from_ids(
+    learning_item_id: int,
+    stage: str,
+    session_learning_item_ids: list[int],
+):
+    learning_item = _resolve_learning_item(learning_item_id)
+    distractor_pool = _build_distractor_pool(learning_item, session_learning_item_ids)
+    try:
+        return build_exercise(
+            learning_item=learning_item,
+            stage=stage,
+            hint_language=DEFAULT_HINT_LANGUAGE,
+            distractor_pool=distractor_pool,
+        )
+    except ExerciseBuildError:
+        if stage != EASY_STAGE:
+            raise
+        # Keep the session in the required easy stage, but fall back to a minimal
+        # typed-answer payload when the current pool cannot support multiple choice.
+        return build_exercise(
+            learning_item=learning_item,
+            stage=HARD_STAGE,
+            hint_language=DEFAULT_HINT_LANGUAGE,
+            distractor_pool=distractor_pool,
+        )
+
+
+def _list_session_learning_item_ids(session_id: int) -> list[int]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT learning_item_id
+            FROM training_session_items
+            WHERE session_id = ?
+            ORDER BY item_order
+            """,
+            (session_id,),
+        ).fetchall()
+    return [int(row["learning_item_id"]) for row in rows]
+
+
+def _build_distractor_pool(
+    learning_item: ResolvedLearningItem,
+    session_learning_item_ids: list[int],
+) -> list[ResolvedLearningItem]:
+    distractors: list[ResolvedLearningItem] = []
+    seen_ids: set[int] = {learning_item.learning_item_id}
+
+    for distractor_id in session_learning_item_ids:
+        normalized_id = int(distractor_id)
+        if normalized_id in seen_ids:
+            continue
+        distractors.append(_resolve_learning_item(normalized_id))
+        seen_ids.add(normalized_id)
+
+    content = get_learning_item_with_translations(learning_item.learning_item_id)
+    if content is None:
+        raise NoLearningItemsError
+    workspace_id = int(content["learning_item"]["workspace_id"])
+    for row in list_learning_items(workspace_id=workspace_id):
+        distractor_id = int(row["id"])
+        if distractor_id in seen_ids:
+            continue
+        distractors.append(_resolve_learning_item(distractor_id))
+        seen_ids.add(distractor_id)
+    return distractors
+
+
+def _resolve_learning_item(learning_item_id: int) -> ResolvedLearningItem:
     content = get_learning_item_with_translations(learning_item_id)
     if content is None:
         raise NoLearningItemsError
+
     learning_item = content["learning_item"]
     translations = content["translations"]
     lexeme = get_lexeme(int(learning_item["lexeme_id"]))
     if lexeme is None:
         raise NoLearningItemsError
-    return {
-        "learning_item_id": learning_item_id,
-        "prompt": _select_prompt(translations, str(lexeme["lemma"])),
-        "expected_answer": str(lexeme["lemma"]),
-    }
 
-
-def _select_prompt(translations: list[sqlite3.Row], fallback_text: str) -> str:
-    translations_by_language = {
-        translation["language_code"]: translation["translation_text"]
-        for translation in translations
-    }
-    for language_code in ("ru", "uk"):
-        prompt = translations_by_language.get(language_code)
-        if prompt:
-            return str(prompt)
-    if translations:
-        return str(translations[0]["translation_text"])
-    return fallback_text
+    return ResolvedLearningItem(
+        learning_item_id=int(learning_item["id"]),
+        headword=str(lexeme["lemma"]),
+        translations=[
+            TranslationEntry(
+                language_code=str(translation["language_code"]),
+                translation_text=str(translation["translation_text"]),
+            )
+            for translation in translations
+        ],
+        image_ref=str(learning_item["image_ref"]) if learning_item["image_ref"] else None,
+    )
 
 
 def _normalize_answer(answer_text: str) -> str:
