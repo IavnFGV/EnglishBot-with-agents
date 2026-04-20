@@ -1,0 +1,120 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Update the project handoff document (englishbot_handoff.md) so it becomes an accurate and complete Technical Specification (ТЗ), reflecting the current implementation while preserving future design intent.
+
+Context:
+The existing handoff document mixes:
+- original intended architecture
+- already implemented features
+- future planned features
+
+Now we need to:
+- align the document with actual current behavior
+- explicitly document what is already implemented
+- keep future design sections intact (do not remove them)
+- avoid contradictions between "Current State" and the main document
+
+Important:
+This is NOT a rewrite from scratch.
+This is a controlled extension and correction.
+
+Rules:
+
+1. Do NOT delete future design sections
+   - workspace model
+   - publish model
+   - assignments model
+   - product/monetization sections
+   - architecture constraints
+   These must remain as target design.
+
+2. Add explicit "Current Implementation" notes where reality differs
+   - if something is already implemented, reflect it clearly
+   - if something is partially implemented, describe current behavior and limitations
+   - if something is planned but not implemented, keep it as-is
+
+3. Resolve inconsistencies:
+   - no contradictions between:
+     - workspace ownership model
+     - workbook import/export behavior
+     - assignment snapshot model
+     - teacher-student vs workspace model
+   - if needed, clarify "current vs target" instead of removing either
+
+4. Expand missing areas based on current_state.md:
+
+   You MUST reflect at least:
+
+   - workbook_key-based identity for:
+     - topics
+     - learning_items
+
+   - workbook import/export:
+     - 3-sheet structure (topics, topic_items, learning_items)
+     - partial upsert semantics
+     - no delete-on-missing
+     - archive semantics
+     - translation handling
+     - image_ref vs display-only image column
+
+   - workspace behavior:
+     - explicit teacher vs student workspaces
+     - explicit workspace_id in commands
+     - no implicit workspace selection
+
+   - assignment snapshot behavior:
+     - fixed item ids
+     - independence from topic edits
+
+   - training session snapshot behavior
+
+   - current constraints:
+     - no versioning
+     - no diff sync
+     - no Google Sheets API yet
+     - no workspace UI yet
+
+5. Introduce clear terminology section (if missing):
+   - bootstrap
+   - seed
+   - workbook import
+   - assignment
+   - training session
+
+6. Keep the document readable:
+   - do not duplicate current_state.md verbatim
+   - integrate information into logical sections
+   - avoid listing every file/module unless necessary
+
+7. Do NOT:
+   - introduce new features not discussed
+   - invent architecture beyond current direction
+   - over-formalize into enterprise documentation
+   - remove working design decisions
+
+8. Optional but encouraged:
+   - mark sections as:
+     - "Current behavior"
+     - "Target behavior"
+     when helpful
+
+Output:
+- updated englishbot_handoff.md (full document)
+
+Workflow:
+1. architect (structure + merge strategy)
+2. complexity_guard (reject overgrowth / duplication)
+3. coder (produce final document)
+
+Definition of done:
+- document reflects actual current implementation
+- no contradictions with current_state.md
+- future design sections preserved
+- workbook model clearly documented
+- workspace model clearly documented
+- terminology clarified
+- document remains concise and readable
