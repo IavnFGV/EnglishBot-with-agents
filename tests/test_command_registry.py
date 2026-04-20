@@ -13,6 +13,7 @@ from englishbot.command_registry import (
     ME_COMMAND,
     SETTINGS_COMMAND,
     START_COMMAND,
+    TEACHER_CONTENT_COMMAND,
     WORKBOOK_EXPORT_COMMAND,
     WORKBOOK_IMPORT_COMMAND,
     build_bot_commands,
@@ -43,6 +44,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "topics",
         "workbook_export",
         "workbook_import",
+        "teacher_content",
     ]
     assert len({command.name for command in ALL_COMMANDS}) == len(ALL_COMMANDS)
 
@@ -86,3 +88,7 @@ def test_usage_messages_and_caption_parsing_use_canonical_command_names() -> Non
 
 def test_bot_commands_use_centralized_i18n_descriptions() -> None:
     assert BOT_COMMANDS[0].description == translate("command.start", "en")
+    assert TEACHER_CONTENT_COMMAND.to_bot_command("en").description == translate(
+        "command.teacher_content",
+        "en",
+    )

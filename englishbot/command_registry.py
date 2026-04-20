@@ -82,6 +82,11 @@ WORKBOOK_IMPORT_COMMAND = CommandDefinition(
     description_key="command.workbook_import",
     scope="teacher",
 )
+TEACHER_CONTENT_COMMAND = CommandDefinition(
+    name="teacher_content",
+    description_key="command.teacher_content",
+    scope="teacher",
+)
 
 ALL_COMMANDS = (
     START_COMMAND,
@@ -95,6 +100,7 @@ ALL_COMMANDS = (
     TOPICS_COMMAND,
     WORKBOOK_EXPORT_COMMAND,
     WORKBOOK_IMPORT_COMMAND,
+    TEACHER_CONTENT_COMMAND,
 )
 
 

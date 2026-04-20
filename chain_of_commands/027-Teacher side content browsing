@@ -1,0 +1,91 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+
+Task:
+Implement a minimal teacher-side content browsing flow in Telegram.
+
+IMPORTANT:
+This task is about teacher content visibility/navigation only.
+Do not redesign learner training.
+Do not add FSM.
+Do not implement advanced authoring forms yet.
+Do not refactor workbook import/export.
+Do not redesign assignment/homework logic.
+
+Goal:
+Allow a teacher to inspect their authoring content from Telegram without relying on raw database knowledge or workbook files.
+
+Scope:
+
+1. Teacher workspace listing
+
+* add a minimal teacher-facing way to list the teacher workspaces available to the current user
+
+2. Topic listing inside a teacher workspace
+
+* show topics for a selected teacher workspace
+* keep access control strict: only teacher members of that workspace may browse it
+
+3. Topic item listing / preview
+
+* allow the teacher to inspect the learning items inside a topic
+* for each item, show a compact preview:
+
+  * headword
+  * available translations
+  * image_ref/audio_ref if present
+* keep output concise and readable
+
+4. Architecture rules
+
+* keep business logic in focused domain modules
+* keep Telegram handlers thin
+* do not introduce generic menu frameworks or plugin systems
+* prefer extending existing workspaces/topics/vocabulary modules where reasonable
+* keep changes minimal and explicit
+
+5. Command / UX rules
+
+* if a new teacher-facing command is required, add it through `englishbot/command_registry.py`
+* all user-visible text must go through centralized i18n
+* avoid raw internal jargon in the Telegram UX where possible
+
+Testing:
+Add or update focused tests to cover at least:
+
+1. teacher can list their teacher workspaces
+2. non-teacher or non-member cannot browse unrelated teacher workspace content
+3. topic listing works for authorized teacher workspace access
+4. topic item preview renders compact expected content
+5. command registration and handler wiring remain centralized and correct
+
+Documentation updates:
+After implementation, update:
+
+* CHANGELOG.md
+* context/current_state.md
+
+Current state must mention:
+
+* teacher-side Telegram content browsing now exists
+* strict teacher-workspace access is enforced for browsing
+* hint_language contradiction was removed if present
+* advanced authoring/editing UI is still not implemented
+
+Output:
+
+* minimal code changes
+* focused tests
+* short summary of what changed

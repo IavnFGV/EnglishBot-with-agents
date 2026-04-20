@@ -1,11 +1,12 @@
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from .command_registry import (
     ASSIGN_COMMAND,
     GRANTTOPIC_COMMAND,
     INVITE_COMMAND,
     JOIN_COMMAND,
+    TEACHER_CONTENT_COMMAND,
 )
 from .db import save_user
 from .homework import (
@@ -22,6 +23,12 @@ from .homework import (
 from .homework_handlers import build_homework_button
 from .i18n import translate_for_user
 from .runtime import router
+from .teacher_content import (
+    TeacherContentAccessError,
+    get_teacher_topic_preview,
+    list_teacher_browsable_workspaces,
+    list_teacher_workspace_topics,
+)
 from .teacher_student import (
     InviteAlreadyUsedError,
     InviteNotFoundError,
@@ -30,6 +37,7 @@ from .teacher_student import (
     create_invite,
     join_with_invite,
 )
+from .user_profiles import get_user_role
 from .topic_access import (
     StudentWorkspaceMembershipRequiredError as TopicAccessStudentWorkspaceMembershipRequiredError,
     TeacherWorkspaceMembershipRequiredError as TopicAccessTeacherWorkspaceMembershipRequiredError,
@@ -37,6 +45,9 @@ from .topic_access import (
     TopicNotFoundError,
     grant_topic_access,
 )
+
+TEACHER_CONTENT_WORKSPACE_PREFIX = "teacher-content:workspace:"
+TEACHER_CONTENT_TOPIC_PREFIX = "teacher-content:topic:"
 
 
 def _build_assign_usage_message(telegram_user_id: int) -> str:
@@ -53,6 +64,70 @@ def _build_grant_topic_usage_message(telegram_user_id: int) -> str:
         "teacher.granttopic.usage",
         command=GRANTTOPIC_COMMAND.token,
     )
+
+
+def build_teacher_workspaces_keyboard(
+    workspaces: list[dict[str, object]],
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=str(workspace["name"]),
+                    callback_data=(
+                        f"{TEACHER_CONTENT_WORKSPACE_PREFIX}{workspace['id']}"
+                    ),
+                )
+            ]
+            for workspace in workspaces
+        ]
+    )
+
+
+def build_teacher_topics_keyboard(
+    workspace_id: int,
+    topics: list[dict[str, object]],
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"{topic['title']} ({topic['item_count']})",
+                    callback_data=(
+                        f"{TEACHER_CONTENT_TOPIC_PREFIX}{workspace_id}:{topic['id']}"
+                    ),
+                )
+            ]
+            for topic in topics
+        ]
+    )
+
+
+def _format_teacher_topic_preview(
+    telegram_user_id: int,
+    preview: dict[str, object],
+) -> str:
+    lines = [str(preview["topic_title"])]
+    for item in preview["items"]:
+        segments = [
+            str(item["headword"]),
+            (
+                f"{translate_for_user(telegram_user_id, 'teacher.content.preview.translations')}: "
+                f"{', '.join(item['translations']) if item['translations'] else '-'}"
+            ),
+        ]
+        if item["image_ref"]:
+            segments.append(
+                f"{translate_for_user(telegram_user_id, 'teacher.content.preview.image')}: "
+                f"{item['image_ref']}"
+            )
+        if item["audio_ref"]:
+            segments.append(
+                f"{translate_for_user(telegram_user_id, 'teacher.content.preview.audio')}: "
+                f"{item['audio_ref']}"
+            )
+        lines.append(" | ".join(segments))
+    return "\n".join(lines)
 
 
 @router.message(Command(INVITE_COMMAND.name))
@@ -75,6 +150,34 @@ async def invite(message: Message) -> None:
 
     await message.answer(
         translate_for_user(message.from_user.id, "teacher.invite.code", code=code)
+    )
+
+
+@router.message(Command(TEACHER_CONTENT_COMMAND.name))
+async def teacher_content(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    save_user(message.from_user)
+    if get_user_role(message.from_user.id) != "teacher":
+        await message.answer(
+            translate_for_user(
+                message.from_user.id,
+                "teacher.command_teacher_only",
+                command=TEACHER_CONTENT_COMMAND.token,
+            )
+        )
+        return
+    workspaces = list_teacher_browsable_workspaces(message.from_user.id)
+    if not workspaces:
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.content.workspaces.empty")
+        )
+        return
+
+    await message.answer(
+        translate_for_user(message.from_user.id, "teacher.content.workspaces.title"),
+        reply_markup=build_teacher_workspaces_keyboard(workspaces),
     )
 
 
@@ -302,4 +405,81 @@ async def grant_topic(message: Message, command: CommandObject | None = None) ->
             topic_title=result["topic_title"],
             topic_name=result["topic_name"],
         )
+    )
+
+
+@router.callback_query(
+    lambda callback: callback.data is not None
+    and callback.data.startswith(TEACHER_CONTENT_WORKSPACE_PREFIX)
+)
+async def open_teacher_workspace(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.from_user is None or callback.message is None or callback.data is None:
+        return
+
+    try:
+        workspace_id = int(callback.data.removeprefix(TEACHER_CONTENT_WORKSPACE_PREFIX))
+        topics = list_teacher_workspace_topics(callback.from_user.id, workspace_id)
+    except (TeacherContentAccessError, ValueError):
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "teacher.content.unavailable")
+        )
+        return
+
+    if not topics:
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "teacher.content.topics.empty")
+        )
+        return
+
+    workspace_name = list_teacher_browsable_workspaces(callback.from_user.id)
+    workspace_title = next(
+        (
+            str(workspace["name"])
+            for workspace in workspace_name
+            if int(workspace["id"]) == workspace_id
+        ),
+        str(workspace_id),
+    )
+    await callback.message.answer(
+        translate_for_user(
+            callback.from_user.id,
+            "teacher.content.topics.title",
+            workspace_name=workspace_title,
+        ),
+        reply_markup=build_teacher_topics_keyboard(workspace_id, topics),
+    )
+
+
+@router.callback_query(
+    lambda callback: callback.data is not None
+    and callback.data.startswith(TEACHER_CONTENT_TOPIC_PREFIX)
+)
+async def open_teacher_topic_preview(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.from_user is None or callback.message is None or callback.data is None:
+        return
+
+    payload = callback.data.removeprefix(TEACHER_CONTENT_TOPIC_PREFIX)
+    workspace_id_text, topic_id_text = payload.split(":", maxsplit=1)
+    try:
+        preview = get_teacher_topic_preview(
+            callback.from_user.id,
+            int(workspace_id_text),
+            int(topic_id_text),
+        )
+    except (TeacherContentAccessError, ValueError):
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "teacher.content.unavailable")
+        )
+        return
+
+    if not preview["items"]:
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "teacher.content.topic.empty")
+        )
+        return
+
+    await callback.message.answer(
+        _format_teacher_topic_preview(callback.from_user.id, preview)
     )
