@@ -1,6 +1,7 @@
 import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from aiogram.types import User
 
@@ -32,9 +33,15 @@ class FakeMessage:
     def __init__(self, user: User) -> None:
         self.from_user = user
         self.answers: list[dict[str, object]] = []
+        self.chat = SimpleNamespace(id=user.id)
+        self.bot = SimpleNamespace()
+        self._next_message_id = 1
 
-    async def answer(self, text: str, **kwargs: object) -> None:
+    async def answer(self, text: str, **kwargs: object) -> SimpleNamespace:
         self.answers.append({"text": text, "kwargs": kwargs})
+        message = SimpleNamespace(message_id=self._next_message_id)
+        self._next_message_id += 1
+        return message
 
 
 class FakeCallback:
@@ -146,8 +153,12 @@ def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
     assert callback.answered is True
     assert callback_message.answers == [
         {
-            "text": "Homework \"Тестовая домашка\" started.\nQuestion 1/1: понедельник",
+            "text": "Item 1/1\nDone 0/1\nStage: easy",
             "kwargs": {},
+        },
+        {
+            "text": "понедельник\nFirst letter: m",
+            "kwargs": {"reply_markup": None},
         }
     ]
 

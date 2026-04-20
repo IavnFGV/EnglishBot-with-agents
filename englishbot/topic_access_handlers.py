@@ -12,6 +12,7 @@ from .topic_access import (
     list_accessible_topics,
     start_topic_training_session,
 )
+from .training_handlers import render_started_training_session
 
 
 TOPICS_START_PREFIX = "topics:start:"
@@ -85,13 +86,4 @@ async def start_topic_training(callback: CallbackQuery) -> None:
         )
         return
 
-    await callback.message.answer(
-        translate_for_user(
-            callback.from_user.id,
-            "topics.started",
-            topic_title=result["topic_title"],
-            question_number=question["question_number"],
-            total_questions=question["total_questions"],
-            prompt=question["prompt"],
-        )
-    )
+    await render_started_training_session(callback.message, callback.from_user.id)

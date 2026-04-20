@@ -25,9 +25,15 @@ class FakeMessage:
     def __init__(self, user: User) -> None:
         self.from_user = user
         self.answers: list[dict[str, object]] = []
+        self.chat = SimpleNamespace(id=user.id)
+        self.bot = SimpleNamespace()
+        self._next_message_id = 1
 
-    async def answer(self, text: str, **kwargs: object) -> None:
+    async def answer(self, text: str, **kwargs: object) -> SimpleNamespace:
         self.answers.append({"text": text, "kwargs": kwargs})
+        message = SimpleNamespace(message_id=self._next_message_id)
+        self._next_message_id += 1
+        return message
 
 
 class FakeCallback:
@@ -109,9 +115,14 @@ def test_start_topic_training_handler_uses_accessible_topic(tmp_path: Path) -> N
     asyncio.run(start_topic_training(callback))
 
     assert callback.answered is True
-    assert callback_message.answers == [
-        {"text": "Topic \"Цвета\" opened.\nQuestion 1/6: красный", "kwargs": {}}
-    ]
+    assert callback_message.answers[0] == {
+        "text": "Item 1/6\nDone 0/6\nStage: easy",
+        "kwargs": {},
+    }
+    assert callback_message.answers[1]["text"] == "красный"
+    keyboard = callback_message.answers[1]["kwargs"]["reply_markup"]
+    assert keyboard is not None
+    assert len(keyboard.inline_keyboard) == 3
 
 
 def test_start_topic_training_handler_rejects_inaccessible_topic(tmp_path: Path) -> None:

@@ -1,3 +1,4 @@
+import hashlib
 import random
 from dataclasses import dataclass
 from typing import Literal, Sequence
@@ -142,9 +143,12 @@ def _build_multiple_choice_options(
     if len(distractor_headwords) < 2:
         raise ExerciseBuildError("At least 2 distractors are required to build an easy exercise.")
 
-    selected_distractors = random.sample(distractor_headwords, 2)
+    randomizer = random.Random(
+        _build_deterministic_seed(expected_answer, distractor_headwords)
+    )
+    selected_distractors = randomizer.sample(distractor_headwords, 2)
     options = [expected_answer, *selected_distractors]
-    random.shuffle(options)
+    randomizer.shuffle(options)
     return options
 
 
@@ -154,8 +158,9 @@ def _build_jumbled_letters(expected_answer: str) -> str:
         return expected_answer
 
     original_letters = letters[:]
+    randomizer = random.Random(_build_deterministic_seed(expected_answer, original_letters))
     for _ in range(8):
-        random.shuffle(letters)
+        randomizer.shuffle(letters)
         if letters != original_letters:
             return "".join(letters)
     return "".join(letters)
@@ -170,3 +175,11 @@ def _normalize_required_text(value: str, field_name: str) -> str:
     if not normalized_value:
         raise ExerciseBuildError(f"{field_name} must not be empty.")
     return normalized_value
+
+
+def _build_deterministic_seed(
+    expected_answer: str,
+    values: Sequence[str],
+) -> int:
+    seed_source = "|".join([expected_answer, *values]).encode("utf-8")
+    return int(hashlib.sha256(seed_source).hexdigest()[:16], 16)

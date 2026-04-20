@@ -87,9 +87,16 @@ def test_init_db_creates_training_tables_with_staged_columns(tmp_path: Path) -> 
         training_item_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(training_session_items)")
         }
+        training_session_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(training_sessions)")
+        }
 
     assert "training_sessions" in table_names
     assert "training_session_items" in table_names
+    assert {
+        "progress_message_id",
+        "current_question_message_id",
+    }.issubset(training_session_columns)
     assert {
         "prompt_text",
         "expected_answer",

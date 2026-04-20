@@ -1,0 +1,131 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+Task:
+Implement Telegram orchestration for the staged learning flow.
+
+IMPORTANT:
+This task is about Telegram runtime behavior and thin handler orchestration.
+Do not redesign the training domain.
+Do not add new product-level commands.
+Do not introduce FSM.
+Do not implement advanced progress graphics.
+Do not implement hint_language persistence/settings in this step.
+
+Goal:
+Make the staged training flow usable in Telegram with minimal but correct UX:
+
+* one progress message
+* one active question message
+* easy mode through inline keyboard
+* medium/hard through text input
+
+Scope:
+
+1. Easy mode Telegram UI
+
+* For `easy` exercises (`multiple_choice`), send inline keyboard with exactly 3 options
+* Callback handling must evaluate the answer through existing training domain logic
+* Do not duplicate correctness logic inside handlers
+
+2. Medium and hard Telegram UI
+
+* Keep them text-based for now
+* Handlers must continue to route plain text answers into the training domain logic
+* Do not add polished custom keyboards for these stages yet
+
+3. Progress message
+
+* At training start, send one progress/status message
+* Persist its message id in session-related persistence
+* After each answer, edit that same message instead of sending a new status message
+* Keep the rendered text minimal and stable:
+
+  * current item position / total
+  * completed items / total
+  * current stage
+  * optional short streak or hard-unlocked indicator if concise
+
+4. Active question message
+
+* Persist current question message id
+* Before sending the next question, try to delete the previous question message
+* Deletion failures must be tolerated safely
+* Avoid message spam
+
+5. Persistence
+
+* Extend existing session persistence in the smallest reasonable way to store Telegram runtime message ids
+* Prefer adding a few focused nullable fields to existing training session storage rather than creating new tables
+* Add safe migrations/backfills for legacy DBs if needed
+
+Architecture rules:
+
+* Keep business logic in domain modules (`training.py`, existing services)
+* Keep Telegram handlers thin
+* Do not move stage progression logic into handlers
+* Do not introduce generic rendering frameworks, scene systems, or plugin architectures
+* No new infrastructure layers unless strictly necessary
+
+Behavior requirements:
+
+* Starting `/learn` or equivalent training start must render:
+
+  * one progress message
+  * one current question message
+* Easy answer via callback must:
+
+  * evaluate answer
+  * update state
+  * update progress message
+  * replace question message
+  * finish session with a final summary when complete
+* Medium/hard text answer flow must do the same orchestration pattern
+* Existing slash commands must still not be swallowed while training is active
+
+Testing:
+Add or update focused tests to cover at least:
+
+1. easy exercises render inline keyboard options
+2. easy callback path delegates answer evaluation to training logic
+3. progress message id is stored and reused
+4. previous question message deletion is attempted safely
+5. next question message id is stored
+6. session completion sends final summary and stops further question rendering
+7. slash commands still work during active training
+
+Use existing handler test files where practical.
+Do not oversplit the test suite.
+
+Documentation updates:
+After implementation, update:
+
+* CHANGELOG.md
+* context/current_state.md
+
+Current state must mention:
+
+* easy mode now uses inline keyboard callbacks
+* progress/question message orchestration now exists
+* Telegram runtime message ids are persisted for active sessions
+* medium/hard remain text-based
+* no advanced graphical progress UI yet
+* hint_language persistence/settings still not implemented
+
+Output:
+
+* minimal Telegram/runtime persistence changes
+* minimal handler changes
+* focused tests
+* short summary of what changed

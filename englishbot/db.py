@@ -632,6 +632,8 @@ def init_db() -> None:
                 current_index INTEGER NOT NULL DEFAULT 0,
                 correct_answers INTEGER NOT NULL DEFAULT 0,
                 total_questions INTEGER NOT NULL,
+                progress_message_id INTEGER,
+                current_question_message_id INTEGER,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -646,6 +648,20 @@ def init_db() -> None:
                 """
                 ALTER TABLE training_sessions
                 ADD COLUMN assignment_id INTEGER
+                """
+            )
+        if "progress_message_id" not in training_session_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_sessions
+                ADD COLUMN progress_message_id INTEGER
+                """
+            )
+        if "current_question_message_id" not in training_session_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_sessions
+                ADD COLUMN current_question_message_id INTEGER
                 """
             )
         connection.execute(

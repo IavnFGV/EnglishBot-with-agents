@@ -123,6 +123,8 @@ def get_active_training_session(telegram_user_id: int) -> sqlite3.Row | None:
                 current_index,
                 correct_answers,
                 total_questions,
+                progress_message_id,
+                current_question_message_id,
                 status,
                 created_at,
                 updated_at
@@ -163,6 +165,7 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
         "current_index": int(session["current_index"]),
         "question_number": int(session["current_index"]) + 1,
         "total_questions": int(session["total_questions"]),
+        "completed_items": _count_completed_session_items(int(session["id"])),
         "current_stage": str(item_snapshot["current_stage"]),
         "stage": str(item_snapshot["current_stage"]),
         "exercise_type": exercise.exercise_type,
@@ -170,6 +173,7 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
         "hint_text": exercise.hint_text,
         "image_ref": exercise.image_ref,
         "first_letter": exercise.first_letter,
+        "jumbled_letters": exercise.prompt_payload.jumbled_letters,
         "correct_streak": int(item_snapshot["correct_streak"]),
         "easy_correct_count": int(item_snapshot["easy_correct_count"]),
         "medium_correct_count": int(item_snapshot["medium_correct_count"]),
@@ -257,6 +261,33 @@ def submit_training_answer(
     return result
 
 
+def set_training_session_progress_message_id(session_id: int, message_id: int | None) -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET progress_message_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (message_id, utc_now(), session_id),
+        )
+
+
+def set_training_session_current_question_message_id(
+    session_id: int,
+    message_id: int | None,
+) -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET current_question_message_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (message_id, utc_now(), session_id),
+        )
+
+
 def _update_session_after_answer(
     session: sqlite3.Row,
     updated_correct_answers: int,
@@ -315,6 +346,19 @@ def _get_session_learning_item(session_id: int, item_order: int) -> sqlite3.Row 
             """,
             (session_id, item_order),
         ).fetchone()
+
+
+def _count_completed_session_items(session_id: int) -> int:
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT COUNT(*) AS completed_items
+            FROM training_session_items
+            WHERE session_id = ? AND is_completed = 1
+            """,
+            (session_id,),
+        ).fetchone()
+    return 0 if row is None else int(row["completed_items"])
 
 
 def _build_item_snapshot(
@@ -403,6 +447,7 @@ def _mark_session_completed(session: sqlite3.Row) -> None:
             """
             UPDATE training_sessions
             SET current_index = total_questions,
+                current_question_message_id = NULL,
                 status = ?,
                 updated_at = ?
             WHERE id = ?

@@ -12,6 +12,7 @@ from .homework import (
 )
 from .i18n import translate_for_user
 from .runtime import router
+from .training_handlers import render_started_training_session
 
 
 HOMEWORK_OPEN_CALLBACK = "homework:open"
@@ -133,18 +134,4 @@ async def start_homework(callback: CallbackQuery) -> None:
         )
         return
 
-    assignment_title = (
-        str(result["assignment_title"])
-        if result.get("assignment_title")
-        else translate_for_user(callback.from_user.id, "homework.default_title")
-    )
-    await callback.message.answer(
-        translate_for_user(
-            callback.from_user.id,
-            "homework.started",
-            assignment_title=assignment_title,
-            question_number=question["question_number"],
-            total_questions=question["total_questions"],
-            prompt=question["prompt"],
-        )
-    )
+    await render_started_training_session(callback.message, callback.from_user.id)
