@@ -25,7 +25,12 @@ from englishbot.topics import (
 from englishbot.training import get_active_training_session
 from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import create_learning_item_for_teacher_workspace, create_learning_item_translation, create_lexeme
-from englishbot.workspaces import WORKSPACE_KIND_STUDENT, add_workspace_member, find_shared_workspace_for_teacher_and_student
+from englishbot.workspaces import (
+    WORKSPACE_KIND_STUDENT,
+    add_workspace_member,
+    create_workspace,
+    find_shared_workspace_for_teacher_and_student,
+)
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -95,7 +100,12 @@ def test_grant_topic_access_publishes_topic_into_student_workspace(tmp_path: Pat
         kind=WORKSPACE_KIND_STUDENT,
     )
 
-    result = grant_topic_access(teacher.id, student.id, "weekdays")
+    result = grant_topic_access(
+        teacher.id,
+        student.id,
+        db.get_default_content_workspace_id(),
+        "weekdays",
+    )
 
     assert result["granted"] is True
     assert result["topic_name"] == "weekdays"
@@ -108,7 +118,7 @@ def test_list_accessible_topics_returns_granted_topics(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
     seed_teacher_topic(teacher.id)
-    grant_topic_access(teacher.id, student.id, "weekdays")
+    grant_topic_access(teacher.id, student.id, db.get_default_content_workspace_id(), "weekdays")
 
     topics = list_accessible_topics(student.id)
 
@@ -127,14 +137,14 @@ def test_grant_topic_access_rejects_student_without_shared_workspace(tmp_path: P
     seed_teacher_topic(teacher.id)
 
     with pytest.raises(StudentWorkspaceMembershipRequiredError):
-        grant_topic_access(teacher.id, student.id, "weekdays")
+        grant_topic_access(teacher.id, student.id, db.get_default_content_workspace_id(), "weekdays")
 
 
 def test_student_has_topic_access_checks_granted_permissions(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
     seed_teacher_topic(teacher.id)
-    grant_topic_access(teacher.id, student.id, "weekdays")
+    grant_topic_access(teacher.id, student.id, db.get_default_content_workspace_id(), "weekdays")
     accessible_topic = list_accessible_topics(student.id)[0]
 
     assert student_has_topic_access(student.id, int(accessible_topic["id"])) is True
@@ -145,7 +155,7 @@ def test_start_topic_training_session_uses_published_topic_items(tmp_path: Path)
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
     seed_teacher_topic(teacher.id)
-    grant_topic_access(teacher.id, student.id, "weekdays")
+    grant_topic_access(teacher.id, student.id, db.get_default_content_workspace_id(), "weekdays")
     topic = list_accessible_topics(student.id)[0]
 
     result = start_topic_training_session(student.id, int(topic["id"]))
@@ -163,7 +173,7 @@ def test_active_topic_session_stays_stable_after_source_topic_change(tmp_path: P
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
     source_topic_id = seed_teacher_topic(teacher.id)
-    grant_topic_access(teacher.id, student.id, "weekdays")
+    grant_topic_access(teacher.id, student.id, db.get_default_content_workspace_id(), "weekdays")
     topic = list_accessible_topics(student.id)[0]
 
     result = start_topic_training_session(student.id, int(topic["id"]))
@@ -192,3 +202,69 @@ def test_start_topic_training_session_rejects_inaccessible_topic(tmp_path: Path)
 
     with pytest.raises(TopicAccessDeniedError):
         start_topic_training_session(student.id, topic_id)
+
+
+def test_grant_topic_access_uses_explicit_teacher_workspace(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    first_workspace_id = db.get_default_content_workspace_id()
+    second_workspace = create_workspace("Second Authoring", kind="teacher")
+    add_workspace_member(second_workspace["workspace_id"], teacher.id, "teacher")
+
+    first_topic_id = create_topic_for_teacher_workspace(
+        teacher.id,
+        first_workspace_id,
+        "shared",
+        "Первая тема",
+    )
+    first_lexeme_id = create_lexeme("first-shared")
+    first_learning_item_id = create_learning_item_for_teacher_workspace(
+        teacher.id,
+        first_workspace_id,
+        first_lexeme_id,
+        "first-shared",
+    )
+    create_learning_item_translation(first_learning_item_id, "ru", "первая")
+    replace_topic_learning_items(teacher.id, first_topic_id, [first_learning_item_id])
+
+    second_topic_id = create_topic_for_teacher_workspace(
+        teacher.id,
+        second_workspace["workspace_id"],
+        "shared",
+        "Вторая тема",
+    )
+    second_lexeme_id = create_lexeme("second-shared")
+    second_learning_item_id = create_learning_item_for_teacher_workspace(
+        teacher.id,
+        second_workspace["workspace_id"],
+        second_lexeme_id,
+        "second-shared",
+    )
+    create_learning_item_translation(second_learning_item_id, "ru", "вторая")
+    replace_topic_learning_items(teacher.id, second_topic_id, [second_learning_item_id])
+
+    result = grant_topic_access(
+        teacher.id,
+        student.id,
+        second_workspace["workspace_id"],
+        "shared",
+    )
+
+    assert result["topic_title"] == "Вторая тема"
+
+
+def test_grant_topic_access_rejects_ambiguous_student_workspace(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    seed_teacher_topic(teacher.id)
+    extra_student_workspace = create_workspace("Extra Student", kind="student")
+    add_workspace_member(extra_student_workspace["workspace_id"], teacher.id, "teacher")
+    add_workspace_member(extra_student_workspace["workspace_id"], student.id, "student")
+
+    with pytest.raises(StudentWorkspaceMembershipRequiredError):
+        grant_topic_access(
+            teacher.id,
+            student.id,
+            db.get_default_content_workspace_id(),
+            "weekdays",
+        )

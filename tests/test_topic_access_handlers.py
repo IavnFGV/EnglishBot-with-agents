@@ -66,8 +66,9 @@ def test_grant_topic_handler_grants_named_topic_to_linked_student(tmp_path: Path
     teacher, student = seed_linked_teacher_and_student()
     seed_basic_topics()
     message = FakeMessage(teacher)
+    workspace_id = db.get_default_content_workspace_id()
 
-    asyncio.run(grant_topic(message, SimpleNamespace(args=f"{student.id} weekdays")))
+    asyncio.run(grant_topic(message, SimpleNamespace(args=f"{student.id} {workspace_id} weekdays")))
 
     assert message.answers == [
         {"text": "Доступ к теме открыт: Дни недели (weekdays).", "kwargs": {}}
@@ -78,7 +79,7 @@ def test_topics_handler_lists_accessible_topics(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
     seed_basic_topics()
-    grant_topic_access(teacher.id, student.id, "months")
+    grant_topic_access(teacher.id, student.id, db.get_default_content_workspace_id(), "months")
     message = FakeMessage(student)
 
     asyncio.run(topics(message))
@@ -96,7 +97,7 @@ def test_start_topic_training_handler_uses_accessible_topic(tmp_path: Path) -> N
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
     seed_basic_topics()
-    grant_topic_access(teacher.id, student.id, "colors")
+    grant_topic_access(teacher.id, student.id, db.get_default_content_workspace_id(), "colors")
     callback_message = FakeMessage(student)
     accessible_topic = list_accessible_topics(student.id)[0]
     callback = FakeCallback(
@@ -133,3 +134,19 @@ def test_build_accessible_topics_keyboard_uses_topic_start_callback() -> None:
 
     assert keyboard.inline_keyboard[0][0].text == "Фрукты"
     assert keyboard.inline_keyboard[0][0].callback_data == f"{TOPICS_START_PREFIX}9"
+
+
+def test_grant_topic_handler_requires_explicit_workspace_id(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    seed_basic_topics()
+    message = FakeMessage(teacher)
+
+    asyncio.run(grant_topic(message, SimpleNamespace(args=f"{student.id} weekdays")))
+
+    assert message.answers == [
+        {
+            "text": "Использование: /granttopic <student_user_id> <teacher_workspace_id> <topic_name>",
+            "kwargs": {},
+        }
+    ]

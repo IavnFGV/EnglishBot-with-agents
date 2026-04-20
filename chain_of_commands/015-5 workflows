@@ -1,0 +1,126 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Remove implicit workspace selection and enforce explicit workspace ownership in teacher topic flows.
+
+Context:
+The project already follows a workspace-first model:
+
+- teacher workspaces are used for authoring
+- student workspaces are used for learning
+- content is published from teacher → student workspace
+- assignments and sessions are snapshot-based
+
+However, current implementation still contains implicit behavior:
+
+- topic lookup uses "first match" across teacher workspaces
+- this breaks determinism and workspace isolation
+
+---
+
+Feature:
+Explicit Workspace Selection for Teacher Topic Flows (MVP hardening)
+
+---
+
+Scope:
+
+1. Remove implicit topic resolution:
+   - eliminate usage of:
+     find_topic_by_name_for_teacher()
+     with ORDER BY ... LIMIT 1 behavior
+
+2. Enforce explicit teacher workspace selection:
+   - /assign (topic-based flow) must require workspace context
+   - /granttopic must require workspace context
+   - topic lookup must be scoped to a single workspace
+
+3. Keep raw learning_item_id assignment:
+   - allowed to remain unchanged
+   - but must still validate workspace consistency
+
+4. Student workspace resolution:
+   - if current model guarantees exactly one shared student workspace:
+     keep existing behavior
+     document why it is safe
+   - otherwise:
+     introduce minimal deterministic selection
+
+5. Do NOT redesign command system:
+   - no FSM
+   - no UI flows
+   - no interactive selection
+   - keep commands explicit and minimal
+
+---
+
+Behavior rules:
+
+- no "first matching workspace"
+- no hidden fallback
+- no global topic lookup
+- every topic-based operation must be deterministic
+
+---
+
+Cleanup rules:
+
+- remove helper usage that performs implicit workspace selection
+- remove misleading comments about "default workspace"
+- update handler/help text if it implies global topic lookup
+- do not keep legacy fallback logic "just in case"
+
+---
+
+Out of scope:
+
+- publish flow redesign
+- content versioning
+- workspace UI
+- role changes
+- assignment model changes
+- session model changes
+
+---
+
+Architecture constraints:
+
+- minimal changes only
+- do not introduce new layers unless strictly necessary
+- do not turn modules into catch-all files
+- prefer explicit parameters over hidden logic
+
+---
+
+Testing requirements:
+
+- tests with two teacher workspaces having identical topic names
+- tests for /assign selecting correct workspace
+- tests for /granttopic selecting correct workspace
+- tests confirming absence of implicit fallback
+- persistence validation for workspace-scoped topic lookup
+
+---
+
+Workflow:
+
+1. architect
+2. complexity_guard
+3. coder
+4. complexity_guard
+
+---
+
+Definition of done:
+
+- no implicit workspace selection remains
+- topic resolution is workspace-scoped
+- commands require explicit workspace context
+- student workspace behavior is deterministic
+- no hidden fallback logic
+- obsolete code/comments removed
+- tests pass
+- CHANGELOG.md and context/current_state.md updated

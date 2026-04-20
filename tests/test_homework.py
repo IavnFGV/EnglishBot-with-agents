@@ -26,7 +26,6 @@ from englishbot.teacher_student import create_invite, join_with_invite
 from englishbot.topics import (
     archive_topic,
     create_topic_for_teacher_workspace,
-    find_topic_by_name_for_teacher,
     rename_topic,
     replace_topic_learning_items,
 )
@@ -192,7 +191,12 @@ def test_create_assignment_from_group_publishes_topic_and_keeps_snapshot_title(t
     learning_item_ids = seed_teacher_learning_items(teacher.id, 2)
     replace_topic_learning_items(teacher.id, topic_id, learning_item_ids)
 
-    result = create_assignment_from_group(teacher.id, student.id, "weekdays")
+    result = create_assignment_from_group(
+        teacher.id,
+        student.id,
+        teacher_workspace_id,
+        "weekdays",
+    )
     assignment_id = int(result["assignment_id"])
     rename_topic(teacher.id, topic_id, title="Будни")
     replace_topic_learning_items(teacher.id, topic_id, [learning_item_ids[0]])
@@ -225,7 +229,12 @@ def test_start_assignment_training_session_uses_snapshot_item_ids(tmp_path: Path
     topic_id = create_topic_for_teacher_workspace(teacher.id, teacher_workspace_id, "colors", "Цвета")
     source_learning_item_ids = seed_teacher_learning_items(teacher.id, 2)
     replace_topic_learning_items(teacher.id, topic_id, source_learning_item_ids)
-    result = create_assignment_from_group(teacher.id, student.id, "colors")
+    result = create_assignment_from_group(
+        teacher.id,
+        student.id,
+        teacher_workspace_id,
+        "colors",
+    )
 
     training_result = start_assignment_training_session(student.id, int(result["assignment_id"]))
     first_question = training_result["question"]
@@ -272,3 +281,66 @@ def test_assignment_completion_marks_homework_done(tmp_path: Path) -> None:
     assert answer_result is not None
     assert answer_result["status"] == "completed"
     assert list_active_assignments(student.id) == []
+
+
+def test_create_assignment_from_group_uses_explicit_teacher_workspace(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    first_workspace_id = db.get_default_content_workspace_id()
+    second_workspace = create_workspace("Second Authoring", kind="teacher")
+    add_workspace_member(second_workspace["workspace_id"], teacher.id, "teacher")
+
+    first_topic_id = create_topic_for_teacher_workspace(
+        teacher.id,
+        first_workspace_id,
+        "shared",
+        "Первая тема",
+    )
+    first_learning_item_ids = seed_teacher_learning_items(teacher.id, 2)
+    replace_topic_learning_items(teacher.id, first_topic_id, first_learning_item_ids)
+
+    second_topic_id = create_topic_for_teacher_workspace(
+        teacher.id,
+        second_workspace["workspace_id"],
+        "shared",
+        "Вторая тема",
+    )
+    second_lexeme_id = create_lexeme("workspace-two")
+    second_learning_item_id = create_learning_item_for_teacher_workspace(
+        teacher.id,
+        second_workspace["workspace_id"],
+        second_lexeme_id,
+        "workspace-two",
+    )
+    create_learning_item_translation(second_learning_item_id, "ru", "вторая тема")
+    replace_topic_learning_items(teacher.id, second_topic_id, [second_learning_item_id])
+
+    result = create_assignment_from_group(
+        teacher.id,
+        student.id,
+        second_workspace["workspace_id"],
+        "shared",
+    )
+
+    assert result["title"] == "Вторая тема"
+    assert len(result["learning_item_ids"]) == 1
+
+
+def test_create_assignment_from_group_rejects_ambiguous_student_workspace(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    teacher_workspace_id = db.get_default_content_workspace_id()
+    topic_id = create_topic_for_teacher_workspace(teacher.id, teacher_workspace_id, "weekdays", "Дни недели")
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 1)
+    replace_topic_learning_items(teacher.id, topic_id, learning_item_ids)
+    extra_student_workspace = create_workspace("Extra Student", kind="student")
+    add_workspace_member(extra_student_workspace["workspace_id"], teacher.id, "teacher")
+    add_workspace_member(extra_student_workspace["workspace_id"], student.id, "student")
+
+    with pytest.raises(StudentWorkspaceMembershipRequiredError):
+        create_assignment_from_group(
+            teacher.id,
+            student.id,
+            teacher_workspace_id,
+            "weekdays",
+        )

@@ -177,6 +177,22 @@ def test_get_or_create_student_workspace_is_stable(tmp_path: Path) -> None:
     assert get_workspace_member(int(first_workspace["id"]), 1102)["role"] == "student"
 
 
+def test_find_shared_workspace_for_teacher_and_student_returns_none_when_ambiguous(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    first_workspace = create_workspace("Student A", kind="student")
+    second_workspace = create_workspace("Student B", kind="student")
+    add_workspace_member(first_workspace["workspace_id"], 1151, "teacher")
+    add_workspace_member(first_workspace["workspace_id"], 1152, "student")
+    add_workspace_member(second_workspace["workspace_id"], 1151, "teacher")
+    add_workspace_member(second_workspace["workspace_id"], 1152, "student")
+
+    workspace = find_shared_workspace_for_teacher_and_student(1151, 1152, kind="student")
+
+    assert workspace is None
+
+
 def test_teacher_only_content_edit_checks_workspace_kind_and_role(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher_workspace = create_workspace("Teacher", kind="teacher")

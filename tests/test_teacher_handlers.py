@@ -196,7 +196,8 @@ def test_assign_handler_creates_assignment_and_notifies_student(tmp_path: Path) 
     asyncio.run(join(FakeMessage(student), SimpleNamespace(args=code)))
 
     assign_message = FakeMessage(teacher)
-    asyncio.run(assign(assign_message, SimpleNamespace(args=f"{student.id} weekdays")))
+    workspace_id = db.get_default_content_workspace_id()
+    asyncio.run(assign(assign_message, SimpleNamespace(args=f"{student.id} {workspace_id} weekdays")))
 
     assert assign_message.answers == ["Задание создано. assignment_id: 1. Название: Дни недели"]
     assert assign_message.bot.sent_messages[0]["chat_id"] == student.id
@@ -240,3 +241,26 @@ def test_assign_handler_rejects_unlinked_student(tmp_path: Path) -> None:
     asyncio.run(assign(message, SimpleNamespace(args=f"{student.id} {learning_item_id}")))
 
     assert message.answers == ["Этот ученик не состоит с вами в общем workspace."]
+
+
+def test_assign_handler_requires_explicit_workspace_id_for_topic_flow(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher = make_user(219, "Teacher")
+    student = make_user(220, "Student")
+    db.save_user(teacher)
+    db.save_user(student)
+    set_user_role(teacher.id, "teacher")
+    seed_basic_topics()
+
+    invite_message = FakeMessage(teacher)
+    asyncio.run(invite(invite_message))
+    code = invite_message.answers[0].split(": ", 1)[1]
+    asyncio.run(join(FakeMessage(student), SimpleNamespace(args=code)))
+
+    message = FakeMessage(teacher)
+    asyncio.run(assign(message, SimpleNamespace(args=f"{student.id} weekdays")))
+
+    assert message.answers == [
+        "Использование: /assign <student_user_id> <teacher_workspace_id> <topic_name>\n"
+        "Или: /assign <student_user_id> <learning_item_id,learning_item_id,...>"
+    ]

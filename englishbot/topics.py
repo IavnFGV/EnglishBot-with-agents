@@ -95,37 +95,13 @@ def get_published_topic(
         ).fetchone()
 
 
-def find_topic_by_name_for_teacher(
+def find_topic_by_name_for_teacher_workspace(
     teacher_user_id: int,
+    workspace_id: int,
     topic_name: str,
 ) -> sqlite3.Row | None:
-    with get_connection() as connection:
-        return connection.execute(
-            """
-            SELECT
-                topics.id,
-                topics.workspace_id,
-                topics.source_topic_id,
-                topics.name,
-                topics.title,
-                topics.is_archived,
-                topics.created_at,
-                topics.updated_at
-            FROM topics
-            JOIN workspace_members
-              ON workspace_members.workspace_id = topics.workspace_id
-            JOIN workspaces
-              ON workspaces.id = topics.workspace_id
-            WHERE workspace_members.telegram_user_id = ?
-              AND workspace_members.role = 'teacher'
-              AND workspaces.kind = 'teacher'
-              AND topics.name = ?
-              AND topics.is_archived = 0
-            ORDER BY topics.workspace_id, topics.id
-            LIMIT 1
-            """,
-            (teacher_user_id, topic_name.strip()),
-        ).fetchone()
+    ensure_teacher_can_edit_workspace_content(workspace_id, teacher_user_id)
+    return get_topic_by_name(topic_name, workspace_id=workspace_id)
 
 
 def list_topics(

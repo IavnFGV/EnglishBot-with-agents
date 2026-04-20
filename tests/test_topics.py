@@ -13,6 +13,7 @@ from englishbot.topics import (
     archive_topic,
     create_topic,
     create_topic_for_teacher_workspace,
+    find_topic_by_name_for_teacher_workspace,
     get_learning_items_for_topic,
     get_topic,
     get_topic_by_name,
@@ -222,3 +223,31 @@ def test_publish_topic_to_student_workspace_copies_and_updates_membership(tmp_pa
     assert second_publish["topic_id"] == first_publish["topic_id"]
     assert get_topic_learning_item_ids(int(second_publish["topic_id"])) == second_publish["learning_item_ids"]
     assert len(second_publish["learning_item_ids"]) == 1
+
+
+def test_find_topic_by_name_for_teacher_workspace_is_workspace_scoped(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    first_workspace = create_workspace("Authoring A", kind="teacher")
+    second_workspace = create_workspace("Authoring B", kind="teacher")
+    add_workspace_member(first_workspace["workspace_id"], 501, "teacher")
+    add_workspace_member(second_workspace["workspace_id"], 501, "teacher")
+    first_topic_id = create_topic_for_teacher_workspace(
+        501,
+        first_workspace["workspace_id"],
+        "shared",
+        "Первая тема",
+    )
+    second_topic_id = create_topic_for_teacher_workspace(
+        501,
+        second_workspace["workspace_id"],
+        "shared",
+        "Вторая тема",
+    )
+
+    first_topic = find_topic_by_name_for_teacher_workspace(501, first_workspace["workspace_id"], "shared")
+    second_topic = find_topic_by_name_for_teacher_workspace(501, second_workspace["workspace_id"], "shared")
+
+    assert first_topic is not None
+    assert second_topic is not None
+    assert first_topic["id"] == first_topic_id
+    assert second_topic["id"] == second_topic_id

@@ -211,7 +211,7 @@ def find_shared_workspace_for_teacher_and_student(
         kind_filter = "AND workspaces.kind = ?"
         parameters.append(_normalize_workspace_kind(kind))
     with get_connection() as connection:
-        return connection.execute(
+        rows = connection.execute(
             f"""
             SELECT
                 workspaces.id,
@@ -228,10 +228,12 @@ def find_shared_workspace_for_teacher_and_student(
               AND student_membership.telegram_user_id = ?
               {kind_filter}
             ORDER BY workspaces.id
-            LIMIT 1
             """,
             tuple(parameters),
-        ).fetchone()
+        ).fetchall()
+    if len(rows) != 1:
+        return None
+    return rows[0]
 
 
 def get_or_create_student_workspace(

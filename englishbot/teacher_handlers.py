@@ -34,13 +34,13 @@ from .topic_access import (
 
 def _build_assign_usage_message() -> str:
     return (
-        "Использование: /assign <student_user_id> <group_name>\n"
+        "Использование: /assign <student_user_id> <teacher_workspace_id> <topic_name>\n"
         "Или: /assign <student_user_id> <learning_item_id,learning_item_id,...>"
     )
 
 
 def _build_grant_topic_usage_message() -> str:
-    return "Использование: /granttopic <student_user_id> <topic_name>"
+    return "Использование: /granttopic <student_user_id> <teacher_workspace_id> <topic_name>"
 
 
 @router.message(Command("invite"))
@@ -95,8 +95,8 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
         await message.answer(_build_assign_usage_message())
         return
 
-    parts = raw_args.split(maxsplit=1)
-    if len(parts) != 2:
+    parts = raw_args.split(maxsplit=2)
+    if len(parts) < 2:
         await message.answer(_build_assign_usage_message())
         return
 
@@ -106,26 +106,39 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
         await message.answer(_build_assign_usage_message())
         return
 
-    assignment_target = parts[1].strip()
-    raw_learning_item_ids = [
-        item_id.strip()
-        for item_id in assignment_target.split(",")
-        if item_id.strip()
-    ]
-
     try:
-        if raw_learning_item_ids and all(item_id.isdigit() for item_id in raw_learning_item_ids):
+        if len(parts) == 2:
+            assignment_target = parts[1].strip()
+            raw_learning_item_ids = [
+                item_id.strip()
+                for item_id in assignment_target.split(",")
+                if item_id.strip()
+            ]
+            if not raw_learning_item_ids or not all(
+                item_id.isdigit() for item_id in raw_learning_item_ids
+            ):
+                await message.answer(_build_assign_usage_message())
+                return
             result = create_assignment(
                 message.from_user.id,
                 student_user_id,
                 [int(item_id) for item_id in raw_learning_item_ids],
             )
         else:
+            teacher_workspace_id = int(parts[1])
+            assignment_target = parts[2].strip()
+            if not assignment_target:
+                await message.answer(_build_assign_usage_message())
+                return
             result = create_assignment_from_group(
                 message.from_user.id,
                 student_user_id,
+                teacher_workspace_id,
                 assignment_target,
             )
+    except ValueError:
+        await message.answer(_build_assign_usage_message())
+        return
     except HomeworkTeacherRoleRequiredError:
         await message.answer("Команда /assign доступна только пользователю с ролью teacher.")
         return
@@ -145,7 +158,7 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
         await message.answer("Нельзя назначать learning_item из разных workspace в одном задании.")
         return
     except AssignmentGroupNotFoundError:
-        await message.answer(_build_assign_usage_message())
+        await message.answer("Тема не найдена в указанном teacher workspace.")
         return
 
     await message.answer(
@@ -170,13 +183,14 @@ async def grant_topic(message: Message, command: CommandObject | None = None) ->
         await message.answer(_build_grant_topic_usage_message())
         return
 
-    parts = raw_args.split(maxsplit=1)
-    if len(parts) != 2:
+    parts = raw_args.split(maxsplit=2)
+    if len(parts) != 3:
         await message.answer(_build_grant_topic_usage_message())
         return
 
     try:
         student_user_id = int(parts[0])
+        teacher_workspace_id = int(parts[1])
     except ValueError:
         await message.answer(_build_grant_topic_usage_message())
         return
@@ -185,7 +199,8 @@ async def grant_topic(message: Message, command: CommandObject | None = None) ->
         result = grant_topic_access(
             message.from_user.id,
             student_user_id,
-            parts[1],
+            teacher_workspace_id,
+            parts[2],
         )
     except TopicAccessTeacherRoleRequiredError:
         await message.answer("Команда /granttopic доступна только пользователю с ролью teacher.")
@@ -197,7 +212,7 @@ async def grant_topic(message: Message, command: CommandObject | None = None) ->
         await message.answer("Этот ученик не состоит с вами в общем workspace.")
         return
     except TopicNotFoundError:
-        await message.answer(_build_grant_topic_usage_message())
+        await message.answer("Тема не найдена в указанном teacher workspace.")
         return
 
     await message.answer(

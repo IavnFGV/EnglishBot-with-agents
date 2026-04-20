@@ -3,14 +3,19 @@ import sqlite3
 from .db import get_connection, utc_now
 from .teacher_student import ROLE_TEACHER
 from .topics import (
-    find_topic_by_name_for_teacher,
+    find_topic_by_name_for_teacher_workspace,
     get_topic,
     get_topic_learning_item_ids,
     publish_topic_to_workspace,
 )
 from .training import create_training_session_for_learning_items
 from .user_profiles import get_user_role
-from .workspaces import WORKSPACE_KIND_STUDENT, find_shared_workspace_for_teacher_and_student, user_is_workspace_member
+from .workspaces import (
+    WORKSPACE_KIND_STUDENT,
+    WorkspaceEditPermissionError,
+    find_shared_workspace_for_teacher_and_student,
+    user_is_workspace_member,
+)
 
 
 class TopicAccessError(Exception):
@@ -44,6 +49,7 @@ class EmptyTopicError(TopicAccessError):
 def grant_topic_access(
     teacher_user_id: int,
     student_user_id: int,
+    teacher_workspace_id: int,
     topic_name: str,
 ) -> dict[str, object]:
     if get_user_role(teacher_user_id) != ROLE_TEACHER:
@@ -62,7 +68,14 @@ def grant_topic_access(
     if not user_is_workspace_member(workspace_id, student_user_id):
         raise StudentWorkspaceMembershipRequiredError
 
-    source_topic = find_topic_by_name_for_teacher(teacher_user_id, topic_name)
+    try:
+        source_topic = find_topic_by_name_for_teacher_workspace(
+            teacher_user_id,
+            teacher_workspace_id,
+            topic_name,
+        )
+    except WorkspaceEditPermissionError as error:
+        raise TeacherWorkspaceMembershipRequiredError from error
     if source_topic is None:
         raise TopicNotFoundError
     topic = publish_topic_to_workspace(int(source_topic["id"]), workspace_id)

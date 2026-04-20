@@ -2,13 +2,14 @@ import sqlite3
 
 from .db import get_connection, utc_now
 from .teacher_student import ROLE_TEACHER
-from .topics import find_topic_by_name_for_teacher, publish_topic_to_workspace
+from .topics import find_topic_by_name_for_teacher_workspace, publish_topic_to_workspace
 from .training import create_training_session_for_learning_items
 from .user_profiles import get_user_role
 from .vocabulary import get_learning_item, publish_learning_item_to_workspace
 from .workspaces import (
     WORKSPACE_KIND_STUDENT,
     WORKSPACE_KIND_TEACHER,
+    WorkspaceEditPermissionError,
     find_shared_workspace_for_teacher_and_student,
     get_workspace,
     user_is_workspace_member,
@@ -115,10 +116,18 @@ def create_assignment(
 def create_assignment_from_group(
     teacher_user_id: int,
     student_user_id: int,
+    teacher_workspace_id: int,
     group_name: str,
 ) -> dict[str, object]:
     target_workspace = _get_student_workspace(teacher_user_id, student_user_id)
-    source_topic = find_topic_by_name_for_teacher(teacher_user_id, group_name)
+    try:
+        source_topic = find_topic_by_name_for_teacher_workspace(
+            teacher_user_id,
+            teacher_workspace_id,
+            group_name,
+        )
+    except WorkspaceEditPermissionError as error:
+        raise TeacherWorkspaceMembershipRequiredError from error
     if source_topic is None:
         raise AssignmentGroupNotFoundError
 
