@@ -124,8 +124,9 @@
 Язык learner-facing подсказок и exercise hints.
 
 Сейчас:
-- как отдельная runtime-настройка ещё не реализован;
-- должен рассматриваться отдельно от bot UI language в target model.
+- хранится отдельно в `user_profiles.hint_language`;
+- настраивается независимо от `bot_language` через `/settings`;
+- используется для learner-facing hint language в упражнениях.
 
 ---
 
@@ -502,7 +503,7 @@ Exercise types:
 ### Current behavior
 
 - bot-facing UI language уже существует как `bot_language`;
-- отдельного `hint_language` для learner-facing exercise hints пока нет.
+- learner-facing exercise hint language уже существует как отдельный `hint_language`.
 
 ### Target behavior
 
