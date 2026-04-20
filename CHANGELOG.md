@@ -56,3 +56,4 @@
 - Moved interaction logging out of handler logic and onto aiogram-wide hooks: incoming updates are logged through `dispatcher.update.outer_middleware(...)`, and outgoing Telegram API calls are logged through bot session middleware.
 - Split the aiogram audit hooks into a dedicated `englishbot/audit.py` module and moved singleton `router`/`dispatcher` setup into `englishbot/runtime.py` so `bot.py` stays focused on handlers and startup.
 - Removed the separate `messages` table and switched `/me` message counting to the low-level `interactions` audit log; startup now drops the obsolete `messages` table if it exists.
+- Added persisted `hint_language` in `user_profiles`, split `/settings` into separate bot-language and hint-language controls, and wired staged training prompt generation plus medium/hard hint rendering to the stored hint preference instead of the old hardcoded Russian hint default.

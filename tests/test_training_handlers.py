@@ -15,6 +15,7 @@ from englishbot.training_handlers import (
     answer_training_question,
     learn,
 )
+from englishbot.user_profiles import set_user_hint_language
 from englishbot.vocabulary import create_learning_item, create_learning_item_translation, create_lexeme
 from englishbot.workspaces import add_workspace_member
 
@@ -231,14 +232,27 @@ def test_text_answers_continue_working_for_medium_stage(tmp_path: Path) -> None:
     second_answer._next_message_id = first_answer._next_message_id
     asyncio.run(answer_training_question(second_answer))
 
+    assert "Hint: слово-1" in second_answer.answers[-1]["text"]
     assert "Letters:" in second_answer.answers[-1]["text"]
     assert second_answer.answers[-1]["kwargs"]["reply_markup"] is None
+
+
+def test_text_answers_render_hint_and_first_letter_for_hard_stage(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    seed_learning_items(1)
+    user = make_user(406, "Learner")
+    start_message = FakeMessage(user)
+
+    asyncio.run(learn(start_message))
+
+    assert "Hint: слово-1" in start_message.answers[-1]["text"]
+    assert "First letter: w" in start_message.answers[-1]["text"]
 
 
 def test_session_completion_sends_summary_and_stops_question_rendering(tmp_path: Path) -> None:
     setup_db(tmp_path)
     seed_learning_items(1)
-    user = make_user(406, "Learner")
+    user = make_user(408, "Learner")
     start_message = FakeMessage(user)
 
     asyncio.run(learn(start_message))
@@ -254,3 +268,17 @@ def test_session_completion_sends_summary_and_stops_question_rendering(tmp_path:
     assert len(active_message.answers) == 1
     assert active_message.answers[0]["text"] == "Correct.\nResult: 1 questions, 4 correct answers."
     assert start_message.bot.edited_messages[-1]["text"] == "Item 1/1\nDone 1/1\nStage: completed"
+
+
+def test_learn_renders_hint_prompt_from_persisted_hint_language(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    seed_learning_items(3)
+    user = make_user(407, "Learner")
+    db.save_user(user)
+    set_user_hint_language(user.id, "bg")
+    create_learning_item_translation(1, "bg", "дума-1")
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+
+    assert message.answers[1]["text"] == "дума-1"

@@ -8,13 +8,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
 from englishbot.settings_handlers import (
-    SETTINGS_LANGUAGE_CALLBACK,
-    SETTINGS_SET_LANGUAGE_PREFIX,
-    open_language_settings,
-    set_language,
+    SETTINGS_BOT_LANGUAGE_CALLBACK,
+    SETTINGS_HINT_LANGUAGE_CALLBACK,
+    SETTINGS_SET_BOT_LANGUAGE_PREFIX,
+    SETTINGS_SET_HINT_LANGUAGE_PREFIX,
+    open_bot_language_settings,
+    open_hint_language_settings,
+    set_bot_language,
+    set_hint_language,
     settings,
 )
-from englishbot.user_profiles import get_user_language
+from englishbot.user_profiles import get_user_hint_language, get_user_language
 
 
 class FakeMessage:
@@ -46,7 +50,7 @@ def setup_db(tmp_path: Path) -> None:
     db.init_db()
 
 
-def test_settings_handler_shows_current_language_entry(tmp_path: Path) -> None:
+def test_settings_handler_shows_bot_and_hint_language_entries(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(1101, "Learner")
     message = FakeMessage(user)
@@ -62,16 +66,17 @@ def test_settings_handler_shows_current_language_entry(tmp_path: Path) -> None:
         }
     ]
     keyboard = message.answers[0]["kwargs"]["reply_markup"]
-    assert keyboard.inline_keyboard[0][0].text == "Language: English"
+    assert keyboard.inline_keyboard[0][0].text == "Bot language: English"
+    assert keyboard.inline_keyboard[1][0].text == "Hint language: English"
 
 
-def test_open_language_settings_shows_supported_language_options(tmp_path: Path) -> None:
+def test_open_bot_language_settings_shows_supported_language_options(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(1102, "Learner")
     callback_message = FakeMessage(user)
-    callback = FakeCallback(user, SETTINGS_LANGUAGE_CALLBACK, callback_message)
+    callback = FakeCallback(user, SETTINGS_BOT_LANGUAGE_CALLBACK, callback_message)
 
-    asyncio.run(open_language_settings(callback))
+    asyncio.run(open_bot_language_settings(callback))
 
     assert callback.answered is True
     assert callback_message.answers[0]["text"] == "Choose bot language:"
@@ -84,21 +89,64 @@ def test_open_language_settings_shows_supported_language_options(tmp_path: Path)
     ]
 
 
-def test_set_language_persists_choice_and_replies_in_new_language(tmp_path: Path) -> None:
+def test_open_hint_language_settings_shows_supported_language_options(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(1103, "Learner")
+    callback_message = FakeMessage(user)
+    callback = FakeCallback(user, SETTINGS_HINT_LANGUAGE_CALLBACK, callback_message)
+
+    asyncio.run(open_hint_language_settings(callback))
+
+    assert callback.answered is True
+    assert callback_message.answers[0]["text"] == "Choose hint language:"
+    keyboard = callback_message.answers[0]["kwargs"]["reply_markup"]
+    assert [row[0].text for row in keyboard.inline_keyboard] == [
+        "English",
+        "Русский",
+        "Українська",
+        "Български",
+    ]
+
+
+def test_set_bot_language_persists_choice_and_replies_in_new_language(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(1104, "Learner")
     db.save_user(user)
     callback_message = FakeMessage(user)
     callback = FakeCallback(
         user,
-        f"{SETTINGS_SET_LANGUAGE_PREFIX}uk",
+        f"{SETTINGS_SET_BOT_LANGUAGE_PREFIX}uk",
         callback_message,
     )
 
-    asyncio.run(set_language(callback))
+    asyncio.run(set_bot_language(callback))
 
     assert callback.answered is True
     assert get_user_language(user.id) == "uk"
+    assert get_user_hint_language(user.id) == "en"
     assert callback_message.answers[0]["text"] == "Мову бота змінено на Українська."
     keyboard = callback_message.answers[0]["kwargs"]["reply_markup"]
-    assert keyboard.inline_keyboard[0][0].text == "Мова: Українська"
+    assert keyboard.inline_keyboard[0][0].text == "Мова бота: Українська"
+    assert keyboard.inline_keyboard[1][0].text == "Мова підказок: English"
+
+
+def test_set_hint_language_persists_choice_without_changing_bot_language(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(1105, "Learner")
+    db.save_user(user)
+    callback_message = FakeMessage(user)
+    callback = FakeCallback(
+        user,
+        f"{SETTINGS_SET_HINT_LANGUAGE_PREFIX}bg",
+        callback_message,
+    )
+
+    asyncio.run(set_hint_language(callback))
+
+    assert callback.answered is True
+    assert get_user_language(user.id) == "en"
+    assert get_user_hint_language(user.id) == "bg"
+    assert callback_message.answers[0]["text"] == "Hint language set to Български."
+    keyboard = callback_message.answers[0]["kwargs"]["reply_markup"]
+    assert keyboard.inline_keyboard[0][0].text == "Bot language: English"
+    assert keyboard.inline_keyboard[1][0].text == "Hint language: Български"

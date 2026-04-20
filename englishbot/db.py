@@ -9,6 +9,7 @@ from aiogram.types import User
 DB_PATH = Path(os.getenv("ENGLISHBOT_DB_PATH", "englishbot.sqlite3"))
 DEFAULT_USER_ROLE = "student"
 DEFAULT_BOT_LANGUAGE = "en"
+DEFAULT_HINT_LANGUAGE = DEFAULT_BOT_LANGUAGE
 DEFAULT_CONTENT_WORKSPACE_NAME = "Starter Content"
 WORKSPACE_KIND_TEACHER = "teacher"
 WORKSPACE_KIND_STUDENT = "student"
@@ -115,6 +116,7 @@ def init_db() -> None:
                 telegram_user_id INTEGER PRIMARY KEY,
                 role TEXT NOT NULL DEFAULT 'student',
                 bot_language TEXT NOT NULL DEFAULT 'en',
+                hint_language TEXT NOT NULL DEFAULT 'en',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id)
@@ -122,12 +124,46 @@ def init_db() -> None:
             """
         )
         user_profile_columns = get_table_columns(connection, "user_profiles")
+        added_hint_language = False
         if "bot_language" not in user_profile_columns:
             connection.execute(
                 """
                 ALTER TABLE user_profiles
                 ADD COLUMN bot_language TEXT NOT NULL DEFAULT 'en'
                 """
+            )
+        if "hint_language" not in user_profile_columns:
+            added_hint_language = True
+            connection.execute(
+                """
+                ALTER TABLE user_profiles
+                ADD COLUMN hint_language TEXT NOT NULL DEFAULT 'en'
+                """
+            )
+        if added_hint_language:
+            connection.execute(
+                """
+                UPDATE user_profiles
+                SET hint_language = CASE
+                    WHEN bot_language IN ('en', 'ru', 'uk', 'bg') THEN bot_language
+                    ELSE ?
+                END
+                """,
+                (DEFAULT_HINT_LANGUAGE,),
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE user_profiles
+                SET hint_language = CASE
+                    WHEN bot_language IN ('en', 'ru', 'uk', 'bg') THEN bot_language
+                    ELSE ?
+                END
+                WHERE hint_language IS NULL
+                   OR TRIM(hint_language) = ''
+                   OR hint_language NOT IN ('en', 'ru', 'uk', 'bg')
+                """,
+                (DEFAULT_HINT_LANGUAGE,),
             )
         user_columns = get_table_columns(connection, "users")
         if "role" in user_columns:
@@ -137,6 +173,7 @@ def init_db() -> None:
                     telegram_user_id,
                     role,
                     bot_language,
+                    hint_language,
                     created_at,
                     updated_at
                 )
@@ -144,11 +181,12 @@ def init_db() -> None:
                     telegram_user_id,
                     COALESCE(NULLIF(role, ''), ?),
                     ?,
+                    ?,
                     created_at,
                     updated_at
                 FROM users
                 """,
-                (DEFAULT_USER_ROLE, DEFAULT_BOT_LANGUAGE),
+                (DEFAULT_USER_ROLE, DEFAULT_BOT_LANGUAGE, DEFAULT_BOT_LANGUAGE),
             )
         connection.execute(
             """
@@ -156,6 +194,7 @@ def init_db() -> None:
                 telegram_user_id,
                 role,
                 bot_language,
+                hint_language,
                 created_at,
                 updated_at
             )
@@ -163,11 +202,12 @@ def init_db() -> None:
                 telegram_user_id,
                 ?,
                 ?,
+                ?,
                 created_at,
                 updated_at
             FROM users
             """,
-            (DEFAULT_USER_ROLE, DEFAULT_BOT_LANGUAGE),
+            (DEFAULT_USER_ROLE, DEFAULT_BOT_LANGUAGE, DEFAULT_BOT_LANGUAGE),
         )
         connection.execute(
             """
@@ -894,12 +934,20 @@ def save_user(user: User) -> None:
                 telegram_user_id,
                 role,
                 bot_language,
+                hint_language,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (user.id, DEFAULT_USER_ROLE, DEFAULT_BOT_LANGUAGE, timestamp, timestamp),
+            (
+                user.id,
+                DEFAULT_USER_ROLE,
+                DEFAULT_BOT_LANGUAGE,
+                DEFAULT_HINT_LANGUAGE,
+                timestamp,
+                timestamp,
+            ),
         )
 
 
@@ -926,15 +974,17 @@ def ensure_user_exists(telegram_user_id: int) -> None:
                 telegram_user_id,
                 role,
                 bot_language,
+                hint_language,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 telegram_user_id,
                 DEFAULT_USER_ROLE,
                 DEFAULT_BOT_LANGUAGE,
+                DEFAULT_HINT_LANGUAGE,
                 timestamp,
                 timestamp,
             ),

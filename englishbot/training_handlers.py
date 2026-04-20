@@ -71,19 +71,26 @@ def _render_question_text(
     feedback: str | None = None,
 ) -> str:
     prompt = str(question["prompt"])
+    hint_text = str(question.get("hint_text") or prompt)
     question_text = prompt
-    if question.get("exercise_type") == "jumbled_letters":
+    if question.get("exercise_type") == "multiple_choice":
+        question_text = translate_for_user(
+            telegram_user_id,
+            "training.question.easy",
+            prompt=prompt,
+        )
+    elif question.get("exercise_type") == "jumbled_letters":
         question_text = translate_for_user(
             telegram_user_id,
             "training.question.medium",
-            prompt=prompt,
+            hint_text=hint_text,
             jumbled_letters=question["jumbled_letters"],
         )
     elif question.get("exercise_type") == "typed_answer" and question.get("first_letter"):
         question_text = translate_for_user(
             telegram_user_id,
             "training.question.hard",
-            prompt=prompt,
+            hint_text=hint_text,
             first_letter=question["first_letter"],
         )
     if not feedback:

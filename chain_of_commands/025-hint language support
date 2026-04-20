@@ -1,0 +1,120 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+Task:
+Implement persisted hint-language support and wire it into the staged exercise flow.
+
+IMPORTANT:
+This task is about user preference persistence and exercise rendering inputs.
+Do not redesign training progression.
+Do not add FSM.
+Do not add new commands.
+Do not implement advanced graphical progress UI.
+Do not introduce unrelated refactoring.
+
+Goal:
+Separate bot UI language from learner hint language and make staged exercises use the persisted hint-language preference.
+
+Scope:
+
+1. Persistence
+
+* Extend `user_profiles` with a new persisted field:
+
+  * `hint_language`
+* Supported values:
+
+  * `en`
+  * `ru`
+  * `uk`
+  * `bg`
+* Add safe migration/backfill for legacy DBs
+* Default behavior:
+
+  * if `hint_language` is missing, initialize it from `bot_language`
+  * if `bot_language` is also missing/invalid, use the existing default language behavior
+
+2. User profile API
+   Update `englishbot/user_profiles.py` with focused helpers to:
+
+* get hint language
+* set hint language
+* validate supported values
+* keep fallback behavior explicit and deterministic
+
+3. Settings flow
+   Extend the existing `/settings` flow.
+   Do not add a new command.
+
+Requirements:
+
+* keep all bot-facing text in centralized i18n
+* add minimal settings UI for choosing hint language
+* keep the existing bot-language flow working
+* the user must be able to choose bot language and hint language separately
+
+4. Exercise wiring
+   Update the staged learning flow so that:
+
+* current exercise generation uses the persisted user hint language
+* medium and hard exercises expose/show the correct localized hint text
+* fallback behavior remains consistent with the current exercise-domain rules
+
+5. Telegram rendering
+   Keep rendering minimal.
+   Do not redesign the overall training UX.
+
+At minimum:
+
+* medium exercise text should include hint text
+* hard exercise text should include hint text and first-letter info
+* easy remains multiple-choice
+
+6. Architecture rules
+
+* keep business logic out of handlers
+* keep handlers thin
+* do not duplicate language fallback logic in Telegram modules
+* do not introduce extra abstraction layers
+
+Testing:
+Add or update focused tests to cover at least:
+
+1. default hint_language backfills from bot_language
+2. invalid/missing hint_language falls back safely
+3. settings flow can change hint language independently of bot language
+4. exercise generation during training uses persisted hint_language
+5. medium/hard rendered content includes the expected localized hint
+
+Prefer updating existing focused test files instead of creating unnecessary new ones.
+
+Documentation updates:
+After implementation, update:
+
+* CHANGELOG.md
+* context/current_state.md
+
+Current state must mention:
+
+* `hint_language` is now persisted separately from `bot_language`
+* `/settings` can change hint language independently
+* staged exercises now use persisted hint-language preference
+* advanced graphical progress polish is still not implemented
+
+Output:
+
+* minimal persistence changes
+* minimal settings/training wiring changes
+* focused tests
+* short summary of what changed

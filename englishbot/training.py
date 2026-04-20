@@ -1,7 +1,8 @@
 import sqlite3
 
-from .db import get_connection, utc_now
+from .db import DEFAULT_HINT_LANGUAGE, get_connection, utc_now
 from .exercises import ExerciseBuildError, ResolvedLearningItem, TranslationEntry, build_exercise
+from .user_profiles import get_user_hint_language
 from .vocabulary import get_learning_item_with_translations, get_lexeme, list_learning_items
 
 
@@ -11,7 +12,6 @@ DEFAULT_SESSION_SIZE = 5
 EASY_STAGE = "easy"
 MEDIUM_STAGE = "medium"
 HARD_STAGE = "hard"
-DEFAULT_HINT_LANGUAGE = "ru"
 
 
 class NoLearningItemsError(Exception):
@@ -37,7 +37,12 @@ def create_training_session_for_learning_items(
         raise NoLearningItemsError
 
     item_snapshots = [
-        _build_item_snapshot(int(learning_item_id), EASY_STAGE, learning_item_ids)
+        _build_item_snapshot(
+            int(learning_item_id),
+            EASY_STAGE,
+            learning_item_ids,
+            get_user_hint_language(telegram_user_id),
+        )
         for learning_item_id in learning_item_ids
     ]
     timestamp = utc_now()
@@ -155,11 +160,13 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
         int(session["id"]),
         int(item_snapshot["learning_item_id"]),
         str(item_snapshot["current_stage"]),
+        int(session["telegram_user_id"]),
     )
     prompt_text = str(item_snapshot["prompt_text"]).strip() or exercise.prompt_payload.prompt_text
     expected_answer = str(item_snapshot["expected_answer"]).strip() or exercise.expected_answer
     return {
         "session_id": int(session["id"]),
+        "telegram_user_id": int(session["telegram_user_id"]),
         "session_item_id": int(item_snapshot["id"]),
         "learning_item_id": int(item_snapshot["learning_item_id"]),
         "current_index": int(session["current_index"]),
@@ -365,11 +372,13 @@ def _build_item_snapshot(
     learning_item_id: int,
     stage: str,
     session_learning_item_ids: list[int],
+    hint_language: str,
 ) -> dict[str, object]:
     exercise = _build_session_exercise_from_ids(
         learning_item_id,
         stage,
         session_learning_item_ids,
+        hint_language,
     )
     return {
         "learning_item_id": learning_item_id,
@@ -406,6 +415,7 @@ def _calculate_next_item_state(question: dict[str, object], is_correct: bool) ->
         int(question["learning_item_id"]),
         current_stage,
         session_learning_item_ids,
+        get_user_hint_language(int(question["telegram_user_id"])),
     )
     return {
         "prompt_text": snapshot["prompt"],
@@ -478,12 +488,14 @@ def _build_session_exercise(
     session_id: int,
     learning_item_id: int,
     stage: str,
+    telegram_user_id: int,
 ):
     session_learning_item_ids = _list_session_learning_item_ids(session_id)
     return _build_session_exercise_from_ids(
         learning_item_id,
         stage,
         session_learning_item_ids,
+        get_user_hint_language(telegram_user_id),
     )
 
 
@@ -491,6 +503,7 @@ def _build_session_exercise_from_ids(
     learning_item_id: int,
     stage: str,
     session_learning_item_ids: list[int],
+    hint_language: str = DEFAULT_HINT_LANGUAGE,
 ):
     learning_item = _resolve_learning_item(learning_item_id)
     distractor_pool = _build_distractor_pool(learning_item, session_learning_item_ids)
@@ -498,7 +511,7 @@ def _build_session_exercise_from_ids(
         return build_exercise(
             learning_item=learning_item,
             stage=stage,
-            hint_language=DEFAULT_HINT_LANGUAGE,
+            hint_language=hint_language,
             distractor_pool=distractor_pool,
         )
     except ExerciseBuildError:
@@ -509,7 +522,7 @@ def _build_session_exercise_from_ids(
         return build_exercise(
             learning_item=learning_item,
             stage=HARD_STAGE,
-            hint_language=DEFAULT_HINT_LANGUAGE,
+            hint_language=hint_language,
             distractor_pool=distractor_pool,
         )
 

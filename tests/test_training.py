@@ -14,6 +14,7 @@ from englishbot.training import (
     get_current_question,
     submit_training_answer,
 )
+from englishbot.user_profiles import set_user_hint_language
 from englishbot.vocabulary import (
     create_learning_item,
     create_learning_item_translation,
@@ -266,6 +267,37 @@ def test_active_session_uses_snapshotted_prompt_text_for_compatibility(tmp_path:
 
     assert question is not None
     assert question["prompt"] == "слово-1"
+
+
+def test_training_uses_persisted_hint_language_for_new_sessions(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    create_learning_item_translation(1, "bg", "дума-1")
+    set_user_hint_language(user_id, "bg")
+
+    create_training_session(user_id)
+    question = get_current_question(user_id)
+
+    assert question is not None
+    assert question["prompt"] == "дума-1"
+
+
+def test_stage_rebuild_uses_persisted_hint_language(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    create_learning_item_translation(1, "bg", "дума-1")
+    session_id = int(create_training_session(user_id)["session_id"])
+    set_user_hint_language(user_id, "bg")
+
+    answer_current_question(user_id)
+    answer_current_question(user_id)
+    question = get_current_question(user_id)
+    first_item = get_session_item_state(session_id, 0)
+
+    assert question is not None
+    assert question["current_stage"] == "medium"
+    assert question["prompt"] == "дума-1"
+    assert first_item["prompt_text"] == "дума-1"
 
 
 def test_create_training_session_rejects_empty_vocabulary(tmp_path: Path) -> None:
