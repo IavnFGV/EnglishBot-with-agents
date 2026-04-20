@@ -36,6 +36,7 @@ def create_training_session_for_learning_items(
     if not learning_item_ids:
         raise NoLearningItemsError
 
+    item_snapshots = [_build_item_snapshot(int(learning_item_id)) for learning_item_id in learning_item_ids]
     timestamp = utc_now()
     with get_connection() as connection:
         connection.execute(
@@ -63,7 +64,7 @@ def create_training_session_for_learning_items(
             (
                 telegram_user_id,
                 assignment_id,
-                len(learning_item_ids),
+                len(item_snapshots),
                 ACTIVE_STATUS,
                 timestamp,
                 timestamp,
@@ -72,19 +73,31 @@ def create_training_session_for_learning_items(
         session_id = int(cursor.lastrowid)
         connection.executemany(
             """
-            INSERT INTO training_session_items (session_id, learning_item_id, item_order)
-            VALUES (?, ?, ?)
+            INSERT INTO training_session_items (
+                session_id,
+                learning_item_id,
+                prompt_text,
+                expected_answer,
+                item_order
+            )
+            VALUES (?, ?, ?, ?, ?)
             """,
             [
-                (session_id, learning_item_id, item_order)
-                for item_order, learning_item_id in enumerate(learning_item_ids)
+                (
+                    session_id,
+                    int(snapshot["learning_item_id"]),
+                    str(snapshot["prompt"]),
+                    str(snapshot["expected_answer"]),
+                    item_order,
+                )
+                for item_order, snapshot in enumerate(item_snapshots)
             ],
         )
 
     question = get_current_question(telegram_user_id)
     return {
         "session_id": session_id,
-        "total_questions": len(learning_item_ids),
+        "total_questions": len(item_snapshots),
         "question": question,
     }
 
@@ -117,28 +130,18 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
     if session is None:
         return None
 
-    learning_item_id = _get_session_learning_item_id(session["id"], session["current_index"])
-    if learning_item_id is None:
-        return None
-
-    content = get_learning_item_with_translations(learning_item_id)
-    if content is None:
-        return None
-
-    learning_item = content["learning_item"]
-    translations = content["translations"]
-    lexeme = get_lexeme(learning_item["lexeme_id"])
-    if lexeme is None:
+    item_snapshot = _get_session_learning_item(session["id"], session["current_index"])
+    if item_snapshot is None:
         return None
 
     return {
         "session_id": session["id"],
-        "learning_item_id": learning_item_id,
+        "learning_item_id": int(item_snapshot["learning_item_id"]),
         "current_index": session["current_index"],
         "question_number": session["current_index"] + 1,
         "total_questions": session["total_questions"],
-        "prompt": _select_prompt(translations, lexeme["lemma"]),
-        "expected_answer": lexeme["lemma"],
+        "prompt": str(item_snapshot["prompt_text"]),
+        "expected_answer": str(item_snapshot["expected_answer"]),
     }
 
 
@@ -199,19 +202,32 @@ def submit_training_answer(
     return result
 
 
-def _get_session_learning_item_id(session_id: int, item_order: int) -> int | None:
+def _get_session_learning_item(session_id: int, item_order: int) -> sqlite3.Row | None:
     with get_connection() as connection:
-        row = connection.execute(
+        return connection.execute(
             """
-            SELECT learning_item_id
+            SELECT learning_item_id, prompt_text, expected_answer, item_order
             FROM training_session_items
             WHERE session_id = ? AND item_order = ?
             """,
             (session_id, item_order),
         ).fetchone()
-    if row is None:
-        return None
-    return int(row["learning_item_id"])
+
+
+def _build_item_snapshot(learning_item_id: int) -> dict[str, object]:
+    content = get_learning_item_with_translations(learning_item_id)
+    if content is None:
+        raise NoLearningItemsError
+    learning_item = content["learning_item"]
+    translations = content["translations"]
+    lexeme = get_lexeme(int(learning_item["lexeme_id"]))
+    if lexeme is None:
+        raise NoLearningItemsError
+    return {
+        "learning_item_id": learning_item_id,
+        "prompt": _select_prompt(translations, str(lexeme["lemma"])),
+        "expected_answer": str(lexeme["lemma"]),
+    }
 
 
 def _select_prompt(translations: list[sqlite3.Row], fallback_text: str) -> str:

@@ -3,11 +3,7 @@ import sqlite3
 
 from .db import get_connection, get_default_content_workspace_id, get_user, utc_now
 from .user_profiles import get_user_role
-from .workspaces import add_workspace_member
-
-
-ROLE_TEACHER = "teacher"
-ROLE_STUDENT = "student"
+from .workspaces import ROLE_STUDENT, ROLE_TEACHER, add_workspace_member, get_or_create_student_workspace
 class TeacherStudentError(Exception):
     pass
 
@@ -93,10 +89,10 @@ def join_with_invite(student_user_id: int, code: str) -> int:
             (student_user_id, timestamp, invite["id"]),
         )
 
-    workspace_id = get_default_content_workspace_id()
-    add_workspace_member(workspace_id, int(invite["teacher_user_id"]), ROLE_TEACHER)
-    if student_user_id != int(invite["teacher_user_id"]):
-        add_workspace_member(workspace_id, student_user_id, ROLE_STUDENT)
+    teacher_user_id = int(invite["teacher_user_id"])
+    default_teacher_workspace_id = get_default_content_workspace_id()
+    add_workspace_member(default_teacher_workspace_id, teacher_user_id, ROLE_TEACHER)
+    get_or_create_student_workspace(teacher_user_id, student_user_id)
     return int(invite["teacher_user_id"])
 
 

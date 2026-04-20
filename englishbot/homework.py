@@ -2,11 +2,17 @@ import sqlite3
 
 from .db import get_connection, utc_now
 from .teacher_student import ROLE_TEACHER
-from .topics import get_topic_by_name, get_topic_learning_item_ids, list_topics
+from .topics import find_topic_by_name_for_teacher, publish_topic_to_workspace
 from .training import create_training_session_for_learning_items
 from .user_profiles import get_user_role
-from .vocabulary import get_learning_item
-from .workspaces import find_shared_workspace_for_teacher_and_student, user_is_workspace_member
+from .vocabulary import get_learning_item, publish_learning_item_to_workspace
+from .workspaces import (
+    WORKSPACE_KIND_STUDENT,
+    WORKSPACE_KIND_TEACHER,
+    find_shared_workspace_for_teacher_and_student,
+    get_workspace,
+    user_is_workspace_member,
+)
 
 
 ACTIVE_STATUS = "active"
@@ -64,84 +70,46 @@ def create_assignment(
         raise EmptyAssignmentError
     stored_title = title.strip() if title is not None and title.strip() else DEFAULT_ASSIGNMENT_TITLE
 
-    workspace_id: int | None = None
+    target_workspace = _get_student_workspace(teacher_user_id, student_user_id)
+    published_learning_item_ids: list[int] = []
+    source_workspace_id: int | None = None
     for learning_item_id in normalized_learning_item_ids:
         learning_item = get_learning_item(learning_item_id)
-        if learning_item is None:
+        if learning_item is None or int(learning_item["is_archived"]) == 1:
             raise LearningItemNotFoundError
         item_workspace_id = int(learning_item["workspace_id"])
-        if workspace_id is None:
-            workspace_id = item_workspace_id
-            continue
-        if item_workspace_id != workspace_id:
+        if source_workspace_id is None:
+            source_workspace_id = item_workspace_id
+        elif source_workspace_id != item_workspace_id:
             raise MixedWorkspaceAssignmentError
 
-    if workspace_id is None:
-        raise EmptyAssignmentError
-    if not user_is_workspace_member(workspace_id, teacher_user_id, ROLE_TEACHER):
-        raise TeacherWorkspaceMembershipRequiredError
-    if not user_is_workspace_member(workspace_id, student_user_id):
-        raise StudentWorkspaceMembershipRequiredError
-
-    timestamp = utc_now()
-    with get_connection() as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO assignments (
-                workspace_id,
-                teacher_user_id,
-                student_user_id,
-                title,
-                status,
-                created_at,
-                updated_at
+        workspace = get_workspace(item_workspace_id)
+        if workspace is None:
+            raise LearningItemNotFoundError
+        if str(workspace["kind"]) == WORKSPACE_KIND_TEACHER:
+            if not user_is_workspace_member(item_workspace_id, teacher_user_id, ROLE_TEACHER):
+                raise TeacherWorkspaceMembershipRequiredError
+            published_learning_item_ids.append(
+                publish_learning_item_to_workspace(
+                    learning_item_id,
+                    int(target_workspace["id"]),
+                )
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                workspace_id,
-                teacher_user_id,
-                student_user_id,
-                stored_title,
-                ACTIVE_STATUS,
-                timestamp,
-                timestamp,
-            ),
-        )
-        assignment_id = int(cursor.lastrowid)
-        connection.executemany(
-            """
-            INSERT INTO assignment_items (assignment_id, learning_item_id, item_order)
-            VALUES (?, ?, ?)
-            """,
-            [
-                (assignment_id, learning_item_id, item_order)
-                for item_order, learning_item_id in enumerate(normalized_learning_item_ids)
-            ],
-        )
+            continue
+        if (
+            str(workspace["kind"]) != WORKSPACE_KIND_STUDENT
+            or item_workspace_id != int(target_workspace["id"])
+        ):
+            raise MixedWorkspaceAssignmentError
+        published_learning_item_ids.append(learning_item_id)
 
-    return {
-        "assignment_id": assignment_id,
-        "student_user_id": student_user_id,
-        "title": stored_title,
-        "learning_item_ids": normalized_learning_item_ids,
-        "notification": {
-            "student_user_id": student_user_id,
-            "text": f"Вам назначено новое задание: {stored_title}",
-        },
-    }
-
-
-def list_assignable_groups() -> list[dict[str, object]]:
-    return [
-        {
-            "workspace_id": int(topic["workspace_id"]),
-            "name": str(topic["name"]),
-            "title": str(topic["title"]),
-            "item_count": int(topic["item_count"]),
-        }
-        for topic in list_topics()
-    ]
+    return _store_assignment(
+        teacher_user_id,
+        student_user_id,
+        int(target_workspace["id"]),
+        published_learning_item_ids,
+        stored_title,
+    )
 
 
 def create_assignment_from_group(
@@ -149,23 +117,21 @@ def create_assignment_from_group(
     student_user_id: int,
     group_name: str,
 ) -> dict[str, object]:
-    workspace = find_shared_workspace_for_teacher_and_student(teacher_user_id, student_user_id)
-    if workspace is None:
-        raise StudentWorkspaceMembershipRequiredError
-
-    topic = get_topic_by_name(group_name.strip(), workspace_id=int(workspace["id"]))
-    if topic is None:
+    target_workspace = _get_student_workspace(teacher_user_id, student_user_id)
+    source_topic = find_topic_by_name_for_teacher(teacher_user_id, group_name)
+    if source_topic is None:
         raise AssignmentGroupNotFoundError
 
-    learning_item_ids = get_topic_learning_item_ids(int(topic["id"]))
-    if not learning_item_ids:
-        raise AssignmentGroupNotFoundError
-
-    return create_assignment(
+    published_topic = publish_topic_to_workspace(
+        int(source_topic["id"]),
+        int(target_workspace["id"]),
+    )
+    return _store_assignment(
         teacher_user_id,
         student_user_id,
-        learning_item_ids,
-        title=str(topic["title"]),
+        int(target_workspace["id"]),
+        [int(learning_item_id) for learning_item_id in published_topic["learning_item_ids"]],
+        str(published_topic["title"]),
     )
 
 
@@ -190,8 +156,11 @@ def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
             JOIN workspace_members
               ON workspace_members.workspace_id = assignments.workspace_id
              AND workspace_members.telegram_user_id = assignments.student_user_id
+            JOIN workspaces
+              ON workspaces.id = assignments.workspace_id
             WHERE assignments.student_user_id = ?
               AND assignments.status = ?
+              AND workspaces.kind = 'student'
             GROUP BY assignments.id
             ORDER BY assignments.id
             """,
@@ -280,3 +249,78 @@ def mark_assignment_completed(assignment_id: int) -> None:
                 assignment_id,
             ),
         )
+
+
+def _get_student_workspace(
+    teacher_user_id: int,
+    student_user_id: int,
+) -> sqlite3.Row:
+    workspace = find_shared_workspace_for_teacher_and_student(
+        teacher_user_id,
+        student_user_id,
+        kind=WORKSPACE_KIND_STUDENT,
+    )
+    if workspace is None:
+        raise StudentWorkspaceMembershipRequiredError
+    workspace_id = int(workspace["id"])
+    if not user_is_workspace_member(workspace_id, teacher_user_id, ROLE_TEACHER):
+        raise TeacherWorkspaceMembershipRequiredError
+    if not user_is_workspace_member(workspace_id, student_user_id):
+        raise StudentWorkspaceMembershipRequiredError
+    return workspace
+
+
+def _store_assignment(
+    teacher_user_id: int,
+    student_user_id: int,
+    workspace_id: int,
+    learning_item_ids: list[int],
+    title: str,
+) -> dict[str, object]:
+    timestamp = utc_now()
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO assignments (
+                workspace_id,
+                teacher_user_id,
+                student_user_id,
+                title,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workspace_id,
+                teacher_user_id,
+                student_user_id,
+                title,
+                ACTIVE_STATUS,
+                timestamp,
+                timestamp,
+            ),
+        )
+        assignment_id = int(cursor.lastrowid)
+        connection.executemany(
+            """
+            INSERT INTO assignment_items (assignment_id, learning_item_id, item_order)
+            VALUES (?, ?, ?)
+            """,
+            [
+                (assignment_id, learning_item_id, item_order)
+                for item_order, learning_item_id in enumerate(learning_item_ids)
+            ],
+        )
+
+    return {
+        "assignment_id": assignment_id,
+        "student_user_id": student_user_id,
+        "title": title,
+        "learning_item_ids": learning_item_ids,
+        "notification": {
+            "student_user_id": student_user_id,
+            "text": f"Вам назначено новое задание: {title}",
+        },
+    }

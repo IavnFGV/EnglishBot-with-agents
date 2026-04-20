@@ -11,7 +11,7 @@ from englishbot import db
 from englishbot.basic_topics_seed import seed_basic_topics
 from englishbot.teacher_handlers import grant_topic
 from englishbot.teacher_student import create_invite, join_with_invite
-from englishbot.topic_access import grant_topic_access
+from englishbot.topic_access import grant_topic_access, list_accessible_topics
 from englishbot.topic_access_handlers import (
     TOPICS_START_PREFIX,
     build_accessible_topics_keyboard,
@@ -85,8 +85,11 @@ def test_topics_handler_lists_accessible_topics(tmp_path: Path) -> None:
 
     assert message.answers[0]["text"] == "Доступные темы:"
     keyboard = message.answers[0]["kwargs"]["reply_markup"]
+    accessible_topic = list_accessible_topics(student.id)[0]
     assert keyboard.inline_keyboard[0][0].text == "Месяцы"
-    assert keyboard.inline_keyboard[0][0].callback_data == f"{TOPICS_START_PREFIX}2"
+    assert keyboard.inline_keyboard[0][0].callback_data == (
+        f"{TOPICS_START_PREFIX}{accessible_topic['id']}"
+    )
 
 
 def test_start_topic_training_handler_uses_accessible_topic(tmp_path: Path) -> None:
@@ -95,7 +98,12 @@ def test_start_topic_training_handler_uses_accessible_topic(tmp_path: Path) -> N
     seed_basic_topics()
     grant_topic_access(teacher.id, student.id, "colors")
     callback_message = FakeMessage(student)
-    callback = FakeCallback(student, f"{TOPICS_START_PREFIX}3", callback_message)
+    accessible_topic = list_accessible_topics(student.id)[0]
+    callback = FakeCallback(
+        student,
+        f"{TOPICS_START_PREFIX}{accessible_topic['id']}",
+        callback_message,
+    )
 
     asyncio.run(start_topic_training(callback))
 

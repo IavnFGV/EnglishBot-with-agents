@@ -2,10 +2,15 @@ import sqlite3
 
 from .db import get_connection, utc_now
 from .teacher_student import ROLE_TEACHER
-from .topics import get_topic, get_topic_by_name, get_topic_learning_item_ids
+from .topics import (
+    find_topic_by_name_for_teacher,
+    get_topic,
+    get_topic_learning_item_ids,
+    publish_topic_to_workspace,
+)
 from .training import create_training_session_for_learning_items
 from .user_profiles import get_user_role
-from .workspaces import find_shared_workspace_for_teacher_and_student, user_is_workspace_member
+from .workspaces import WORKSPACE_KIND_STUDENT, find_shared_workspace_for_teacher_and_student, user_is_workspace_member
 
 
 class TopicAccessError(Exception):
@@ -44,7 +49,11 @@ def grant_topic_access(
     if get_user_role(teacher_user_id) != ROLE_TEACHER:
         raise TeacherRoleRequiredError
 
-    workspace = find_shared_workspace_for_teacher_and_student(teacher_user_id, student_user_id)
+    workspace = find_shared_workspace_for_teacher_and_student(
+        teacher_user_id,
+        student_user_id,
+        kind=WORKSPACE_KIND_STUDENT,
+    )
     if workspace is None:
         raise StudentWorkspaceMembershipRequiredError
     workspace_id = int(workspace["id"])
@@ -53,9 +62,10 @@ def grant_topic_access(
     if not user_is_workspace_member(workspace_id, student_user_id):
         raise StudentWorkspaceMembershipRequiredError
 
-    topic = get_topic_by_name(topic_name.strip(), workspace_id=workspace_id)
-    if topic is None:
+    source_topic = find_topic_by_name_for_teacher(teacher_user_id, topic_name)
+    if source_topic is None:
         raise TopicNotFoundError
+    topic = publish_topic_to_workspace(int(source_topic["id"]), workspace_id)
 
     timestamp = utc_now()
     with get_connection() as connection:
@@ -73,17 +83,17 @@ def grant_topic_access(
             (
                 workspace_id,
                 student_user_id,
-                int(topic["id"]),
+                int(topic["topic_id"]),
                 teacher_user_id,
                 timestamp,
             ),
         )
 
-    access_row = get_student_topic_access(student_user_id, int(topic["id"]))
+    access_row = get_student_topic_access(student_user_id, int(topic["topic_id"]))
     return {
         "granted": cursor.rowcount > 0,
         "student_user_id": student_user_id,
-        "topic_id": int(topic["id"]),
+        "topic_id": int(topic["topic_id"]),
         "topic_name": str(topic["name"]),
         "topic_title": str(topic["title"]),
         "access_id": None if access_row is None else int(access_row["id"]),
@@ -123,16 +133,23 @@ def list_accessible_topics(student_user_id: int) -> list[sqlite3.Row]:
                 topics.created_at,
                 student_topic_access.granted_by_teacher_user_id,
                 student_topic_access.created_at AS access_created_at,
-                COUNT(topic_learning_items.id) AS item_count
+                COUNT(learning_items.id) AS item_count
             FROM student_topic_access
             JOIN topics
               ON topics.id = student_topic_access.topic_id
             LEFT JOIN topic_learning_items
               ON topic_learning_items.topic_id = topics.id
+            LEFT JOIN learning_items
+              ON learning_items.id = topic_learning_items.learning_item_id
+             AND learning_items.is_archived = 0
             JOIN workspace_members
               ON workspace_members.workspace_id = student_topic_access.workspace_id
              AND workspace_members.telegram_user_id = student_topic_access.student_user_id
+            JOIN workspaces
+              ON workspaces.id = student_topic_access.workspace_id
             WHERE student_topic_access.student_user_id = ?
+              AND topics.is_archived = 0
+              AND workspaces.kind = 'student'
             GROUP BY topics.id, student_topic_access.id
             ORDER BY topics.id
             """,

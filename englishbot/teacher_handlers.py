@@ -12,7 +12,6 @@ from .homework import (
     TeacherRoleRequiredError as HomeworkTeacherRoleRequiredError,
     create_assignment,
     create_assignment_from_group,
-    list_assignable_groups,
 )
 from .homework_handlers import build_homework_button
 from .runtime import router
@@ -34,26 +33,14 @@ from .topic_access import (
 
 
 def _build_assign_usage_message() -> str:
-    groups = ", ".join(
-        f"{group['name']} ({group['title']})"
-        for group in list_assignable_groups()
-    )
     return (
         "Использование: /assign <student_user_id> <group_name>\n"
-        "Или: /assign <student_user_id> <learning_item_id,learning_item_id,...>\n"
-        f"Доступные группы: {groups}"
+        "Или: /assign <student_user_id> <learning_item_id,learning_item_id,...>"
     )
 
 
 def _build_grant_topic_usage_message() -> str:
-    groups = ", ".join(
-        f"{group['name']} ({group['title']})"
-        for group in list_assignable_groups()
-    )
-    return (
-        "Использование: /granttopic <student_user_id> <topic_name>\n"
-        f"Доступные темы: {groups}"
-    )
+    return "Использование: /granttopic <student_user_id> <topic_name>"
 
 
 @router.message(Command("invite"))

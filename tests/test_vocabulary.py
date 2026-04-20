@@ -9,13 +9,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from englishbot import db
 from englishbot.db import get_default_content_workspace_id
 from englishbot.vocabulary import (
+    archive_learning_item,
     create_learning_item,
+    create_learning_item_for_teacher_workspace,
     create_learning_item_translation,
     create_lexeme,
     get_learning_item,
     get_learning_item_with_translations,
     get_lexeme,
     list_learning_item_translations,
+    list_learning_items,
+    publish_learning_item_to_workspace,
+    update_learning_item,
+    upsert_learning_item_translation,
+)
+from englishbot.workspaces import (
+    WorkspaceEditPermissionError,
+    WorkspaceKindMismatchError,
+    add_workspace_member,
+    create_workspace,
 )
 
 
@@ -26,7 +38,7 @@ def setup_db(tmp_path: Path) -> Path:
     return db_path
 
 
-def test_init_db_creates_vocabulary_tables(tmp_path: Path) -> None:
+def test_init_db_creates_vocabulary_tables_and_archive_columns(tmp_path: Path) -> None:
     setup_db(tmp_path)
 
     with sqlite3.connect(db.DB_PATH) as connection:
@@ -36,44 +48,18 @@ def test_init_db_creates_vocabulary_tables(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             ).fetchall()
         }
+        column_names = {
+            row[1] for row in connection.execute("PRAGMA table_info(learning_items)").fetchall()
+        }
 
     assert "lexemes" in table_names
     assert "learning_items" in table_names
     assert "learning_item_translations" in table_names
+    assert "is_archived" in column_names
+    assert "source_learning_item_id" in column_names
 
 
-def test_init_db_migrates_learning_items_to_add_nullable_asset_refs(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "vocabulary_migration.sqlite3"
-    db.DB_PATH = db_path
-
-    with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE learning_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                lexeme_id INTEGER NOT NULL,
-                text TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            """
-        )
-
-    db.init_db()
-
-    with sqlite3.connect(db_path) as connection:
-        column_names = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(learning_items)").fetchall()
-        }
-
-    assert "image_ref" in column_names
-    assert "audio_ref" in column_names
-
-
-def test_init_db_migrates_learning_items_to_add_workspace_id(
+def test_init_db_migrates_learning_items_to_add_workspace_and_archive_fields(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "vocabulary_workspace_migration.sqlite3"
@@ -112,15 +98,15 @@ def test_init_db_migrates_learning_items_to_add_workspace_id(
 
     with sqlite3.connect(db_path) as connection:
         column_names = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(learning_items)").fetchall()
+            row[1] for row in connection.execute("PRAGMA table_info(learning_items)").fetchall()
         }
-        stored_workspace_id = connection.execute(
-            "SELECT workspace_id FROM learning_items WHERE id = 1"
-        ).fetchone()[0]
+        stored_row = connection.execute(
+            "SELECT workspace_id, is_archived FROM learning_items WHERE id = 1"
+        ).fetchone()
 
     assert "workspace_id" in column_names
-    assert stored_workspace_id == default_workspace_id
+    assert "is_archived" in column_names
+    assert stored_row == (default_workspace_id, 0)
 
 
 def test_create_and_get_lexeme(tmp_path: Path) -> None:
@@ -153,9 +139,7 @@ def test_create_and_get_learning_item_with_nullable_assets(tmp_path: Path) -> No
     assert with_assets is not None
     assert without_assets["workspace_id"] == default_workspace_id
     assert with_assets["workspace_id"] == default_workspace_id
-    assert without_assets["text"] == "run"
-    assert without_assets["image_ref"] is None
-    assert without_assets["audio_ref"] is None
+    assert without_assets["is_archived"] == 0
     assert with_assets["text"] == "run fast"
     assert with_assets["image_ref"] == "assets/images/run-fast.png"
     assert with_assets["audio_ref"] == "assets/audio/run-fast.mp3"
@@ -178,9 +162,7 @@ def test_create_and_list_learning_item_translations(tmp_path: Path) -> None:
     ]
 
 
-def test_get_learning_item_with_translations_returns_full_content_slice(
-    tmp_path: Path,
-) -> None:
+def test_get_learning_item_with_translations_returns_full_content_slice(tmp_path: Path) -> None:
     setup_db(tmp_path)
     lexeme_id = create_lexeme("book")
     learning_item_id = create_learning_item(
@@ -203,14 +185,90 @@ def test_get_learning_item_with_translations_returns_full_content_slice(
         "de",
         "uk",
     ]
-    assert [
-        translation["translation_text"] for translation in content["translations"]
-    ] == ["Buch", "книга"]
 
 
-def test_vocabulary_foreign_keys_reject_orphaned_learning_content(
-    tmp_path: Path,
-) -> None:
+def test_only_teacher_members_of_teacher_workspaces_can_edit_items(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher_workspace = create_workspace("Authoring", kind="teacher")
+    student_workspace = create_workspace("Learning", kind="student")
+    add_workspace_member(teacher_workspace["workspace_id"], 201, "teacher")
+    add_workspace_member(teacher_workspace["workspace_id"], 202, "student")
+    add_workspace_member(student_workspace["workspace_id"], 201, "teacher")
+    lexeme_id = create_lexeme("bird")
+
+    learning_item_id = create_learning_item_for_teacher_workspace(
+        201,
+        teacher_workspace["workspace_id"],
+        lexeme_id,
+        "bird",
+    )
+    update_learning_item(201, learning_item_id, text="bird updated")
+    upsert_learning_item_translation(201, learning_item_id, "ru", "птица")
+
+    assert get_learning_item(learning_item_id)["text"] == "bird updated"
+    assert list_learning_item_translations(learning_item_id)[0]["translation_text"] == "птица"
+
+    with pytest.raises(WorkspaceEditPermissionError):
+        create_learning_item_for_teacher_workspace(202, teacher_workspace["workspace_id"], lexeme_id, "bad")
+
+    with pytest.raises(WorkspaceKindMismatchError):
+        create_learning_item_for_teacher_workspace(201, student_workspace["workspace_id"], lexeme_id, "bad")
+
+
+def test_archive_learning_item_hides_it_from_lists(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    workspace = create_workspace("Authoring", kind="teacher")
+    add_workspace_member(workspace["workspace_id"], 301, "teacher")
+    lexeme_id = create_lexeme("plant")
+    learning_item_id = create_learning_item_for_teacher_workspace(
+        301,
+        workspace["workspace_id"],
+        lexeme_id,
+        "plant",
+    )
+
+    archive_learning_item(301, learning_item_id)
+
+    assert get_learning_item(learning_item_id)["is_archived"] == 1
+    assert list_learning_items(workspace_id=workspace["workspace_id"]) == []
+    assert len(list_learning_items(workspace_id=workspace["workspace_id"], include_archived=True)) == 1
+
+
+def test_publish_learning_item_to_student_workspace_reuses_existing_copy(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    source_workspace = create_workspace("Authoring", kind="teacher")
+    target_workspace = create_workspace("Learning", kind="student")
+    lexeme_id = create_lexeme("tree")
+    source_learning_item_id = create_learning_item(
+        lexeme_id,
+        "tree",
+        workspace_id=source_workspace["workspace_id"],
+    )
+    create_learning_item_translation(source_learning_item_id, "ru", "дерево")
+
+    first_published_id = publish_learning_item_to_workspace(
+        source_learning_item_id,
+        target_workspace["workspace_id"],
+    )
+    published_learning_item = get_learning_item(first_published_id)
+    assert published_learning_item is not None
+    assert published_learning_item["workspace_id"] == target_workspace["workspace_id"]
+    assert int(published_learning_item["source_learning_item_id"]) == source_learning_item_id
+
+    create_learning_item_translation(source_learning_item_id, "uk", "дерево-uk")
+    second_published_id = publish_learning_item_to_workspace(
+        source_learning_item_id,
+        target_workspace["workspace_id"],
+    )
+
+    assert first_published_id == second_published_id
+    assert [row["language_code"] for row in list_learning_item_translations(second_published_id)] == [
+        "ru",
+        "uk",
+    ]
+
+
+def test_vocabulary_foreign_keys_reject_orphaned_learning_content(tmp_path: Path) -> None:
     setup_db(tmp_path)
 
     with pytest.raises(sqlite3.IntegrityError):

@@ -9,6 +9,8 @@ from aiogram.types import User
 DB_PATH = Path(os.getenv("ENGLISHBOT_DB_PATH", "englishbot.sqlite3"))
 DEFAULT_USER_ROLE = "student"
 DEFAULT_CONTENT_WORKSPACE_NAME = "Starter Content"
+WORKSPACE_KIND_TEACHER = "teacher"
+WORKSPACE_KIND_STUDENT = "student"
 
 
 def utc_now() -> str:
@@ -41,14 +43,22 @@ def _ensure_default_content_workspace(connection: sqlite3.Connection) -> int:
         (DEFAULT_CONTENT_WORKSPACE_NAME,),
     ).fetchone()
     if workspace is not None:
+        connection.execute(
+            """
+            UPDATE workspaces
+            SET kind = ?
+            WHERE id = ?
+            """,
+            (WORKSPACE_KIND_TEACHER, int(workspace["id"])),
+        )
         return int(workspace["id"])
 
     cursor = connection.execute(
         """
-        INSERT INTO workspaces (name, created_at)
-        VALUES (?, ?)
+        INSERT INTO workspaces (name, kind, created_at)
+        VALUES (?, ?, ?)
         """,
-        (DEFAULT_CONTENT_WORKSPACE_NAME, utc_now()),
+        (DEFAULT_CONTENT_WORKSPACE_NAME, WORKSPACE_KIND_TEACHER, utc_now()),
     )
     return int(cursor.lastrowid)
 
@@ -144,10 +154,19 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS workspaces (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT,
+                kind TEXT NOT NULL DEFAULT 'teacher',
                 created_at TEXT NOT NULL
             )
             """
         )
+        workspace_columns = get_table_columns(connection, "workspaces")
+        if "kind" not in workspace_columns:
+            connection.execute(
+                """
+                ALTER TABLE workspaces
+                ADD COLUMN kind TEXT NOT NULL DEFAULT 'teacher'
+                """
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS workspace_members (
@@ -230,13 +249,16 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS learning_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 workspace_id INTEGER NOT NULL,
+                source_learning_item_id INTEGER,
                 lexeme_id INTEGER NOT NULL,
                 text TEXT NOT NULL,
                 image_ref TEXT,
                 audio_ref TEXT,
+                is_archived INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+                FOREIGN KEY (source_learning_item_id) REFERENCES learning_items (id),
                 FOREIGN KEY (lexeme_id) REFERENCES lexemes (id)
             )
             """
@@ -272,6 +294,21 @@ def init_db() -> None:
                 ADD COLUMN audio_ref TEXT
                 """
             )
+        if "is_archived" not in learning_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE learning_items
+                ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "source_learning_item_id" not in learning_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE learning_items
+                ADD COLUMN source_learning_item_id INTEGER
+                REFERENCES learning_items (id)
+                """
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS learning_item_translations (
@@ -299,6 +336,12 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE INDEX IF NOT EXISTS idx_learning_items_workspace_source
+            ON learning_items (workspace_id, source_learning_item_id)
+            """
+        )
+        connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_learning_item_translations_learning_item_id
             ON learning_item_translations (learning_item_id)
             """
@@ -308,10 +351,14 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS topics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 workspace_id INTEGER NOT NULL,
+                source_topic_id INTEGER,
                 name TEXT NOT NULL,
                 title TEXT NOT NULL,
+                is_archived INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY (workspace_id) REFERENCES workspaces (id)
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+                FOREIGN KEY (source_topic_id) REFERENCES topics (id)
             )
             """
         )
@@ -324,6 +371,28 @@ def init_db() -> None:
                 REFERENCES workspaces (id)
                 """
             )
+        if "is_archived" not in topic_columns:
+            connection.execute(
+                """
+                ALTER TABLE topics
+                ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "updated_at" not in topic_columns:
+            connection.execute(
+                """
+                ALTER TABLE topics
+                ADD COLUMN updated_at TEXT
+                """
+            )
+        if "source_topic_id" not in topic_columns:
+            connection.execute(
+                """
+                ALTER TABLE topics
+                ADD COLUMN source_topic_id INTEGER
+                REFERENCES topics (id)
+                """
+            )
         connection.execute(
             """
             UPDATE topics
@@ -331,6 +400,13 @@ def init_db() -> None:
             WHERE workspace_id IS NULL
             """,
             (default_content_workspace_id,),
+        )
+        connection.execute(
+            """
+            UPDATE topics
+            SET updated_at = COALESCE(updated_at, created_at)
+            WHERE updated_at IS NULL
+            """,
         )
         connection.execute(
             """
@@ -360,6 +436,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_topics_workspace_id
             ON topics (workspace_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_topics_workspace_source
+            ON topics (workspace_id, source_topic_id)
             """
         )
         connection.execute(
@@ -458,12 +540,29 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id INTEGER NOT NULL,
                 learning_item_id INTEGER NOT NULL,
+                prompt_text TEXT NOT NULL,
+                expected_answer TEXT NOT NULL,
                 item_order INTEGER NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES training_sessions (id),
                 FOREIGN KEY (learning_item_id) REFERENCES learning_items (id)
             )
             """
         )
+        training_session_item_columns = get_table_columns(connection, "training_session_items")
+        if "prompt_text" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN prompt_text TEXT
+                """
+            )
+        if "expected_answer" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN expected_answer TEXT
+                """
+            )
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_training_sessions_user_status

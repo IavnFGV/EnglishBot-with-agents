@@ -5,7 +5,10 @@ from .db import ensure_user_exists, get_connection, utc_now
 
 ROLE_TEACHER = "teacher"
 ROLE_STUDENT = "student"
+WORKSPACE_KIND_TEACHER = "teacher"
+WORKSPACE_KIND_STUDENT = "student"
 WORKSPACE_ROLE_VALUES = {ROLE_TEACHER, ROLE_STUDENT}
+WORKSPACE_KIND_VALUES = {WORKSPACE_KIND_TEACHER, WORKSPACE_KIND_STUDENT}
 
 
 class WorkspaceError(Exception):
@@ -20,21 +23,38 @@ class WorkspaceNotFoundError(WorkspaceError):
     pass
 
 
-def create_workspace(name: str | None = None) -> dict[str, object]:
+class InvalidWorkspaceKindError(WorkspaceError):
+    pass
+
+
+class WorkspaceKindMismatchError(WorkspaceError):
+    pass
+
+
+class WorkspaceEditPermissionError(WorkspaceError):
+    pass
+
+
+def create_workspace(
+    name: str | None = None,
+    kind: str = WORKSPACE_KIND_TEACHER,
+) -> dict[str, object]:
     stored_name = None if name is None or not name.strip() else name.strip()
+    normalized_kind = _normalize_workspace_kind(kind)
     created_at = utc_now()
     with get_connection() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO workspaces (name, created_at)
-            VALUES (?, ?)
+            INSERT INTO workspaces (name, kind, created_at)
+            VALUES (?, ?, ?)
             """,
-            (stored_name, created_at),
+            (stored_name, normalized_kind, created_at),
         )
 
     return {
         "workspace_id": int(cursor.lastrowid),
         "name": stored_name,
+        "kind": normalized_kind,
         "created_at": created_at,
     }
 
@@ -90,6 +110,18 @@ def add_workspace_member(
     }
 
 
+def get_workspace(workspace_id: int) -> sqlite3.Row | None:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT id, name, kind, created_at
+            FROM workspaces
+            WHERE id = ?
+            """,
+            (workspace_id,),
+        ).fetchone()
+
+
 def list_workspaces_for_user(telegram_user_id: int) -> list[sqlite3.Row]:
     with get_connection() as connection:
         return connection.execute(
@@ -97,6 +129,7 @@ def list_workspaces_for_user(telegram_user_id: int) -> list[sqlite3.Row]:
             SELECT
                 workspaces.id,
                 workspaces.name,
+                workspaces.kind,
                 workspaces.created_at,
                 workspace_members.role
             FROM workspace_members
@@ -120,6 +153,7 @@ def find_workspaces_for_user_by_role(
             SELECT
                 workspaces.id,
                 workspaces.name,
+                workspaces.kind,
                 workspaces.created_at,
                 workspace_members.role
             FROM workspace_members
@@ -169,13 +203,20 @@ def user_is_workspace_member(
 def find_shared_workspace_for_teacher_and_student(
     teacher_user_id: int,
     student_user_id: int,
+    kind: str | None = None,
 ) -> sqlite3.Row | None:
+    parameters: list[object] = [teacher_user_id, ROLE_TEACHER, student_user_id]
+    kind_filter = ""
+    if kind is not None:
+        kind_filter = "AND workspaces.kind = ?"
+        parameters.append(_normalize_workspace_kind(kind))
     with get_connection() as connection:
         return connection.execute(
-            """
+            f"""
             SELECT
                 workspaces.id,
                 workspaces.name,
+                workspaces.kind,
                 workspaces.created_at
             FROM workspace_members AS teacher_membership
             JOIN workspace_members AS student_membership
@@ -185,11 +226,57 @@ def find_shared_workspace_for_teacher_and_student(
             WHERE teacher_membership.telegram_user_id = ?
               AND teacher_membership.role = ?
               AND student_membership.telegram_user_id = ?
+              {kind_filter}
             ORDER BY workspaces.id
             LIMIT 1
             """,
-            (teacher_user_id, ROLE_TEACHER, student_user_id),
+            tuple(parameters),
         ).fetchone()
+
+
+def get_or_create_student_workspace(
+    teacher_user_id: int,
+    student_user_id: int,
+) -> sqlite3.Row:
+    workspace = find_shared_workspace_for_teacher_and_student(
+        teacher_user_id,
+        student_user_id,
+        kind=WORKSPACE_KIND_STUDENT,
+    )
+    if workspace is not None:
+        return workspace
+
+    created = create_workspace(
+        name=f"Student Workspace {teacher_user_id}-{student_user_id}",
+        kind=WORKSPACE_KIND_STUDENT,
+    )
+    add_workspace_member(created["workspace_id"], teacher_user_id, ROLE_TEACHER)
+    if student_user_id != teacher_user_id:
+        add_workspace_member(created["workspace_id"], student_user_id, ROLE_STUDENT)
+    workspace = get_workspace(int(created["workspace_id"]))
+    if workspace is None:
+        raise WorkspaceNotFoundError
+    return workspace
+
+
+def ensure_workspace_kind(workspace_id: int, expected_kind: str) -> sqlite3.Row:
+    workspace = get_workspace(workspace_id)
+    if workspace is None:
+        raise WorkspaceNotFoundError
+    normalized_kind = _normalize_workspace_kind(expected_kind)
+    if str(workspace["kind"]) != normalized_kind:
+        raise WorkspaceKindMismatchError
+    return workspace
+
+
+def ensure_teacher_can_edit_workspace_content(
+    workspace_id: int,
+    telegram_user_id: int,
+) -> sqlite3.Row:
+    workspace = ensure_workspace_kind(workspace_id, WORKSPACE_KIND_TEACHER)
+    if not user_is_workspace_member(workspace_id, telegram_user_id, ROLE_TEACHER):
+        raise WorkspaceEditPermissionError
+    return workspace
 
 
 def _normalize_workspace_role(role: str) -> str:
@@ -199,3 +286,12 @@ def _normalize_workspace_role(role: str) -> str:
     if normalized_role not in WORKSPACE_ROLE_VALUES:
         raise InvalidWorkspaceRoleError
     return normalized_role
+
+
+def _normalize_workspace_kind(kind: str) -> str:
+    if not isinstance(kind, str):
+        raise InvalidWorkspaceKindError
+    normalized_kind = kind.strip().lower()
+    if normalized_kind not in WORKSPACE_KIND_VALUES:
+        raise InvalidWorkspaceKindError
+    return normalized_kind

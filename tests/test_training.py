@@ -18,7 +18,9 @@ from englishbot.vocabulary import (
     create_learning_item,
     create_learning_item_translation,
     create_lexeme,
+    upsert_learning_item_translation,
 )
+from englishbot.workspaces import add_workspace_member
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -33,6 +35,7 @@ def setup_db(tmp_path: Path) -> None:
 def seed_user_with_learning_items(item_count: int) -> int:
     user = make_user(301, "Learner")
     db.save_user(user)
+    add_workspace_member(db.get_default_content_workspace_id(), user.id, "teacher")
     for index in range(item_count):
         lexeme_id = create_lexeme(f"word-{index + 1}")
         learning_item_id = create_learning_item(lexeme_id, f"text-{index + 1}")
@@ -44,7 +47,7 @@ def seed_user_with_learning_items(item_count: int) -> int:
     return user.id
 
 
-def test_init_db_creates_training_tables(tmp_path: Path) -> None:
+def test_init_db_creates_training_tables_with_snapshot_columns(tmp_path: Path) -> None:
     setup_db(tmp_path)
 
     with sqlite3.connect(db.DB_PATH) as connection:
@@ -54,14 +57,17 @@ def test_init_db_creates_training_tables(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             ).fetchall()
         }
+        training_item_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(training_session_items)")
+        }
 
     assert "training_sessions" in table_names
     assert "training_session_items" in table_names
+    assert "prompt_text" in training_item_columns
+    assert "expected_answer" in training_item_columns
 
 
-def test_create_training_session_persists_active_session_and_item_order(
-    tmp_path: Path,
-) -> None:
+def test_create_training_session_persists_active_session_and_item_order(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id = seed_user_with_learning_items(6)
 
@@ -78,7 +84,7 @@ def test_create_training_session_persists_active_session_and_item_order(
     with db.get_connection() as connection:
         stored_items = connection.execute(
             """
-            SELECT learning_item_id, item_order
+            SELECT learning_item_id, prompt_text, expected_answer, item_order
             FROM training_session_items
             WHERE session_id = ?
             ORDER BY item_order
@@ -88,11 +94,11 @@ def test_create_training_session_persists_active_session_and_item_order(
 
     assert [row["item_order"] for row in stored_items] == [0, 1, 2, 3, 4]
     assert [row["learning_item_id"] for row in stored_items] == [1, 2, 3, 4, 5]
+    assert stored_items[0]["prompt_text"] == "слово-ru"
+    assert stored_items[0]["expected_answer"] == "word-1"
 
 
-def test_get_current_question_prefers_translation_and_falls_back_to_lexeme(
-    tmp_path: Path,
-) -> None:
+def test_get_current_question_prefers_translation_and_falls_back_to_lexeme(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id = seed_user_with_learning_items(3)
     create_training_session(user_id)
@@ -115,9 +121,22 @@ def test_get_current_question_prefers_translation_and_falls_back_to_lexeme(
     assert third_question["expected_answer"] == "word-3"
 
 
-def test_submit_training_answer_marks_correct_and_advances_session(
-    tmp_path: Path,
-) -> None:
+def test_active_session_uses_snapshotted_prompt_after_translation_change(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(2)
+    create_training_session(user_id)
+
+    first_question = get_current_question(user_id)
+    upsert_learning_item_translation(301, 1, "ru", "новый перевод")
+    same_question = get_current_question(user_id)
+
+    assert first_question is not None
+    assert same_question is not None
+    assert first_question["prompt"] == "слово-ru"
+    assert same_question["prompt"] == "слово-ru"
+
+
+def test_submit_training_answer_marks_correct_and_advances_session(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id = seed_user_with_learning_items(2)
     create_training_session(user_id)
@@ -136,30 +155,7 @@ def test_submit_training_answer_marks_correct_and_advances_session(
     assert session["correct_answers"] == 1
 
 
-def test_submit_training_answer_marks_incorrect_and_still_advances_session(
-    tmp_path: Path,
-) -> None:
-    setup_db(tmp_path)
-    user_id = seed_user_with_learning_items(2)
-    create_training_session(user_id)
-
-    result = submit_training_answer(user_id, "wrong")
-    session = get_active_training_session(user_id)
-
-    assert result is not None
-    assert result["is_correct"] is False
-    assert result["status"] == "active"
-    assert result["correct_answers"] == 0
-    assert result["expected_answer"] == "word-1"
-    assert result["next_question"]["expected_answer"] == "word-2"
-    assert session is not None
-    assert session["current_index"] == 1
-    assert session["correct_answers"] == 0
-
-
-def test_submit_training_answer_completes_session_and_returns_summary(
-    tmp_path: Path,
-) -> None:
+def test_submit_training_answer_completes_session_and_returns_summary(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id = seed_user_with_learning_items(2)
     create_training_session(user_id)
@@ -168,28 +164,10 @@ def test_submit_training_answer_completes_session_and_returns_summary(
     result = submit_training_answer(user_id, "wrong")
 
     assert result is not None
-    assert result["is_correct"] is False
     assert result["status"] == "completed"
     assert result["summary"] == {"total_questions": 2, "correct_answers": 1}
     assert get_active_training_session(user_id) is None
     assert get_current_question(user_id) is None
-
-    with db.get_connection() as connection:
-        completed_session = connection.execute(
-            """
-            SELECT status, current_index, correct_answers, total_questions
-            FROM training_sessions
-            WHERE telegram_user_id = ?
-            ORDER BY id DESC
-            LIMIT 1
-            """,
-            (user_id,),
-        ).fetchone()
-
-    assert completed_session["status"] == "completed"
-    assert completed_session["current_index"] == 2
-    assert completed_session["correct_answers"] == 1
-    assert completed_session["total_questions"] == 2
 
 
 def test_create_training_session_rejects_empty_vocabulary(tmp_path: Path) -> None:

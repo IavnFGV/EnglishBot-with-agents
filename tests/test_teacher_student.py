@@ -18,7 +18,12 @@ from englishbot.teacher_student import (
     join_with_invite,
 )
 from englishbot.user_profiles import get_user_role, set_user_role
-from englishbot.workspaces import get_workspace_member
+from englishbot.workspaces import (
+    WORKSPACE_KIND_STUDENT,
+    WORKSPACE_KIND_TEACHER,
+    find_shared_workspace_for_teacher_and_student,
+    get_workspace_member,
+)
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -54,9 +59,7 @@ def test_create_invite_rejects_non_teacher(tmp_path: Path) -> None:
         create_invite(user.id)
 
 
-def test_join_with_invite_creates_link_marks_invite_used_and_preserves_default_student_role(
-    tmp_path: Path,
-) -> None:
+def test_join_with_invite_creates_link_and_student_workspace(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher = make_user(103, "Teacher")
     student = make_user(104, "Student")
@@ -70,7 +73,13 @@ def test_join_with_invite_creates_link_marks_invite_used_and_preserves_default_s
     invite = get_invite(code)
     link = get_teacher_link(student.id)
     student_role = get_user_role(student.id)
-    workspace_id = db.get_default_content_workspace_id()
+    teacher_workspace_id = db.get_default_content_workspace_id()
+    student_workspace = find_shared_workspace_for_teacher_and_student(
+        teacher.id,
+        student.id,
+        kind=WORKSPACE_KIND_STUDENT,
+    )
+
     assert teacher_user_id == teacher.id
     assert invite is not None
     assert invite["used_by_user_id"] == student.id
@@ -78,8 +87,11 @@ def test_join_with_invite_creates_link_marks_invite_used_and_preserves_default_s
     assert link is not None
     assert link["teacher_user_id"] == teacher.id
     assert student_role == "student"
-    assert get_workspace_member(workspace_id, teacher.id)["role"] == "teacher"
-    assert get_workspace_member(workspace_id, student.id)["role"] == "student"
+    assert get_workspace_member(teacher_workspace_id, teacher.id)["role"] == "teacher"
+    assert student_workspace is not None
+    assert student_workspace["kind"] == WORKSPACE_KIND_STUDENT
+    assert get_workspace_member(int(student_workspace["id"]), teacher.id)["role"] == "teacher"
+    assert get_workspace_member(int(student_workspace["id"]), student.id)["role"] == "student"
 
 
 def test_join_with_invite_rejects_missing_or_used_codes(tmp_path: Path) -> None:
@@ -136,7 +148,11 @@ def test_join_with_invite_allows_teacher_to_join_own_invite_without_losing_role(
     invite = get_invite(code)
     link = get_teacher_link(teacher.id)
     teacher_role = get_user_role(teacher.id)
-    workspace_id = db.get_default_content_workspace_id()
+    teacher_workspace_id = db.get_default_content_workspace_id()
+    teacher_workspace = db.get_connection().execute(
+        "SELECT kind FROM workspaces WHERE id = ?",
+        (teacher_workspace_id,),
+    ).fetchone()
     assert teacher_user_id == teacher.id
     assert invite is not None
     assert invite["used_by_user_id"] == teacher.id
@@ -145,4 +161,6 @@ def test_join_with_invite_allows_teacher_to_join_own_invite_without_losing_role(
     assert link["teacher_user_id"] == teacher.id
     assert link["student_user_id"] == teacher.id
     assert teacher_role == "teacher"
-    assert get_workspace_member(workspace_id, teacher.id)["role"] == "teacher"
+    assert get_workspace_member(teacher_workspace_id, teacher.id)["role"] == "teacher"
+    assert teacher_workspace is not None
+    assert teacher_workspace["kind"] == WORKSPACE_KIND_TEACHER

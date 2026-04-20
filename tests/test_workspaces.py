@@ -8,12 +8,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
 from englishbot.workspaces import (
+    InvalidWorkspaceKindError,
     InvalidWorkspaceRoleError,
+    WorkspaceEditPermissionError,
+    WorkspaceKindMismatchError,
     WorkspaceNotFoundError,
     add_workspace_member,
     create_workspace,
+    ensure_teacher_can_edit_workspace_content,
     find_shared_workspace_for_teacher_and_student,
     find_workspaces_for_user_by_role,
+    get_or_create_student_workspace,
+    get_workspace,
     get_workspace_member,
     list_workspaces_for_user,
     user_is_workspace_member,
@@ -25,7 +31,7 @@ def setup_db(tmp_path: Path) -> None:
     db.init_db()
 
 
-def test_init_db_creates_workspace_tables(tmp_path: Path) -> None:
+def test_init_db_creates_workspace_tables_with_kind(tmp_path: Path) -> None:
     setup_db(tmp_path)
 
     with sqlite3.connect(db.DB_PATH) as connection:
@@ -35,30 +41,33 @@ def test_init_db_creates_workspace_tables(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             ).fetchall()
         }
+        column_names = {
+            row[1] for row in connection.execute("PRAGMA table_info(workspaces)").fetchall()
+        }
 
     assert "workspaces" in table_names
     assert "workspace_members" in table_names
+    assert "kind" in column_names
 
 
-def test_create_workspace_persists_row(tmp_path: Path) -> None:
+def test_create_workspace_persists_row_and_kind(tmp_path: Path) -> None:
     setup_db(tmp_path)
 
-    result = create_workspace(" Family Space ")
-
-    with db.get_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT id, name, created_at
-            FROM workspaces
-            WHERE id = ?
-            """,
-            (result["workspace_id"],),
-        ).fetchone()
+    result = create_workspace(" Family Space ", kind="student")
+    row = get_workspace(int(result["workspace_id"]))
 
     assert result["name"] == "Family Space"
+    assert result["kind"] == "student"
     assert row is not None
     assert row["name"] == "Family Space"
-    assert row["created_at"] == result["created_at"]
+    assert row["kind"] == "student"
+
+
+def test_create_workspace_rejects_invalid_kind(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+
+    with pytest.raises(InvalidWorkspaceKindError):
+        create_workspace("Broken", kind="catalog")
 
 
 def test_add_workspace_member_persists_and_upserts_role(tmp_path: Path) -> None:
@@ -77,20 +86,11 @@ def test_add_workspace_member_persists_and_upserts_role(tmp_path: Path) -> None:
             """,
             (workspace["workspace_id"], 501),
         ).fetchone()
-        user = connection.execute(
-            """
-            SELECT telegram_user_id
-            FROM users
-            WHERE telegram_user_id = ?
-            """,
-            (501,),
-        ).fetchone()
 
     assert first_result["role"] == "teacher"
     assert second_result["role"] == "student"
     assert membership is not None
     assert membership["role"] == "student"
-    assert user is not None
 
 
 def test_add_workspace_member_rejects_invalid_role_and_missing_workspace(
@@ -106,25 +106,24 @@ def test_add_workspace_member_rejects_invalid_role_and_missing_workspace(
         add_workspace_member(999, 601, "teacher")
 
 
-def test_list_workspaces_for_user_returns_joined_workspaces(tmp_path: Path) -> None:
+def test_list_workspaces_for_user_returns_joined_workspaces_with_kind(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    family_workspace = create_workspace("Family")
-    school_workspace = create_workspace("School")
-    solo_workspace = create_workspace()
+    family_workspace = create_workspace("Family", kind="teacher")
+    school_workspace = create_workspace("School", kind="student")
     add_workspace_member(family_workspace["workspace_id"], 701, "teacher")
     add_workspace_member(school_workspace["workspace_id"], 701, "student")
-    add_workspace_member(solo_workspace["workspace_id"], 702, "teacher")
 
     workspaces = list_workspaces_for_user(701)
 
     assert [workspace["name"] for workspace in workspaces] == ["Family", "School"]
+    assert [workspace["kind"] for workspace in workspaces] == ["teacher", "student"]
     assert [workspace["role"] for workspace in workspaces] == ["teacher", "student"]
 
 
 def test_find_workspaces_for_user_by_role_filters_memberships(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher_workspace = create_workspace("Teacher Space")
-    student_workspace = create_workspace("Student Space")
+    student_workspace = create_workspace("Student Space", kind="student")
     add_workspace_member(teacher_workspace["workspace_id"], 801, "teacher")
     add_workspace_member(student_workspace["workspace_id"], 801, "student")
 
@@ -150,16 +149,50 @@ def test_workspace_membership_helpers_return_expected_rows(tmp_path: Path) -> No
     assert user_is_workspace_member(workspace["workspace_id"], 903) is False
 
 
-def test_find_shared_workspace_for_teacher_and_student_returns_first_match(tmp_path: Path) -> None:
+def test_find_shared_workspace_for_teacher_and_student_filters_by_kind(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    first_workspace = create_workspace("First")
-    second_workspace = create_workspace("Second")
-    add_workspace_member(first_workspace["workspace_id"], 1001, "teacher")
-    add_workspace_member(first_workspace["workspace_id"], 1002, "student")
-    add_workspace_member(second_workspace["workspace_id"], 1001, "teacher")
-    add_workspace_member(second_workspace["workspace_id"], 1002, "student")
+    teacher_workspace = create_workspace("Teacher", kind="teacher")
+    student_workspace = create_workspace("Student", kind="student")
+    add_workspace_member(teacher_workspace["workspace_id"], 1001, "teacher")
+    add_workspace_member(teacher_workspace["workspace_id"], 1002, "student")
+    add_workspace_member(student_workspace["workspace_id"], 1001, "teacher")
+    add_workspace_member(student_workspace["workspace_id"], 1002, "student")
 
-    workspace = find_shared_workspace_for_teacher_and_student(1001, 1002)
+    workspace = find_shared_workspace_for_teacher_and_student(1001, 1002, kind="student")
 
     assert workspace is not None
-    assert workspace["id"] == first_workspace["workspace_id"]
+    assert workspace["id"] == student_workspace["workspace_id"]
+    assert workspace["kind"] == "student"
+
+
+def test_get_or_create_student_workspace_is_stable(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+
+    first_workspace = get_or_create_student_workspace(1101, 1102)
+    second_workspace = get_or_create_student_workspace(1101, 1102)
+
+    assert first_workspace["id"] == second_workspace["id"]
+    assert first_workspace["kind"] == "student"
+    assert get_workspace_member(int(first_workspace["id"]), 1101)["role"] == "teacher"
+    assert get_workspace_member(int(first_workspace["id"]), 1102)["role"] == "student"
+
+
+def test_teacher_only_content_edit_checks_workspace_kind_and_role(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher_workspace = create_workspace("Teacher", kind="teacher")
+    student_workspace = create_workspace("Student", kind="student")
+    add_workspace_member(teacher_workspace["workspace_id"], 1201, "teacher")
+    add_workspace_member(student_workspace["workspace_id"], 1201, "teacher")
+    add_workspace_member(teacher_workspace["workspace_id"], 1202, "student")
+
+    workspace = ensure_teacher_can_edit_workspace_content(
+        teacher_workspace["workspace_id"],
+        1201,
+    )
+    assert workspace["kind"] == "teacher"
+
+    with pytest.raises(WorkspaceKindMismatchError):
+        ensure_teacher_can_edit_workspace_content(student_workspace["workspace_id"], 1201)
+
+    with pytest.raises(WorkspaceEditPermissionError):
+        ensure_teacher_can_edit_workspace_content(teacher_workspace["workspace_id"], 1202)

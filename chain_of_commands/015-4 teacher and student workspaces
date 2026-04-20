@@ -1,0 +1,99 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Introduce the two-workspace model: teacher workspaces for authoring and student workspaces for learning.
+
+Context:
+The project now needs to distinguish between:
+- authoring/catalog workspaces
+- learning/student workspaces
+
+The agreed model is:
+- teachers edit topics and learning items in teacher workspaces
+- student workspaces are used for learning, assignments, and progress
+- content is added/published from teacher workspace to student workspace
+- assignments and active sessions must stay stable even if source content later changes
+
+Feature:
+Teacher Workspace + Student Workspace MVP
+
+Scope:
+1. Extend `workspaces.kind` to support:
+   - `teacher`
+   - `student`
+
+2. Define permissions:
+   - only `teacher` members may edit topics and learning_items
+   - `student` members may learn, view their topics, and run sessions
+   - do not add more roles in this slice
+
+3. Introduce the minimal publish/add flow:
+   - a teacher can add a topic or a set of learning items from a teacher workspace into a student workspace
+   - keep the implementation minimal
+   - do not build a broad publishing UI
+   - do not build versioning
+
+4. Student workspaces must not depend on fragile deletion behavior.
+   Introduce content lifecycle rules:
+   - no hard delete for used topics/learning_items
+   - use archive/soft-delete flags where required
+
+5. Enforce snapshot policy:
+   - assignments store fixed item ids and title at creation time
+   - active training sessions store fixed item ids at start time
+   - later topic/content edits must not break old assignments or active sessions
+
+6. Allow safe live edits where practical:
+   - typo fixes
+   - translation fixes
+   - topic rename
+   - topic membership changes for future launches
+
+Cleanup rules:
+- remove comments that still assume one flat workspace model if the new two-type model supersedes it
+- remove dead code around old ownership assumptions if replaced cleanly
+- do not keep stale TODO comments describing the old model as future direction
+- if any handler/help text still lies about ownership or editing rules, update it
+
+Out of scope:
+- content versioning
+- diff-based publishing
+- synchronization back from student workspace to teacher workspace
+- lesson model
+- broad workspace management UI
+- role expansion
+- advanced deletion audit trail
+
+Architecture constraints:
+- Keep the implementation minimal
+- Avoid building a full CMS
+- Do not overengineer publish flow
+- Prefer explicit, understandable code over abstract frameworks
+
+Testing requirements:
+- tests for workspace kind behavior
+- tests that only teachers can edit content
+- tests for add/publish behavior
+- tests for snapshot assignment policy
+- tests for soft-delete/archive behavior where introduced
+- tests that active sessions remain stable after content changes
+- focused tests without Telegram runtime where possible
+
+Workflow:
+1. architect
+2. complexity_guard
+3. coder
+4. complexity_guard
+
+Definition of done:
+- teacher and student workspaces are modeled explicitly
+- content editing is restricted to teacher members
+- content can be added/published into student workspaces
+- assignment and session snapshot rules are enforced
+- soft-delete/archive policy exists for used entities where needed
+- obsolete code/comments are cleaned up
+- tests pass
+- CHANGELOG.md and context/current_state.md are updated

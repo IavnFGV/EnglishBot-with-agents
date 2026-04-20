@@ -102,10 +102,24 @@ def seed_basic_topics() -> dict[str, int]:
             if topic_row is None:
                 cursor = connection.execute(
                     """
-                    INSERT INTO topics (workspace_id, name, title, created_at)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO topics (
+                        workspace_id,
+                        source_topic_id,
+                        name,
+                        title,
+                        is_archived,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (?, NULL, ?, ?, 0, ?, ?)
                     """,
-                    (workspace_id, str(topic["topic"]), str(topic["title"]), timestamp),
+                    (
+                        workspace_id,
+                        str(topic["topic"]),
+                        str(topic["title"]),
+                        timestamp,
+                        timestamp,
+                    ),
                 )
                 topic_id = int(cursor.lastrowid)
                 created_topics += 1
@@ -148,14 +162,16 @@ def seed_basic_topics() -> dict[str, int]:
                         """
                         INSERT INTO learning_items (
                             workspace_id,
+                            source_learning_item_id,
                             lexeme_id,
                             text,
                             image_ref,
                             audio_ref,
+                            is_archived,
                             created_at,
                             updated_at
                         )
-                        VALUES (?, ?, ?, NULL, NULL, ?, ?)
+                        VALUES (?, NULL, ?, ?, NULL, NULL, 0, ?, ?)
                         """,
                         (workspace_id, lexeme_id, lemma, timestamp, timestamp),
                     )
