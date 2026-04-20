@@ -2,7 +2,7 @@ import logging
 
 from aiogram import F
 from aiogram.filters import Command
-from aiogram.types import ErrorEvent, Message
+from aiogram.types import BotCommand, ErrorEvent, Message
 
 from .basic_topics_seed import seed_basic_topics
 from .db import count_text_interactions, get_user, init_db
@@ -16,6 +16,15 @@ from . import workbook_handlers  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
+BOT_COMMANDS = [
+    BotCommand(command="start", description="Открыть главное меню"),
+    BotCommand(command="learn", description="Начать тренировку"),
+    BotCommand(command="me", description="Показать мой профиль"),
+]
+
+
+async def configure_bot_commands(bot) -> None:
+    await bot.set_my_commands(BOT_COMMANDS)
 
 
 @router.message(Command("me"))
@@ -66,5 +75,6 @@ async def main() -> None:
     init_db()
     seed_basic_topics()
     bot = build_bot()
+    await configure_bot_commands(bot)
     logger.info("Starting EnglishBot with long polling")
     await dispatcher.start_polling(bot)

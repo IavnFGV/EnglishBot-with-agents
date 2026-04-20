@@ -38,12 +38,13 @@ async def learn(message: Message) -> None:
 
 @router.message(
     F.text,
+    ~F.text.startswith("/"),
     lambda message: (
         message.from_user is not None and get_active_training_session(message.from_user.id) is not None
     ),
 )
 async def answer_training_question(message: Message) -> None:
-    if message.from_user is None or message.text is None or message.text.startswith("/"):
+    if message.from_user is None or message.text is None:
         return
 
     result = submit_training_answer(message.from_user.id, message.text)
