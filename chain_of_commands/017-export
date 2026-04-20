@@ -1,0 +1,85 @@
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Implement export of teacher-workspace content into the workbook `.xlsx` format using the new workbook_key-based model.
+
+Context:
+The repository is now prepared for workbook-based content flow:
+- topics and learning_items already have stable workspace-scoped workbook_key values
+- real persistence mappings are confirmed from code
+- workbook import/export is intended only for teacher workspace content
+- student visibility and runtime access are out of scope for this slice
+
+Workbook export must target exactly one teacher workspace and produce exactly 3 sheets:
+
+1) topics
+2) topic_items
+3) learning_items
+
+Required workbook behavior:
+
+1. Export only teacher-workspace content
+2. Use workbook_key as the primary workbook identity
+3. Include optional DB id columns only as debug/reference columns if useful
+4. Export translations in wide format:
+   - translation_ru
+   - translation_uk
+   - translation_bg
+5. Export archive flags
+6. Export image_ref and audio_ref
+7. Keep deterministic sheet names and deterministic column order
+8. Keep workbook human-editable in Google Sheets after export
+
+Sheet intent:
+
+- topics:
+  teacher-workspace topics catalog
+
+- topic_items:
+  topic membership within teacher workspace
+
+- learning_items:
+  teacher-workspace learning catalog
+
+Constraints:
+- do not implement import in this slice
+- do not implement Google Sheets API
+- do not implement student visibility management
+- do not add versioning or diff logic
+- do not put workbook logic into Telegram handlers
+- keep implementation minimal and focused
+
+Architecture expectations:
+- spreadsheet generation should live in a focused module
+- Telegram layer, if touched at all, must stay thin
+- business/persistence logic must remain outside handlers
+
+Testing requirements:
+- tests for creating a valid `.xlsx`
+- tests for exact sheet names
+- tests for deterministic columns
+- tests for workbook_key export
+- tests for translation column mapping
+- tests for workspace scoping
+- tests that student workspace runtime data is not exported
+
+Documentation:
+- update CHANGELOG.md
+- update context/current_state.md
+
+Workflow:
+1. architect
+2. complexity_guard
+3. coder
+4. complexity_guard
+
+Definition of done:
+- one teacher workspace can be exported into a valid workbook `.xlsx`
+- workbook contains exactly the expected 3 sheets
+- workbook uses workbook_key-based identity
+- exported data matches confirmed persistence mappings
+- tests pass
+- docs updated
