@@ -1,0 +1,67 @@
+Read:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+
+Task:
+Update the technical specification only.
+Do not implement code.
+Do not modify runtime modules.
+Do not add migrations.
+Do not add tests in this step.
+
+Goal:
+Expand the spec so that the learning flow supports staged exercises instead of only a single plain-text question/answer model.
+
+Requirements:
+
+1. Add an exercise model section.
+2. Introduce exercise stages:
+
+* easy
+* medium
+* hard
+
+3. Introduce exercise types:
+
+* multiple_choice
+* jumbled_letters
+* typed_answer
+
+4. Describe the initial homework/training completion rules:
+
+* each learning item starts at easy
+* item needs 2 correct answers in easy
+* then 2 correct answers in medium
+* after that item is considered completed
+* 4 correct answers in a row unlock hard
+* hard is optional and does not block completion - button to skip and zero 4 correct unswers - show medium level
+
+5. Explicitly separate:
+
+* learning_item as content
+* exercise instance as the concrete question shown in session
+* training session snapshot from mutable content
+
+6. Add hint language as a separate concept from bot UI language.
+   Clarify that:
+
+* bot_language controls bot-facing interface text
+* hint_language controls the learner-facing hint language for exercises
+
+7. Add a short runtime UI note:
+
+* one progress message may be edited during session
+* one active question message may be replaced
+* Telegram message management is transport/runtime behavior, not core domain model
+
+8. Keep the spec concise.
+9. Do not remove future-facing sections.
+10. Remove contradictions with current_state.md if found.
+11. After updating the spec, also update context/current_state.md so it explicitly states that multi-stage exercise flow is now part of the target specification, but not yet implemented.
+
+Output:
+
+* updated context/englishbot_handoff.md
+* updated context/current_state.md
+* short summary of what changed
