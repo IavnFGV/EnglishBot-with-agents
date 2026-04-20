@@ -35,3 +35,4 @@ dist/
 .vscode/
 .DS_Store
 ai_file_state.txt
+ai_state.md
