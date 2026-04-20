@@ -118,8 +118,8 @@ def test_create_assignment_publishes_teacher_items_into_student_workspace(tmp_pa
 
     assert stored_assignment is not None
     assert stored_assignment["workspace_id"] == student_workspace["id"]
-    assert result["title"] == "Домашка"
-    assert result["notification"]["text"] == "Вам назначено новое задание: Домашка"
+    assert result["title"] is None
+    assert stored_assignment["title"] is None
     assert result["learning_item_ids"] != source_learning_item_ids
     assert len(get_assignment_learning_item_ids(int(result["assignment_id"]))) == 2
 

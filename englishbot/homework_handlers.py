@@ -10,6 +10,7 @@ from .homework import (
     start_assignment_training_session,
     student_has_active_homework,
 )
+from .i18n import translate_for_user
 from .runtime import router
 
 
@@ -17,20 +18,42 @@ HOMEWORK_OPEN_CALLBACK = "homework:open"
 HOMEWORK_START_PREFIX = "homework:start:"
 
 
-def build_homework_button() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Домашка", callback_data=HOMEWORK_OPEN_CALLBACK)]
-        ]
+def _resolve_assignment_title(
+    telegram_user_id: int,
+    assignment: dict[str, object],
+) -> str:
+    title = assignment["title"]
+    if title is not None and str(title).strip():
+        return str(title)
+    return translate_for_user(
+        telegram_user_id,
+        "homework.assignment_fallback",
+        assignment_id=assignment["id"],
     )
 
 
-def build_assignments_keyboard(assignments: list[dict[str, object]]) -> InlineKeyboardMarkup:
+def build_homework_button(telegram_user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=str(assignment["title"] or f"Задание #{assignment['id']}"),
+                    text=translate_for_user(telegram_user_id, "homework.button.open"),
+                    callback_data=HOMEWORK_OPEN_CALLBACK,
+                )
+            ]
+        ]
+    )
+
+
+def build_assignments_keyboard(
+    telegram_user_id: int,
+    assignments: list[dict[str, object]],
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=_resolve_assignment_title(telegram_user_id, assignment),
                     callback_data=f"{HOMEWORK_START_PREFIX}{assignment['id']}",
                 )
             ]
@@ -47,13 +70,17 @@ async def start(message: Message) -> None:
     save_user(message.from_user)
     if student_has_active_homework(message.from_user.id):
         await message.answer(
-            "У вас есть назначенная домашка.",
-            reply_markup=build_homework_button(),
+            translate_for_user(message.from_user.id, "homework.has_active"),
+            reply_markup=build_homework_button(message.from_user.id),
         )
         return
 
     await message.answer(
-        f"Домашки пока нет. Для тренировки можно использовать {LEARN_COMMAND.token}."
+        translate_for_user(
+            message.from_user.id,
+            "homework.none",
+            learn_command=LEARN_COMMAND.token,
+        )
     )
 
 
@@ -65,12 +92,14 @@ async def open_homework(callback: CallbackQuery) -> None:
 
     assignments = list_active_assignments(callback.from_user.id)
     if not assignments:
-        await callback.message.answer("Активных заданий пока нет.")
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "homework.assignments.empty")
+        )
         return
 
     await callback.message.answer(
-        "Ваши задания:",
-        reply_markup=build_assignments_keyboard(assignments),
+        translate_for_user(callback.from_user.id, "homework.assignments.title"),
+        reply_markup=build_assignments_keyboard(callback.from_user.id, assignments),
     )
 
 
@@ -87,20 +116,35 @@ async def start_homework(callback: CallbackQuery) -> None:
     try:
         result = start_assignment_training_session(callback.from_user.id, assignment_id)
     except AssignmentNotFoundError:
-        await callback.message.answer("Задание не найдено.")
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "homework.assignment_not_found")
+        )
         return
     except EmptyAssignmentError:
-        await callback.message.answer("В задании пока нет слов.")
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "homework.assignment_empty")
+        )
         return
 
     question = result["question"]
     if question is None:
-        await callback.message.answer("Не удалось начать домашку.")
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "homework.start_failed")
+        )
         return
 
-    assignment_title = str(result.get("assignment_title") or "Домашка")
+    assignment_title = (
+        str(result["assignment_title"])
+        if result.get("assignment_title")
+        else translate_for_user(callback.from_user.id, "homework.default_title")
+    )
     await callback.message.answer(
-        f"Домашка «{assignment_title}» началась.\n"
-        f"Вопрос {question['question_number']}/{question['total_questions']}: "
-        f"{question['prompt']}"
+        translate_for_user(
+            callback.from_user.id,
+            "homework.started",
+            assignment_title=assignment_title,
+            question_number=question["question_number"],
+            total_questions=question["total_questions"],
+            prompt=question["prompt"],
+        )
     )

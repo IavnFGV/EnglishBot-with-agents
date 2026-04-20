@@ -77,7 +77,7 @@ def test_export_workbook_file_includes_filename_and_counts(tmp_path: Path) -> No
     assert report["topic_link_count"] == 2
     assert (
         build_export_summary_text(report)
-        == f"Экспорт workbook для workspace {workspace_id}: topics=1, learning_items=2, topic_links=2."
+        == f"Workbook export for workspace {workspace_id}: topics=1, learning_items=2, topic_links=2."
     )
 
 
@@ -100,7 +100,7 @@ def test_import_summary_text_is_compact_and_stable() -> None:
 
     assert (
         build_import_summary_text(report)
-        == "Импорт workbook выполнен для workspace 17: "
+        == "Workbook import completed for workspace 17: "
         "created_topics=1, updated_topics=2, created_learning_items=3, "
         "updated_learning_items=4, added_topic_links=5."
     )

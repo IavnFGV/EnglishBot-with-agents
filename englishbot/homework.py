@@ -18,7 +18,6 @@ from .workspaces import (
 
 ACTIVE_STATUS = "active"
 COMPLETED_STATUS = "completed"
-DEFAULT_ASSIGNMENT_TITLE = "Домашка"
 
 
 class HomeworkError(Exception):
@@ -69,7 +68,7 @@ def create_assignment(
     normalized_learning_item_ids = [int(learning_item_id) for learning_item_id in learning_item_ids]
     if not normalized_learning_item_ids:
         raise EmptyAssignmentError
-    stored_title = title.strip() if title is not None and title.strip() else DEFAULT_ASSIGNMENT_TITLE
+    stored_title = title.strip() if title is not None and title.strip() else None
 
     target_workspace = _get_student_workspace(teacher_user_id, student_user_id)
     published_learning_item_ids: list[int] = []
@@ -284,7 +283,7 @@ def _store_assignment(
     student_user_id: int,
     workspace_id: int,
     learning_item_ids: list[int],
-    title: str,
+    title: str | None,
 ) -> dict[str, object]:
     timestamp = utc_now()
     with get_connection() as connection:
@@ -328,8 +327,4 @@ def _store_assignment(
         "student_user_id": student_user_id,
         "title": title,
         "learning_item_ids": learning_item_ids,
-        "notification": {
-            "student_user_id": student_user_id,
-            "text": f"Вам назначено новое задание: {title}",
-        },
     }

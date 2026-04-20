@@ -8,6 +8,7 @@ from aiogram.types import User
 
 DB_PATH = Path(os.getenv("ENGLISHBOT_DB_PATH", "englishbot.sqlite3"))
 DEFAULT_USER_ROLE = "student"
+DEFAULT_BOT_LANGUAGE = "en"
 DEFAULT_CONTENT_WORKSPACE_NAME = "Starter Content"
 WORKSPACE_KIND_TEACHER = "teacher"
 WORKSPACE_KIND_STUDENT = "student"
@@ -113,12 +114,21 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS user_profiles (
                 telegram_user_id INTEGER PRIMARY KEY,
                 role TEXT NOT NULL DEFAULT 'student',
+                bot_language TEXT NOT NULL DEFAULT 'en',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id)
             )
             """
         )
+        user_profile_columns = get_table_columns(connection, "user_profiles")
+        if "bot_language" not in user_profile_columns:
+            connection.execute(
+                """
+                ALTER TABLE user_profiles
+                ADD COLUMN bot_language TEXT NOT NULL DEFAULT 'en'
+                """
+            )
         user_columns = get_table_columns(connection, "users")
         if "role" in user_columns:
             connection.execute(
@@ -126,34 +136,38 @@ def init_db() -> None:
                 INSERT OR IGNORE INTO user_profiles (
                     telegram_user_id,
                     role,
+                    bot_language,
                     created_at,
                     updated_at
                 )
                 SELECT
                     telegram_user_id,
                     COALESCE(NULLIF(role, ''), ?),
+                    ?,
                     created_at,
                     updated_at
                 FROM users
                 """,
-                (DEFAULT_USER_ROLE,),
+                (DEFAULT_USER_ROLE, DEFAULT_BOT_LANGUAGE),
             )
         connection.execute(
             """
             INSERT OR IGNORE INTO user_profiles (
                 telegram_user_id,
                 role,
+                bot_language,
                 created_at,
                 updated_at
             )
             SELECT
                 telegram_user_id,
                 ?,
+                ?,
                 created_at,
                 updated_at
             FROM users
             """,
-            (DEFAULT_USER_ROLE,),
+            (DEFAULT_USER_ROLE, DEFAULT_BOT_LANGUAGE),
         )
         connection.execute(
             """
@@ -802,12 +816,13 @@ def save_user(user: User) -> None:
             INSERT OR IGNORE INTO user_profiles (
                 telegram_user_id,
                 role,
+                bot_language,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (user.id, DEFAULT_USER_ROLE, timestamp, timestamp),
+            (user.id, DEFAULT_USER_ROLE, DEFAULT_BOT_LANGUAGE, timestamp, timestamp),
         )
 
 
@@ -833,12 +848,19 @@ def ensure_user_exists(telegram_user_id: int) -> None:
             INSERT OR IGNORE INTO user_profiles (
                 telegram_user_id,
                 role,
+                bot_language,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (telegram_user_id, DEFAULT_USER_ROLE, timestamp, timestamp),
+            (
+                telegram_user_id,
+                DEFAULT_USER_ROLE,
+                DEFAULT_BOT_LANGUAGE,
+                timestamp,
+                timestamp,
+            ),
         )
 
 

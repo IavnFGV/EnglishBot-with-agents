@@ -85,8 +85,11 @@ def test_start_shows_homework_button_when_active_assignment_exists(tmp_path: Pat
     asyncio.run(start(message))
 
     assert len(message.answers) == 1
-    assert message.answers[0]["text"] == "У вас есть назначенная домашка."
-    assert message.answers[0]["kwargs"]["reply_markup"].inline_keyboard[0][0].text == "Домашка"
+    assert message.answers[0]["text"] == "You have assigned homework."
+    assert (
+        message.answers[0]["kwargs"]["reply_markup"].inline_keyboard[0][0].text
+        == "Homework"
+    )
 
 
 def test_start_shows_no_homework_message_without_assignments(tmp_path: Path) -> None:
@@ -97,7 +100,10 @@ def test_start_shows_no_homework_message_without_assignments(tmp_path: Path) -> 
     asyncio.run(start(message))
 
     assert message.answers == [
-        {"text": "Домашки пока нет. Для тренировки можно использовать /learn.", "kwargs": {}}
+        {
+            "text": "No homework yet. You can use /learn for training.",
+            "kwargs": {},
+        }
     ]
 
 
@@ -112,7 +118,7 @@ def test_open_homework_lists_active_assignments(tmp_path: Path) -> None:
     asyncio.run(open_homework(callback))
 
     assert callback.answered is True
-    assert callback_message.answers[0]["text"] == "Ваши задания:"
+    assert callback_message.answers[0]["text"] == "Your assignments:"
     keyboard = callback_message.answers[0]["kwargs"]["reply_markup"]
     assert keyboard.inline_keyboard[0][0].text == assignment["title"]
 
@@ -139,12 +145,15 @@ def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
 
     assert callback.answered is True
     assert callback_message.answers == [
-        {"text": "Домашка «Тестовая домашка» началась.\nВопрос 1/1: понедельник", "kwargs": {}}
+        {
+            "text": "Homework \"Тестовая домашка\" started.\nQuestion 1/1: понедельник",
+            "kwargs": {},
+        }
     ]
 
 
 def test_build_homework_button_uses_homework_open_callback() -> None:
-    keyboard = build_homework_button()
+    keyboard = build_homework_button(1)
 
-    assert keyboard.inline_keyboard[0][0].text == "Домашка"
+    assert keyboard.inline_keyboard[0][0].text == "Homework"
     assert keyboard.inline_keyboard[0][0].callback_data == HOMEWORK_OPEN_CALLBACK

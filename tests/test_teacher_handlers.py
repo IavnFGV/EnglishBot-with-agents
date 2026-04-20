@@ -58,7 +58,7 @@ def test_invite_handler_rejects_non_teacher(tmp_path: Path) -> None:
 
     asyncio.run(invite(message))
 
-    assert message.answers == ["Команда /invite доступна только пользователю с ролью teacher."]
+    assert message.answers == ["Command /invite is available only to users with the teacher role."]
 
 
 def test_invite_handler_returns_code_for_teacher(tmp_path: Path) -> None:
@@ -71,7 +71,7 @@ def test_invite_handler_returns_code_for_teacher(tmp_path: Path) -> None:
     asyncio.run(invite(message))
 
     assert len(message.answers) == 1
-    assert message.answers[0].startswith("Код приглашения: ")
+    assert message.answers[0].startswith("Invite code: ")
     code = message.answers[0].split(": ", 1)[1]
     invite_row = get_invite(code)
     assert invite_row is not None
@@ -84,7 +84,7 @@ def test_join_handler_requires_code(tmp_path: Path) -> None:
 
     asyncio.run(join(message, SimpleNamespace(args=None)))
 
-    assert message.answers == ["Использование: /join <code>"]
+    assert message.answers == ["Usage: /join <code>"]
 
 
 def test_join_handler_joins_student_to_teacher(tmp_path: Path) -> None:
@@ -100,7 +100,7 @@ def test_join_handler_joins_student_to_teacher(tmp_path: Path) -> None:
 
     asyncio.run(join(student_message, SimpleNamespace(args=code)))
 
-    assert student_message.answers == [f"Присоединение выполнено. teacher_user_id: {teacher.id}"]
+    assert student_message.answers == [f"Join completed. teacher_user_id: {teacher.id}"]
     link = get_teacher_link(student.id)
     assert link is not None
     assert link["teacher_user_id"] == teacher.id
@@ -119,15 +119,15 @@ def test_join_handler_rejects_used_or_invalid_invites(tmp_path: Path) -> None:
 
     missing_message = FakeMessage(first_student)
     asyncio.run(join(missing_message, SimpleNamespace(args="missing")))
-    assert missing_message.answers == ["Приглашение не найдено."]
+    assert missing_message.answers == ["Invite not found."]
 
     first_join_message = FakeMessage(first_student)
     asyncio.run(join(first_join_message, SimpleNamespace(args=code)))
-    assert first_join_message.answers == [f"Присоединение выполнено. teacher_user_id: {teacher.id}"]
+    assert first_join_message.answers == [f"Join completed. teacher_user_id: {teacher.id}"]
 
     second_join_message = FakeMessage(second_student)
     asyncio.run(join(second_join_message, SimpleNamespace(args=code)))
-    assert second_join_message.answers == ["Это приглашение уже использовано."]
+    assert second_join_message.answers == ["This invite has already been used."]
 
 
 def test_join_handler_rejects_already_linked_student(tmp_path: Path) -> None:
@@ -151,12 +151,12 @@ def test_join_handler_rejects_already_linked_student(tmp_path: Path) -> None:
     first_join_message = FakeMessage(student)
     asyncio.run(join(first_join_message, SimpleNamespace(args=first_code)))
     assert first_join_message.answers == [
-        f"Присоединение выполнено. teacher_user_id: {first_teacher.id}"
+        f"Join completed. teacher_user_id: {first_teacher.id}"
     ]
 
     second_join_message = FakeMessage(student)
     asyncio.run(join(second_join_message, SimpleNamespace(args=second_code)))
-    assert second_join_message.answers == ["Ученик уже привязан к учителю."]
+    assert second_join_message.answers == ["This student is already linked to a teacher."]
 
 
 def test_join_handler_allows_teacher_to_join_own_invite_for_testing(tmp_path: Path) -> None:
@@ -174,7 +174,7 @@ def test_join_handler_allows_teacher_to_join_own_invite_for_testing(tmp_path: Pa
 
     teacher_role = get_user_role(teacher.id)
     link = get_teacher_link(teacher.id)
-    assert join_message.answers == [f"Присоединение выполнено. teacher_user_id: {teacher.id}"]
+    assert join_message.answers == [f"Join completed. teacher_user_id: {teacher.id}"]
     assert link is not None
     assert link["teacher_user_id"] == teacher.id
     assert link["student_user_id"] == teacher.id
@@ -199,11 +199,11 @@ def test_assign_handler_creates_assignment_and_notifies_student(tmp_path: Path) 
     workspace_id = db.get_default_content_workspace_id()
     asyncio.run(assign(assign_message, SimpleNamespace(args=f"{student.id} {workspace_id} weekdays")))
 
-    assert assign_message.answers == ["Задание создано. assignment_id: 1. Название: Дни недели"]
+    assert assign_message.answers == ["Assignment created. assignment_id: 1. Title: Дни недели"]
     assert assign_message.bot.sent_messages[0]["chat_id"] == student.id
-    assert assign_message.bot.sent_messages[0]["text"] == "Вам назначено новое задание: Дни недели"
+    assert assign_message.bot.sent_messages[0]["text"] == "You have a new assignment: Дни недели"
     reply_markup = assign_message.bot.sent_messages[0]["kwargs"]["reply_markup"]
-    assert reply_markup.inline_keyboard[0][0].text == "Домашка"
+    assert reply_markup.inline_keyboard[0][0].text == "Homework"
 
 
 def test_assign_handler_keeps_legacy_learning_item_id_support(tmp_path: Path) -> None:
@@ -223,8 +223,8 @@ def test_assign_handler_keeps_legacy_learning_item_id_support(tmp_path: Path) ->
     assign_message = FakeMessage(teacher)
     asyncio.run(assign(assign_message, SimpleNamespace(args=f"{student.id} {learning_item_id}")))
 
-    assert assign_message.answers == ["Задание создано. assignment_id: 1. Название: Домашка"]
-    assert assign_message.bot.sent_messages[0]["text"] == "Вам назначено новое задание: Домашка"
+    assert assign_message.answers == ["Assignment created. assignment_id: 1. Title: Homework"]
+    assert assign_message.bot.sent_messages[0]["text"] == "You have a new assignment: Homework"
 
 
 def test_assign_handler_rejects_unlinked_student(tmp_path: Path) -> None:
@@ -240,7 +240,7 @@ def test_assign_handler_rejects_unlinked_student(tmp_path: Path) -> None:
 
     asyncio.run(assign(message, SimpleNamespace(args=f"{student.id} {learning_item_id}")))
 
-    assert message.answers == ["Этот ученик не состоит с вами в общем workspace."]
+    assert message.answers == ["This student does not share a workspace with you."]
 
 
 def test_assign_handler_requires_explicit_workspace_id_for_topic_flow(tmp_path: Path) -> None:
@@ -261,6 +261,6 @@ def test_assign_handler_requires_explicit_workspace_id_for_topic_flow(tmp_path: 
     asyncio.run(assign(message, SimpleNamespace(args=f"{student.id} weekdays")))
 
     assert message.answers == [
-        "Использование: /assign <student_user_id> <teacher_workspace_id> <topic_name>\n"
-        "Или: /assign <student_user_id> <learning_item_id,learning_item_id,...>"
+        "Usage: /assign <student_user_id> <teacher_workspace_id> <topic_name>\n"
+        "Or: /assign <student_user_id> <learning_item_id,learning_item_id,...>"
     ]

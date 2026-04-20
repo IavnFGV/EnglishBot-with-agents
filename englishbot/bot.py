@@ -7,9 +7,11 @@ from aiogram.types import ErrorEvent, Message
 from .basic_topics_seed import seed_basic_topics
 from .command_registry import BOT_COMMANDS, ME_COMMAND
 from .db import count_text_interactions, get_user, init_db
+from .i18n import translate_for_user
 from .runtime import build_bot, dispatcher, router
 from .user_profiles import get_user_role
 from . import homework_handlers  # noqa: F401
+from . import settings_handlers  # noqa: F401
 from . import teacher_handlers  # noqa: F401
 from . import topic_access_handlers  # noqa: F401
 from . import training_handlers  # noqa: F401
@@ -32,15 +34,19 @@ async def me(message: Message) -> None:
     display_name = (
         (user["first_name"] if user is not None else message.from_user.first_name)
         or (user["username"] if user is not None else message.from_user.username)
-        or "Без имени"
+        or translate_for_user(message.from_user.id, "common.unnamed_user")
     )
     message_count = count_text_interactions(message.from_user.id)
 
     await message.answer(
-        f"{display_name}\n"
-        f"telegram_user_id: {message.from_user.id}\n"
-        f"role: {get_user_role(message.from_user.id)}\n"
-        f"saved_text_messages: {message_count}"
+        translate_for_user(
+            message.from_user.id,
+            "bot.profile",
+            display_name=display_name,
+            telegram_user_id=message.from_user.id,
+            role=get_user_role(message.from_user.id),
+            message_count=message_count,
+        )
     )
 
 
@@ -51,7 +57,9 @@ async def echo_text(message: Message) -> None:
     if message.from_user is None:
         return
 
-    await message.answer(f"Ты написал: {message.text}")
+    await message.answer(
+        translate_for_user(message.from_user.id, "bot.echo", text=message.text)
+    )
 
 
 @router.errors()

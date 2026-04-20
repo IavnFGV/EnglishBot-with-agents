@@ -1,4 +1,5 @@
 from .db import get_connection
+from .i18n import DEFAULT_LANGUAGE_CODE, translate
 from .workbook_export import export_teacher_workspace_workbook
 from .workbook_import import import_teacher_workspace_workbook
 
@@ -37,23 +38,33 @@ def build_workbook_filename(workspace_id: int) -> str:
     return f"teacher-workspace-{workspace_id}.xlsx"
 
 
-def build_export_summary_text(report: dict[str, object]) -> str:
-    return (
-        f"Экспорт workbook для workspace {report['workspace_id']}: "
-        f"topics={report['topic_count']}, "
-        f"learning_items={report['learning_item_count']}, "
-        f"topic_links={report['topic_link_count']}."
+def build_export_summary_text(
+    report: dict[str, object],
+    language_code: str = DEFAULT_LANGUAGE_CODE,
+) -> str:
+    return translate(
+        "workbook.export.summary",
+        language_code,
+        workspace_id=report["workspace_id"],
+        topic_count=report["topic_count"],
+        learning_item_count=report["learning_item_count"],
+        topic_link_count=report["topic_link_count"],
     )
 
 
-def build_import_summary_text(report: dict[str, int]) -> str:
-    return (
-        f"Импорт workbook выполнен для workspace {report['workspace_id']}: "
-        f"created_topics={report['created_topics']}, "
-        f"updated_topics={report['updated_topics']}, "
-        f"created_learning_items={report['created_learning_items']}, "
-        f"updated_learning_items={report['updated_learning_items']}, "
-        f"added_topic_links={report['added_topic_links']}."
+def build_import_summary_text(
+    report: dict[str, int],
+    language_code: str = DEFAULT_LANGUAGE_CODE,
+) -> str:
+    return translate(
+        "workbook.import.summary",
+        language_code,
+        workspace_id=report["workspace_id"],
+        created_topics=report["created_topics"],
+        updated_topics=report["updated_topics"],
+        created_learning_items=report["created_learning_items"],
+        updated_learning_items=report["updated_learning_items"],
+        added_topic_links=report["added_topic_links"],
     )
 
 

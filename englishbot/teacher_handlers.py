@@ -20,6 +20,7 @@ from .homework import (
     create_assignment_from_group,
 )
 from .homework_handlers import build_homework_button
+from .i18n import translate_for_user
 from .runtime import router
 from .teacher_student import (
     InviteAlreadyUsedError,
@@ -38,19 +39,19 @@ from .topic_access import (
 )
 
 
-def _build_assign_usage_message() -> str:
-    return (
-        f"Использование: {ASSIGN_COMMAND.token} "
-        "<student_user_id> <teacher_workspace_id> <topic_name>\n"
-        f"Или: {ASSIGN_COMMAND.token} "
-        "<student_user_id> <learning_item_id,learning_item_id,...>"
+def _build_assign_usage_message(telegram_user_id: int) -> str:
+    return translate_for_user(
+        telegram_user_id,
+        "teacher.assign.usage",
+        command=ASSIGN_COMMAND.token,
     )
 
 
-def _build_grant_topic_usage_message() -> str:
-    return (
-        f"Использование: {GRANTTOPIC_COMMAND.token} "
-        "<student_user_id> <teacher_workspace_id> <topic_name>"
+def _build_grant_topic_usage_message(telegram_user_id: int) -> str:
+    return translate_for_user(
+        telegram_user_id,
+        "teacher.granttopic.usage",
+        command=GRANTTOPIC_COMMAND.token,
     )
 
 
@@ -64,11 +65,17 @@ async def invite(message: Message) -> None:
         code = create_invite(message.from_user.id)
     except TeacherRoleRequiredError:
         await message.answer(
-            f"Команда {INVITE_COMMAND.token} доступна только пользователю с ролью teacher."
+            translate_for_user(
+                message.from_user.id,
+                "teacher.command_teacher_only",
+                command=INVITE_COMMAND.token,
+            )
         )
         return
 
-    await message.answer(f"Код приглашения: {code}")
+    await message.answer(
+        translate_for_user(message.from_user.id, "teacher.invite.code", code=code)
+    )
 
 
 @router.message(Command(JOIN_COMMAND.name))
@@ -79,22 +86,36 @@ async def join(message: Message, command: CommandObject | None = None) -> None:
     save_user(message.from_user)
     code = (command.args if command is not None and command.args is not None else "").strip()
     if not code:
-        await message.answer(f"Использование: {JOIN_COMMAND.token} <code>")
+        await message.answer(
+            translate_for_user(
+                message.from_user.id,
+                "teacher.join.usage",
+                command=JOIN_COMMAND.token,
+            )
+        )
         return
 
     try:
         teacher_user_id = join_with_invite(message.from_user.id, code)
     except InviteNotFoundError:
-        await message.answer("Приглашение не найдено.")
+        await message.answer(translate_for_user(message.from_user.id, "teacher.join.not_found"))
         return
     except InviteAlreadyUsedError:
-        await message.answer("Это приглашение уже использовано.")
+        await message.answer(translate_for_user(message.from_user.id, "teacher.join.used"))
         return
     except StudentAlreadyLinkedError:
-        await message.answer("Ученик уже привязан к учителю.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.join.already_linked")
+        )
         return
 
-    await message.answer(f"Присоединение выполнено. teacher_user_id: {teacher_user_id}")
+    await message.answer(
+        translate_for_user(
+            message.from_user.id,
+            "teacher.join.success",
+            teacher_user_id=teacher_user_id,
+        )
+    )
 
 
 @router.message(Command(ASSIGN_COMMAND.name))
@@ -105,18 +126,18 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
     save_user(message.from_user)
     raw_args = (command.args if command is not None and command.args is not None else "").strip()
     if not raw_args:
-        await message.answer(_build_assign_usage_message())
+        await message.answer(_build_assign_usage_message(message.from_user.id))
         return
 
     parts = raw_args.split(maxsplit=2)
     if len(parts) < 2:
-        await message.answer(_build_assign_usage_message())
+        await message.answer(_build_assign_usage_message(message.from_user.id))
         return
 
     try:
         student_user_id = int(parts[0])
     except ValueError:
-        await message.answer(_build_assign_usage_message())
+        await message.answer(_build_assign_usage_message(message.from_user.id))
         return
 
     try:
@@ -130,7 +151,7 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
             if not raw_learning_item_ids or not all(
                 item_id.isdigit() for item_id in raw_learning_item_ids
             ):
-                await message.answer(_build_assign_usage_message())
+                await message.answer(_build_assign_usage_message(message.from_user.id))
                 return
             result = create_assignment(
                 message.from_user.id,
@@ -141,7 +162,7 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
             teacher_workspace_id = int(parts[1])
             assignment_target = parts[2].strip()
             if not assignment_target:
-                await message.answer(_build_assign_usage_message())
+                await message.answer(_build_assign_usage_message(message.from_user.id))
                 return
             result = create_assignment_from_group(
                 message.from_user.id,
@@ -150,40 +171,72 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
                 assignment_target,
             )
     except ValueError:
-        await message.answer(_build_assign_usage_message())
+        await message.answer(_build_assign_usage_message(message.from_user.id))
         return
     except HomeworkTeacherRoleRequiredError:
         await message.answer(
-            f"Команда {ASSIGN_COMMAND.token} доступна только пользователю с ролью teacher."
+            translate_for_user(
+                message.from_user.id,
+                "teacher.command_teacher_only",
+                command=ASSIGN_COMMAND.token,
+            )
         )
         return
     except TeacherWorkspaceMembershipRequiredError:
-        await message.answer("У вас нет teacher-доступа к workspace этого контента.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.assign.no_source_access")
+        )
         return
     except StudentWorkspaceMembershipRequiredError:
-        await message.answer("Этот ученик не состоит с вами в общем workspace.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.assign.no_shared_workspace")
+        )
         return
     except EmptyAssignmentError:
-        await message.answer("Нужно передать хотя бы один learning_item_id.")
+        await message.answer(translate_for_user(message.from_user.id, "teacher.assign.empty"))
         return
     except LearningItemNotFoundError:
-        await message.answer("Один из learning_item_id не найден.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.assign.item_not_found")
+        )
         return
     except MixedWorkspaceAssignmentError:
-        await message.answer("Нельзя назначать learning_item из разных workspace в одном задании.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.assign.mixed_workspaces")
+        )
         return
     except AssignmentGroupNotFoundError:
-        await message.answer("Тема не найдена в указанном teacher workspace.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.assign.topic_not_found")
+        )
         return
 
+    assignment_title = (
+        str(result["title"])
+        if result.get("title")
+        else translate_for_user(message.from_user.id, "homework.default_title")
+    )
     await message.answer(
-        f"Задание создано. assignment_id: {result['assignment_id']}. "
-        f"Название: {result['title']}"
+        translate_for_user(
+            message.from_user.id,
+            "teacher.assign.success",
+            assignment_id=result["assignment_id"],
+            title=assignment_title,
+        )
     )
     await message.bot.send_message(
-        chat_id=int(result["notification"]["student_user_id"]),
-        text=str(result["notification"]["text"]),
-        reply_markup=build_homework_button(),
+        chat_id=int(result["student_user_id"]),
+        text=translate_for_user(
+            int(result["student_user_id"]),
+            "homework.notification.assigned",
+            title=translate_for_user(
+                int(result["student_user_id"]),
+                "homework.default_title",
+            )
+            if not result.get("title")
+            else result["title"],
+        ),
+        reply_markup=build_homework_button(int(result["student_user_id"])),
     )
 
 
@@ -195,19 +248,19 @@ async def grant_topic(message: Message, command: CommandObject | None = None) ->
     save_user(message.from_user)
     raw_args = (command.args if command is not None and command.args is not None else "").strip()
     if not raw_args:
-        await message.answer(_build_grant_topic_usage_message())
+        await message.answer(_build_grant_topic_usage_message(message.from_user.id))
         return
 
     parts = raw_args.split(maxsplit=2)
     if len(parts) != 3:
-        await message.answer(_build_grant_topic_usage_message())
+        await message.answer(_build_grant_topic_usage_message(message.from_user.id))
         return
 
     try:
         student_user_id = int(parts[0])
         teacher_workspace_id = int(parts[1])
     except ValueError:
-        await message.answer(_build_grant_topic_usage_message())
+        await message.answer(_build_grant_topic_usage_message(message.from_user.id))
         return
 
     try:
@@ -219,19 +272,34 @@ async def grant_topic(message: Message, command: CommandObject | None = None) ->
         )
     except TopicAccessTeacherRoleRequiredError:
         await message.answer(
-            f"Команда {GRANTTOPIC_COMMAND.token} доступна только пользователю с ролью teacher."
+            translate_for_user(
+                message.from_user.id,
+                "teacher.command_teacher_only",
+                command=GRANTTOPIC_COMMAND.token,
+            )
         )
         return
     except TopicAccessTeacherWorkspaceMembershipRequiredError:
-        await message.answer("У вас нет teacher-доступа к workspace этой темы.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.granttopic.no_source_access")
+        )
         return
     except TopicAccessStudentWorkspaceMembershipRequiredError:
-        await message.answer("Этот ученик не состоит с вами в общем workspace.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.granttopic.no_shared_workspace")
+        )
         return
     except TopicNotFoundError:
-        await message.answer("Тема не найдена в указанном teacher workspace.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "teacher.granttopic.topic_not_found")
+        )
         return
 
     await message.answer(
-        f"Доступ к теме открыт: {result['topic_title']} ({result['topic_name']})."
+        translate_for_user(
+            message.from_user.id,
+            "teacher.granttopic.success",
+            topic_title=result["topic_title"],
+            topic_name=result["topic_name"],
+        )
     )

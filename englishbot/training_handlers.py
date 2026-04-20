@@ -4,6 +4,7 @@ from aiogram.types import Message
 
 from .command_registry import LEARN_COMMAND
 from .db import save_user
+from .i18n import translate_for_user
 from .runtime import router
 from .training import (
     NoLearningItemsError,
@@ -22,18 +23,22 @@ async def learn(message: Message) -> None:
     try:
         result = create_training_session(message.from_user.id)
     except NoLearningItemsError:
-        await message.answer("Нет слов для тренировки.")
+        await message.answer(translate_for_user(message.from_user.id, "training.no_items"))
         return
 
     question = result["question"]
     if question is None:
-        await message.answer("Не удалось начать тренировку.")
+        await message.answer(translate_for_user(message.from_user.id, "training.start_failed"))
         return
 
     await message.answer(
-        f"Тренировка началась.\n"
-        f"Вопрос {question['question_number']}/{question['total_questions']}: "
-        f"{question['prompt']}"
+        translate_for_user(
+            message.from_user.id,
+            "training.started",
+            question_number=question["question_number"],
+            total_questions=question["total_questions"],
+            prompt=question["prompt"],
+        )
     )
 
 
@@ -53,22 +58,35 @@ async def answer_training_question(message: Message) -> None:
         return
 
     if result["is_correct"]:
-        feedback = "Верно."
+        feedback = translate_for_user(message.from_user.id, "training.correct")
     else:
-        feedback = f"Неверно. Правильный ответ: {result['expected_answer']}."
+        feedback = translate_for_user(
+            message.from_user.id,
+            "training.incorrect",
+            expected_answer=result["expected_answer"],
+        )
 
     if result["status"] == "completed":
         summary = result["summary"]
         await message.answer(
-            f"{feedback}\n"
-            f"Итог: {summary['total_questions']} вопросов, "
-            f"{summary['correct_answers']} правильных ответов."
+            translate_for_user(
+                message.from_user.id,
+                "training.summary",
+                feedback=feedback,
+                total_questions=summary["total_questions"],
+                correct_answers=summary["correct_answers"],
+            )
         )
         return
 
     next_question = result["next_question"]
     await message.answer(
-        f"{feedback}\n"
-        f"Вопрос {next_question['question_number']}/{next_question['total_questions']}: "
-        f"{next_question['prompt']}"
+        translate_for_user(
+            message.from_user.id,
+            "training.next_question",
+            feedback=feedback,
+            question_number=next_question["question_number"],
+            total_questions=next_question["total_questions"],
+            prompt=next_question["prompt"],
+        )
     )

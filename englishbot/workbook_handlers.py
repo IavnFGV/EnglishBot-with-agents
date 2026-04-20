@@ -6,7 +6,9 @@ from aiogram.types import BufferedInputFile, Message
 
 from .command_registry import WORKBOOK_EXPORT_COMMAND, WORKBOOK_IMPORT_COMMAND
 from .db import save_user
+from .i18n import translate_for_user
 from .runtime import router
+from .user_profiles import get_user_language
 from .workbook_admin import (
     build_export_summary_text,
     build_import_summary_text,
@@ -21,14 +23,19 @@ from .workspaces import (
 )
 
 
-def _build_export_usage_message() -> str:
-    return f"Использование: {WORKBOOK_EXPORT_COMMAND.token} <teacher_workspace_id>"
+def _build_export_usage_message(telegram_user_id: int) -> str:
+    return translate_for_user(
+        telegram_user_id,
+        "workbook.export.usage",
+        command=WORKBOOK_EXPORT_COMMAND.token,
+    )
 
 
-def _build_import_usage_message() -> str:
-    return (
-        "Использование: отправьте .xlsx файлом с подписью "
-        f"{WORKBOOK_IMPORT_COMMAND.token} <teacher_workspace_id>"
+def _build_import_usage_message(telegram_user_id: int) -> str:
+    return translate_for_user(
+        telegram_user_id,
+        "workbook.import.usage",
+        command=WORKBOOK_IMPORT_COMMAND.token,
     )
 
 
@@ -61,19 +68,23 @@ async def workbook_export(message: Message, command: CommandObject | None = None
     raw_args = (command.args if command is not None and command.args is not None else "").strip()
     workspace_id = _parse_workspace_id(raw_args)
     if workspace_id is None:
-        await message.answer(_build_export_usage_message())
+        await message.answer(_build_export_usage_message(message.from_user.id))
         return
 
     try:
         report = export_teacher_workspace_workbook_file(message.from_user.id, workspace_id)
     except WorkspaceNotFoundError:
-        await message.answer("Workspace не найден.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "workbook.workspace_not_found")
+        )
         return
     except WorkspaceKindMismatchError:
-        await message.answer("Экспорт workbook доступен только для teacher workspace.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "workbook.export.kind_mismatch")
+        )
         return
     except WorkspaceEditPermissionError:
-        await message.answer("У вас нет teacher-доступа к этому workspace.")
+        await message.answer(translate_for_user(message.from_user.id, "workbook.no_access"))
         return
 
     await message.answer_document(
@@ -81,7 +92,10 @@ async def workbook_export(message: Message, command: CommandObject | None = None
             file=bytes(report["workbook_bytes"]),
             filename=str(report["filename"]),
         ),
-        caption=build_export_summary_text(report),
+        caption=build_export_summary_text(
+            report,
+            language_code=get_user_language(message.from_user.id),
+        ),
     )
 
 
@@ -90,15 +104,18 @@ async def workbook_import_usage(
     message: Message,
     command: CommandObject | None = None,
 ) -> None:
+    if message.from_user is None:
+        return
+
     if message.document is not None:
         return
 
     raw_args = (command.args if command is not None and command.args is not None else "").strip()
     if _parse_workspace_id(raw_args) is None:
-        await message.answer(_build_import_usage_message())
+        await message.answer(_build_import_usage_message(message.from_user.id))
         return
 
-    await message.answer(_build_import_usage_message())
+    await message.answer(_build_import_usage_message(message.from_user.id))
 
 
 @router.message(F.document)
@@ -113,7 +130,9 @@ async def workbook_import_document(message: Message) -> None:
     save_user(message.from_user)
     filename = (message.document.file_name or "").lower()
     if not filename.endswith(".xlsx"):
-        await message.answer("Нужен файл .xlsx.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "workbook.import.file_required")
+        )
         return
 
     buffer = BytesIO()
@@ -127,16 +146,31 @@ async def workbook_import_document(message: Message) -> None:
             workbook_bytes,
         )
     except WorkspaceNotFoundError:
-        await message.answer("Workspace не найден.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "workbook.workspace_not_found")
+        )
         return
     except WorkspaceKindMismatchError:
-        await message.answer("Импорт workbook доступен только для teacher workspace.")
+        await message.answer(
+            translate_for_user(message.from_user.id, "workbook.import.kind_mismatch")
+        )
         return
     except WorkspaceEditPermissionError:
-        await message.answer("У вас нет teacher-доступа к этому workspace.")
+        await message.answer(translate_for_user(message.from_user.id, "workbook.no_access"))
         return
     except WorkbookImportError as error:
-        await message.answer(f"Импорт не выполнен: {error}")
+        await message.answer(
+            translate_for_user(
+                message.from_user.id,
+                "workbook.import.failed",
+                error=error,
+            )
+        )
         return
 
-    await message.answer(build_import_summary_text(report))
+    await message.answer(
+        build_import_summary_text(
+            report,
+            language_code=get_user_language(message.from_user.id),
+        )
+    )

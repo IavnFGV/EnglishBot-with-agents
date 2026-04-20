@@ -43,7 +43,7 @@ def test_learn_handler_starts_session_and_sends_first_question(tmp_path: Path) -
 
     asyncio.run(learn(message))
 
-    assert message.answers == ["Тренировка началась.\nВопрос 1/1: яблоко"]
+    assert message.answers == ["Training started.\nQuestion 1/1: яблоко"]
 
 
 def test_learn_handler_handles_empty_vocabulary(tmp_path: Path) -> None:
@@ -52,7 +52,7 @@ def test_learn_handler_handles_empty_vocabulary(tmp_path: Path) -> None:
 
     asyncio.run(learn(message))
 
-    assert message.answers == ["Нет слов для тренировки."]
+    assert message.answers == ["No learning items are available for training."]
 
 
 def test_answer_training_question_sends_feedback_and_summary(tmp_path: Path) -> None:
@@ -66,5 +66,5 @@ def test_answer_training_question_sends_feedback_and_summary(tmp_path: Path) -> 
     asyncio.run(answer_training_question(answer_message))
 
     assert answer_message.answers == [
-        "Верно.\nИтог: 1 вопросов, 1 правильных ответов."
+        "Correct.\nResult: 1 questions, 1 correct answers."
     ]

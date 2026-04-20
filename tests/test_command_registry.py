@@ -11,12 +11,14 @@ from englishbot.command_registry import (
     JOIN_COMMAND,
     LEARN_COMMAND,
     ME_COMMAND,
+    SETTINGS_COMMAND,
     START_COMMAND,
     WORKBOOK_EXPORT_COMMAND,
     WORKBOOK_IMPORT_COMMAND,
     build_bot_commands,
     get_registered_commands,
 )
+from englishbot.i18n import translate
 from englishbot.teacher_handlers import (
     _build_assign_usage_message,
     _build_grant_topic_usage_message,
@@ -33,6 +35,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "start",
         "learn",
         "me",
+        "settings",
         "invite",
         "join",
         "assign",
@@ -51,32 +54,35 @@ def test_bot_command_collection_respects_registration_flag() -> None:
         START_COMMAND.name,
         LEARN_COMMAND.name,
         ME_COMMAND.name,
+        SETTINGS_COMMAND.name,
     ]
     assert BOT_COMMANDS == build_bot_commands()
     assert [command.command for command in BOT_COMMANDS] == [
         START_COMMAND.name,
         LEARN_COMMAND.name,
         ME_COMMAND.name,
+        SETTINGS_COMMAND.name,
     ]
 
 
 def test_usage_messages_and_caption_parsing_use_canonical_command_names() -> None:
-    assert _build_assign_usage_message() == (
-        f"Использование: {ASSIGN_COMMAND.token} "
-        "<student_user_id> <teacher_workspace_id> <topic_name>\n"
-        f"Или: {ASSIGN_COMMAND.token} "
-        "<student_user_id> <learning_item_id,learning_item_id,...>"
+    assert _build_assign_usage_message(1) == (
+        f"Usage: {ASSIGN_COMMAND.token} <student_user_id> <teacher_workspace_id> <topic_name>\n"
+        f"Or: {ASSIGN_COMMAND.token} <student_user_id> <learning_item_id,learning_item_id,...>"
     )
-    assert _build_grant_topic_usage_message() == (
-        f"Использование: {GRANTTOPIC_COMMAND.token} "
-        "<student_user_id> <teacher_workspace_id> <topic_name>"
+    assert _build_grant_topic_usage_message(1) == (
+        f"Usage: {GRANTTOPIC_COMMAND.token} <student_user_id> <teacher_workspace_id> <topic_name>"
     )
-    assert _build_export_usage_message() == (
-        f"Использование: {WORKBOOK_EXPORT_COMMAND.token} <teacher_workspace_id>"
+    assert _build_export_usage_message(1) == (
+        f"Usage: {WORKBOOK_EXPORT_COMMAND.token} <teacher_workspace_id>"
     )
-    assert _build_import_usage_message() == (
-        "Использование: отправьте .xlsx файлом с подписью "
+    assert _build_import_usage_message(1) == (
+        "Usage: send a .xlsx file with caption "
         f"{WORKBOOK_IMPORT_COMMAND.token} <teacher_workspace_id>"
     )
     assert _extract_import_workspace_id(f"{WORKBOOK_IMPORT_COMMAND.token} 42") == 42
     assert _extract_import_workspace_id(f"{JOIN_COMMAND.token} 42") is None
+
+
+def test_bot_commands_use_centralized_i18n_descriptions() -> None:
+    assert BOT_COMMANDS[0].description == translate("command.start", "en")

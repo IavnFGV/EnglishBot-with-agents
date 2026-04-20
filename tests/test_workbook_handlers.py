@@ -156,7 +156,7 @@ def test_workbook_export_handler_returns_xlsx_document(tmp_path: Path) -> None:
     assert sent_document.data.startswith(b"PK")
     assert (
         message.documents[0]["kwargs"]["caption"]
-        == f"Экспорт workbook для workspace {workspace_id}: topics=1, learning_items=1, topic_links=0."
+        == f"Workbook export for workspace {workspace_id}: topics=1, learning_items=1, topic_links=0."
     )
 
 
@@ -167,7 +167,7 @@ def test_workbook_export_handler_requires_explicit_workspace_id(tmp_path: Path) 
     asyncio.run(workbook_export(message, SimpleNamespace(args="")))
 
     assert message.answers == [
-        {"text": "Использование: /workbook_export <teacher_workspace_id>", "kwargs": {}}
+        {"text": "Usage: /workbook_export <teacher_workspace_id>", "kwargs": {}}
     ]
 
 
@@ -183,7 +183,10 @@ def test_workbook_export_handler_rejects_student_workspace_target(tmp_path: Path
     asyncio.run(workbook_export(message, SimpleNamespace(args=str(workspace["workspace_id"]))))
 
     assert message.answers == [
-        {"text": "Экспорт workbook доступен только для teacher workspace.", "kwargs": {}}
+        {
+            "text": "Workbook export is available only for teacher workspaces.",
+            "kwargs": {},
+        }
     ]
 
 
@@ -195,7 +198,7 @@ def test_workbook_import_usage_handler_explains_caption_flow(tmp_path: Path) -> 
 
     assert message.answers == [
         {
-            "text": "Использование: отправьте .xlsx файлом с подписью /workbook_import <teacher_workspace_id>",
+            "text": "Usage: send a .xlsx file with caption /workbook_import <teacher_workspace_id>",
             "kwargs": {},
         }
     ]
@@ -215,7 +218,7 @@ def test_workbook_import_document_handler_imports_workbook(tmp_path: Path) -> No
     assert message.answers == [
         {
             "text": (
-                f"Импорт workbook выполнен для workspace {workspace_id}: "
+                f"Workbook import completed for workspace {workspace_id}: "
                 "created_topics=1, updated_topics=0, created_learning_items=1, "
                 "updated_learning_items=0, added_topic_links=1."
             ),
@@ -235,7 +238,7 @@ def test_workbook_import_document_handler_requires_xlsx_extension(tmp_path: Path
 
     asyncio.run(workbook_import_document(message))
 
-    assert message.answers == [{"text": "Нужен файл .xlsx.", "kwargs": {}}]
+    assert message.answers == [{"text": "A .xlsx file is required.", "kwargs": {}}]
 
 
 def test_workbook_import_document_handler_rejects_student_workspace_target(tmp_path: Path) -> None:
@@ -255,7 +258,10 @@ def test_workbook_import_document_handler_rejects_student_workspace_target(tmp_p
     asyncio.run(workbook_import_document(message))
 
     assert message.answers == [
-        {"text": "Импорт workbook доступен только для teacher workspace.", "kwargs": {}}
+        {
+            "text": "Workbook import is available only for teacher workspaces.",
+            "kwargs": {},
+        }
     ]
 
 
@@ -274,7 +280,7 @@ def test_workbook_import_document_handler_rejects_teacher_without_membership(tmp
     asyncio.run(workbook_import_document(message))
 
     assert message.answers == [
-        {"text": "У вас нет teacher-доступа к этому workspace.", "kwargs": {}}
+        {"text": "You do not have teacher access to this workspace.", "kwargs": {}}
     ]
 
 
@@ -290,5 +296,5 @@ def test_workbook_import_document_handler_surfaces_validation_error(tmp_path: Pa
     asyncio.run(workbook_import_document(message))
 
     assert message.answers == [
-        {"text": "Импорт не выполнен: Workbook could not be opened.", "kwargs": {}}
+        {"text": "Import failed: Workbook could not be opened.", "kwargs": {}}
     ]

@@ -71,7 +71,7 @@ def test_grant_topic_handler_grants_named_topic_to_linked_student(tmp_path: Path
     asyncio.run(grant_topic(message, SimpleNamespace(args=f"{student.id} {workspace_id} weekdays")))
 
     assert message.answers == [
-        {"text": "Доступ к теме открыт: Дни недели (weekdays).", "kwargs": {}}
+        {"text": "Topic access granted: Дни недели (weekdays).", "kwargs": {}}
     ]
 
 
@@ -84,7 +84,7 @@ def test_topics_handler_lists_accessible_topics(tmp_path: Path) -> None:
 
     asyncio.run(topics(message))
 
-    assert message.answers[0]["text"] == "Доступные темы:"
+    assert message.answers[0]["text"] == "Available topics:"
     keyboard = message.answers[0]["kwargs"]["reply_markup"]
     accessible_topic = list_accessible_topics(student.id)[0]
     assert keyboard.inline_keyboard[0][0].text == "Месяцы"
@@ -110,7 +110,7 @@ def test_start_topic_training_handler_uses_accessible_topic(tmp_path: Path) -> N
 
     assert callback.answered is True
     assert callback_message.answers == [
-        {"text": "Тема «Цвета» открыта.\nВопрос 1/6: красный", "kwargs": {}}
+        {"text": "Topic \"Цвета\" opened.\nQuestion 1/6: красный", "kwargs": {}}
     ]
 
 
@@ -125,7 +125,7 @@ def test_start_topic_training_handler_rejects_inaccessible_topic(tmp_path: Path)
 
     assert callback.answered is True
     assert callback_message.answers == [
-        {"text": "Эта тема вам пока недоступна.", "kwargs": {}}
+        {"text": "This topic is not available to you yet.", "kwargs": {}}
     ]
 
 
@@ -146,7 +146,7 @@ def test_grant_topic_handler_requires_explicit_workspace_id(tmp_path: Path) -> N
 
     assert message.answers == [
         {
-            "text": "Использование: /granttopic <student_user_id> <teacher_workspace_id> <topic_name>",
+            "text": "Usage: /granttopic <student_user_id> <teacher_workspace_id> <topic_name>",
             "kwargs": {},
         }
     ]

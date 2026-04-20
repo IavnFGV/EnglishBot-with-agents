@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-04-20
+- Added centralized bot-facing internationalization in `englishbot/i18n.py` with explicit support for `en`, `ru`, `uk`, and `bg`, wired touched Telegram replies/buttons/usage texts through i18n, and kept Telegram command descriptions centralized via i18n-backed keys in `englishbot/command_registry.py`.
+- Added persistent per-user bot language in `user_profiles.bot_language`, exposed focused `get_user_language`/`set_user_language` helpers, and introduced the minimal `/settings` inline flow for language selection with focused tests for lookup, fallback, persistence, and settings behavior.
+- Localized touched workbook, training, homework, topic, teacher, `/me`, and echo flows through the centralized i18n layer, stopped persisting the generic default homework title as a hardcoded Russian string for new raw-id assignments, and updated project guidance so future bot-facing text must go through i18n.
 - Updated `AGENTS.md` so future agent-driven work must add Telegram commands through `englishbot/command_registry.py` instead of introducing scattered command literals or parallel registries.
 - Fixed a Telegram command-routing bug during active training sessions: the generic text answer handler no longer matches slash commands, so `/me` and other commands are not swallowed while a training session is open; added a focused regression test for `/me` during an active session.
 - Registered the minimal Telegram bot command list on startup so `/me` is exposed as a real bot command alongside `/start` and `/learn`, and added focused tests covering `/me` output plus command registration.

@@ -3,6 +3,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from .command_registry import TOPICS_COMMAND
 from .db import save_user
+from .i18n import translate_for_user
 from .runtime import router
 from .topic_access import (
     EmptyTopicError,
@@ -40,11 +41,11 @@ async def topics(message: Message) -> None:
     save_user(message.from_user)
     accessible_topics = list_accessible_topics(message.from_user.id)
     if not accessible_topics:
-        await message.answer("Доступных тем пока нет.")
+        await message.answer(translate_for_user(message.from_user.id, "topics.empty"))
         return
 
     await message.answer(
-        "Доступные темы:",
+        translate_for_user(message.from_user.id, "topics.title"),
         reply_markup=build_accessible_topics_keyboard(accessible_topics),
     )
 
@@ -62,22 +63,35 @@ async def start_topic_training(callback: CallbackQuery) -> None:
     try:
         result = start_topic_training_session(callback.from_user.id, topic_id)
     except TopicNotFoundError:
-        await callback.message.answer("Тема не найдена.")
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "topics.not_found")
+        )
         return
     except TopicAccessDeniedError:
-        await callback.message.answer("Эта тема вам пока недоступна.")
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "topics.denied")
+        )
         return
     except EmptyTopicError:
-        await callback.message.answer("В этой теме пока нет слов.")
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "topics.empty_topic")
+        )
         return
 
     question = result["question"]
     if question is None:
-        await callback.message.answer("Не удалось начать тренировку по теме.")
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "topics.start_failed")
+        )
         return
 
     await callback.message.answer(
-        f"Тема «{result['topic_title']}» открыта.\n"
-        f"Вопрос {question['question_number']}/{question['total_questions']}: "
-        f"{question['prompt']}"
+        translate_for_user(
+            callback.from_user.id,
+            "topics.started",
+            topic_title=result["topic_title"],
+            question_number=question["question_number"],
+            total_questions=question["total_questions"],
+            prompt=question["prompt"],
+        )
     )

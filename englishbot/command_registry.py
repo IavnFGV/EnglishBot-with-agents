@@ -2,11 +2,13 @@ from dataclasses import dataclass
 
 from aiogram.types import BotCommand
 
+from .i18n import DEFAULT_LANGUAGE_CODE, translate
+
 
 @dataclass(frozen=True)
 class CommandDefinition:
     name: str
-    description: str
+    description_key: str
     scope: str
     register_after_startup: bool = False
 
@@ -14,61 +16,70 @@ class CommandDefinition:
     def token(self) -> str:
         return f"/{self.name}"
 
-    def to_bot_command(self) -> BotCommand:
-        return BotCommand(command=self.name, description=self.description)
+    def to_bot_command(self, language_code: str = DEFAULT_LANGUAGE_CODE) -> BotCommand:
+        return BotCommand(
+            command=self.name,
+            description=translate(self.description_key, language_code),
+        )
 
 
 START_COMMAND = CommandDefinition(
     name="start",
-    description="Открыть главное меню",
+    description_key="command.start",
     scope="student",
     register_after_startup=True,
 )
 LEARN_COMMAND = CommandDefinition(
     name="learn",
-    description="Начать тренировку",
+    description_key="command.learn",
     scope="student",
     register_after_startup=True,
 )
 ME_COMMAND = CommandDefinition(
     name="me",
-    description="Показать мой профиль",
+    description_key="command.me",
+    scope="user",
+    register_after_startup=True,
+)
+SETTINGS_COMMAND = CommandDefinition(
+    name="settings",
+    description_key="command.settings",
     scope="user",
     register_after_startup=True,
 )
 INVITE_COMMAND = CommandDefinition(
     name="invite",
-    description="Создать код приглашения",
+    description_key="command.invite",
     scope="teacher",
 )
 JOIN_COMMAND = CommandDefinition(
     name="join",
-    description="Присоединиться по коду",
+    description_key="command.join",
     scope="user",
 )
 ASSIGN_COMMAND = CommandDefinition(
     name="assign",
-    description="Назначить домашку ученику",
+    description_key="command.assign",
     scope="teacher",
 )
 GRANTTOPIC_COMMAND = CommandDefinition(
     name="granttopic",
-    description="Открыть тему ученику",
+    description_key="command.granttopic",
     scope="teacher",
 )
 TOPICS_COMMAND = CommandDefinition(
     name="topics",
-    description="Показать доступные темы",
+    description_key="command.topics",
     scope="student",
 )
 WORKBOOK_EXPORT_COMMAND = CommandDefinition(
     name="workbook_export",
-    description="Экспортировать workbook",
+    description_key="command.workbook_export",
     scope="teacher",
 )
 WORKBOOK_IMPORT_COMMAND = CommandDefinition(
     name="workbook_import",
-    description="Импортировать workbook",
+    description_key="command.workbook_import",
     scope="teacher",
 )
 
@@ -76,6 +87,7 @@ ALL_COMMANDS = (
     START_COMMAND,
     LEARN_COMMAND,
     ME_COMMAND,
+    SETTINGS_COMMAND,
     INVITE_COMMAND,
     JOIN_COMMAND,
     ASSIGN_COMMAND,
@@ -94,8 +106,8 @@ def get_registered_commands() -> tuple[CommandDefinition, ...]:
     )
 
 
-def build_bot_commands() -> list[BotCommand]:
-    return [command.to_bot_command() for command in get_registered_commands()]
+def build_bot_commands(language_code: str = DEFAULT_LANGUAGE_CODE) -> list[BotCommand]:
+    return [command.to_bot_command(language_code) for command in get_registered_commands()]
 
 
 BOT_COMMANDS = build_bot_commands()
