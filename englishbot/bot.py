@@ -12,6 +12,7 @@ from . import homework_handlers  # noqa: F401
 from . import teacher_handlers  # noqa: F401
 from . import topic_access_handlers  # noqa: F401
 from . import training_handlers  # noqa: F401
+from . import workbook_handlers  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
