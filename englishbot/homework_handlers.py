@@ -1,6 +1,7 @@
 from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+from .command_registry import LEARN_COMMAND
 from .db import save_user
 from .homework import (
     AssignmentNotFoundError,
@@ -51,7 +52,9 @@ async def start(message: Message) -> None:
         )
         return
 
-    await message.answer("Домашки пока нет. Для тренировки можно использовать /learn.")
+    await message.answer(
+        f"Домашки пока нет. Для тренировки можно использовать {LEARN_COMMAND.token}."
+    )
 
 
 @router.callback_query(lambda callback: callback.data == HOMEWORK_OPEN_CALLBACK)

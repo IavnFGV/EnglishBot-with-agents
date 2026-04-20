@@ -2,9 +2,10 @@ import logging
 
 from aiogram import F
 from aiogram.filters import Command
-from aiogram.types import BotCommand, ErrorEvent, Message
+from aiogram.types import ErrorEvent, Message
 
 from .basic_topics_seed import seed_basic_topics
+from .command_registry import BOT_COMMANDS, ME_COMMAND
 from .db import count_text_interactions, get_user, init_db
 from .runtime import build_bot, dispatcher, router
 from .user_profiles import get_user_role
@@ -16,18 +17,13 @@ from . import workbook_handlers  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
-BOT_COMMANDS = [
-    BotCommand(command="start", description="Открыть главное меню"),
-    BotCommand(command="learn", description="Начать тренировку"),
-    BotCommand(command="me", description="Показать мой профиль"),
-]
 
 
 async def configure_bot_commands(bot) -> None:
     await bot.set_my_commands(BOT_COMMANDS)
 
 
-@router.message(Command("me"))
+@router.message(Command(ME_COMMAND.name))
 async def me(message: Message) -> None:
     if message.from_user is None:
         return

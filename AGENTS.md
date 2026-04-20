@@ -8,6 +8,7 @@ Always read `context/englishbot_handoff.md` and `context/current_state.md` befor
 - Core learning unit is `learning_item`, not plain word.
 - Business logic must stay in `application/`.
 - Telegram modules only orchestrate UX.
+- Any new Telegram bot command must be added through `englishbot/command_registry.py`; do not introduce ad-hoc command-name literals outside the centralized command registry.
 - Optional AI/TTS/WebApp must not become required for core runtime.
 - Prefer extending existing modules over creating new ones.
 - Keep changes minimal and local.
@@ -35,6 +36,7 @@ After every completed task:
 - New non-trivial features must be implemented through the agent workflow.
 - New responsibilities should be introduced in focused modules instead of growing catch-all files.
 - New non-trivial features are considered incomplete without automated tests.
+- When adding or changing Telegram commands, update `englishbot/command_registry.py` first and wire handlers/startup from that registry instead of introducing parallel command definitions.
 - Documentation (`CHANGELOG.md` and `context/current_state.md`) must be updated after each completed task.
 Как
 

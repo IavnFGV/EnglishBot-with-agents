@@ -1,0 +1,96 @@
+Вот тебе нормальный промпт под текущие реалии, без расползания команд по коду как тараканы по кухне.
+
+---
+
+```text
+Read:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+Goal:
+Introduce a centralized bot command registry so that all Telegram bot service commands are declared in one place and can be managed consistently.
+
+Context:
+The project already has multiple Telegram command handlers and will continue to grow.
+We need one explicit place where bot commands are defined and described centrally.
+
+Target model:
+- all service/admin/user-facing commands must be declared in one registry module
+- each command entry must behave like enum-style metadata, not scattered string literals
+- each command definition must include a flag that controls whether this command should be registered with Telegram via Bot API after startup
+- command handlers may still live in focused handler modules, but command metadata must be centralized
+
+Feature:
+Centralized Bot Command Registry (MVP)
+
+Scope:
+
+1. Introduce one focused module for command definitions
+   - all command names must live there
+   - all Telegram-visible command metadata must live there
+   - command definitions should behave like enum-style constants/entries, not ad-hoc strings
+
+2. Each command definition must support at least:
+   - command name
+   - short description for Telegram command menu
+   - scope/category if needed minimally
+   - boolean flag like `register_after_startup` (name may differ if better)
+     controlling whether the command should be sent to Telegram as a registered bot command
+
+3. Existing command wiring should be updated to use centralized command definitions
+   - remove duplicated command-name literals where practical
+   - keep changes minimal
+   - do not refactor unrelated business logic
+
+4. Add a minimal startup-level integration point:
+   - commands marked for Telegram registration can be collected from the registry
+   - non-registered internal/service commands may still exist in the registry but should not be pushed to Telegram command menu
+
+5. Keep handlers thin:
+   - handler modules still own behavior
+   - command registry owns metadata and canonical names
+
+Cleanup rules:
+- remove duplicated hardcoded command strings where replaced cleanly
+- remove stale comments that suggest command metadata is defined locally in handlers
+- do not keep parallel command registries
+- do not leave a mix of centralized and ad-hoc command declarations without justification
+
+Out of scope:
+- role-aware Telegram command scoping by locale/user type unless trivially supported already
+- dynamic per-user command registration
+- web admin command management UI
+- broad handler refactor
+- command permissions redesign
+
+Architecture constraints:
+- keep implementation minimal
+- prefer one focused registry module
+- do not introduce a giant framework
+- do not move business logic into the registry
+- do not turn handler modules into metadata stores
+
+Testing requirements:
+- tests for registry integrity
+- tests that command metadata is centrally discoverable
+- tests that startup command collection respects the registration flag
+- tests that existing handlers still use canonical command names from the registry where practical
+- focused tests without Telegram runtime where possible
+
+Workflow:
+1. architect
+2. complexity_guard
+3. coder
+4. complexity_guard
+
+Definition of done:
+- all bot commands are declared in one centralized registry
+- registry entries act as canonical command definitions
+- there is a clear flag controlling Telegram registration after startup
+- startup can collect only commands marked for registration
+- duplicated command-name literals are reduced
+- tests pass
+- CHANGELOG.md and context/current_state.md are updated
+
+Updata Agents.md accordingly

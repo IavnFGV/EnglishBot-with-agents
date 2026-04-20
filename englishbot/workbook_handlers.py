@@ -4,6 +4,7 @@ from aiogram import F
 from aiogram.filters import Command, CommandObject
 from aiogram.types import BufferedInputFile, Message
 
+from .command_registry import WORKBOOK_EXPORT_COMMAND, WORKBOOK_IMPORT_COMMAND
 from .db import save_user
 from .runtime import router
 from .workbook_admin import (
@@ -20,18 +21,14 @@ from .workspaces import (
 )
 
 
-WORKBOOK_EXPORT_COMMAND = "workbook_export"
-WORKBOOK_IMPORT_COMMAND = "workbook_import"
-
-
 def _build_export_usage_message() -> str:
-    return "Использование: /workbook_export <teacher_workspace_id>"
+    return f"Использование: {WORKBOOK_EXPORT_COMMAND.token} <teacher_workspace_id>"
 
 
 def _build_import_usage_message() -> str:
     return (
         "Использование: отправьте .xlsx файлом с подписью "
-        "/workbook_import <teacher_workspace_id>"
+        f"{WORKBOOK_IMPORT_COMMAND.token} <teacher_workspace_id>"
     )
 
 
@@ -50,12 +47,12 @@ def _extract_import_workspace_id(caption: str | None) -> int | None:
         return None
     parts = first_line.split(maxsplit=1)
     command_name = parts[0].split("@", 1)[0].lstrip("/").lower()
-    if command_name != WORKBOOK_IMPORT_COMMAND or len(parts) != 2:
+    if command_name != WORKBOOK_IMPORT_COMMAND.name or len(parts) != 2:
         return None
     return _parse_workspace_id(parts[1])
 
 
-@router.message(Command(WORKBOOK_EXPORT_COMMAND))
+@router.message(Command(WORKBOOK_EXPORT_COMMAND.name))
 async def workbook_export(message: Message, command: CommandObject | None = None) -> None:
     if message.from_user is None:
         return
@@ -88,7 +85,7 @@ async def workbook_export(message: Message, command: CommandObject | None = None
     )
 
 
-@router.message(Command(WORKBOOK_IMPORT_COMMAND))
+@router.message(Command(WORKBOOK_IMPORT_COMMAND.name))
 async def workbook_import_usage(
     message: Message,
     command: CommandObject | None = None,

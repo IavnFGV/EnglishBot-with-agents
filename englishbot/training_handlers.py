@@ -2,6 +2,7 @@ from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from .command_registry import LEARN_COMMAND
 from .db import save_user
 from .runtime import router
 from .training import (
@@ -12,7 +13,7 @@ from .training import (
 )
 
 
-@router.message(Command("learn"))
+@router.message(Command(LEARN_COMMAND.name))
 async def learn(message: Message) -> None:
     if message.from_user is None:
         return

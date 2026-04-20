@@ -1,6 +1,12 @@
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
+from .command_registry import (
+    ASSIGN_COMMAND,
+    GRANTTOPIC_COMMAND,
+    INVITE_COMMAND,
+    JOIN_COMMAND,
+)
 from .db import save_user
 from .homework import (
     AssignmentGroupNotFoundError,
@@ -34,16 +40,21 @@ from .topic_access import (
 
 def _build_assign_usage_message() -> str:
     return (
-        "Использование: /assign <student_user_id> <teacher_workspace_id> <topic_name>\n"
-        "Или: /assign <student_user_id> <learning_item_id,learning_item_id,...>"
+        f"Использование: {ASSIGN_COMMAND.token} "
+        "<student_user_id> <teacher_workspace_id> <topic_name>\n"
+        f"Или: {ASSIGN_COMMAND.token} "
+        "<student_user_id> <learning_item_id,learning_item_id,...>"
     )
 
 
 def _build_grant_topic_usage_message() -> str:
-    return "Использование: /granttopic <student_user_id> <teacher_workspace_id> <topic_name>"
+    return (
+        f"Использование: {GRANTTOPIC_COMMAND.token} "
+        "<student_user_id> <teacher_workspace_id> <topic_name>"
+    )
 
 
-@router.message(Command("invite"))
+@router.message(Command(INVITE_COMMAND.name))
 async def invite(message: Message) -> None:
     if message.from_user is None:
         return
@@ -52,13 +63,15 @@ async def invite(message: Message) -> None:
     try:
         code = create_invite(message.from_user.id)
     except TeacherRoleRequiredError:
-        await message.answer("Команда /invite доступна только пользователю с ролью teacher.")
+        await message.answer(
+            f"Команда {INVITE_COMMAND.token} доступна только пользователю с ролью teacher."
+        )
         return
 
     await message.answer(f"Код приглашения: {code}")
 
 
-@router.message(Command("join"))
+@router.message(Command(JOIN_COMMAND.name))
 async def join(message: Message, command: CommandObject | None = None) -> None:
     if message.from_user is None:
         return
@@ -66,7 +79,7 @@ async def join(message: Message, command: CommandObject | None = None) -> None:
     save_user(message.from_user)
     code = (command.args if command is not None and command.args is not None else "").strip()
     if not code:
-        await message.answer("Использование: /join <code>")
+        await message.answer(f"Использование: {JOIN_COMMAND.token} <code>")
         return
 
     try:
@@ -84,7 +97,7 @@ async def join(message: Message, command: CommandObject | None = None) -> None:
     await message.answer(f"Присоединение выполнено. teacher_user_id: {teacher_user_id}")
 
 
-@router.message(Command("assign"))
+@router.message(Command(ASSIGN_COMMAND.name))
 async def assign(message: Message, command: CommandObject | None = None) -> None:
     if message.from_user is None:
         return
@@ -140,7 +153,9 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
         await message.answer(_build_assign_usage_message())
         return
     except HomeworkTeacherRoleRequiredError:
-        await message.answer("Команда /assign доступна только пользователю с ролью teacher.")
+        await message.answer(
+            f"Команда {ASSIGN_COMMAND.token} доступна только пользователю с ролью teacher."
+        )
         return
     except TeacherWorkspaceMembershipRequiredError:
         await message.answer("У вас нет teacher-доступа к workspace этого контента.")
@@ -172,7 +187,7 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
     )
 
 
-@router.message(Command("granttopic"))
+@router.message(Command(GRANTTOPIC_COMMAND.name))
 async def grant_topic(message: Message, command: CommandObject | None = None) -> None:
     if message.from_user is None:
         return
@@ -203,7 +218,9 @@ async def grant_topic(message: Message, command: CommandObject | None = None) ->
             parts[2],
         )
     except TopicAccessTeacherRoleRequiredError:
-        await message.answer("Команда /granttopic доступна только пользователю с ролью teacher.")
+        await message.answer(
+            f"Команда {GRANTTOPIC_COMMAND.token} доступна только пользователю с ролью teacher."
+        )
         return
     except TopicAccessTeacherWorkspaceMembershipRequiredError:
         await message.answer("У вас нет teacher-доступа к workspace этой темы.")

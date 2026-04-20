@@ -1,6 +1,7 @@
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+from .command_registry import TOPICS_COMMAND
 from .db import save_user
 from .runtime import router
 from .topic_access import (
@@ -31,7 +32,7 @@ def build_accessible_topics_keyboard(
     )
 
 
-@router.message(Command("topics"))
+@router.message(Command(TOPICS_COMMAND.name))
 async def topics(message: Message) -> None:
     if message.from_user is None:
         return
