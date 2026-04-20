@@ -83,3 +83,7 @@ Definition of done:
 - exported data matches confirmed persistence mappings
 - tests pass
 - docs updated
+
+
+и еще сделай 
+так нужно доавить в импорт и зафиксировать в документах -  рядом с имадж реф - должно быть поле image - чисто для наглядности - и является вызовом гугл таблично й  IMAGE() функции
