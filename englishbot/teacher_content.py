@@ -273,6 +273,13 @@ def update_teacher_topic_item_field(
             normalized_value,
         )
         return
+    if field_name in {"image_ref", "audio_ref"}:
+        update_learning_item(
+            teacher_user_id,
+            learning_item_id,
+            **{field_name: normalized_value},
+        )
+        return
     raise ValueError(f"unsupported field: {field_name}")
 
 
@@ -283,19 +290,13 @@ def update_teacher_topic_item_image_ref(
     learning_item_id: int,
     image_ref: str,
 ) -> None:
-    _ensure_teacher_topic_item_access(
+    update_teacher_topic_item_field(
         teacher_user_id,
         workspace_id,
         topic_id,
         learning_item_id,
-    )
-    normalized_image_ref = image_ref.strip()
-    if not normalized_image_ref:
-        raise ValueError("image ref is required")
-    update_learning_item(
-        teacher_user_id,
-        learning_item_id,
-        image_ref=normalized_image_ref,
+        "image_ref",
+        image_ref,
     )
 
 

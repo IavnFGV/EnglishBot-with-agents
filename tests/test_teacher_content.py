@@ -130,6 +130,7 @@ def test_field_editing_updates_text_and_adds_missing_translation(tmp_path: Path)
 
     update_teacher_topic_item_field(401, workspace_id, topic_id, item_ids[0], "text", "apple")
     update_teacher_topic_item_field(401, workspace_id, topic_id, item_ids[0], "bg", "ябълка")
+    update_teacher_topic_item_field(401, workspace_id, topic_id, item_ids[0], "audio_ref", "audio://apple.mp3")
 
     learning_item = get_learning_item(item_ids[0])
     translations = {
@@ -148,6 +149,7 @@ def test_field_editing_updates_text_and_adds_missing_translation(tmp_path: Path)
     assert translations["bg"] == "ябълка"
     assert snapshot["current_item"]["headword"] == "apple"
     assert snapshot["current_item"]["translations"]["bg"] == "ябълка"
+    assert snapshot["current_item"]["audio_ref"] == "audio://apple.mp3"
 
 
 def test_archive_action_hides_item_and_reselects_remaining_item(tmp_path: Path) -> None:

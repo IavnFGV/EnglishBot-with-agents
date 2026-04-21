@@ -1,0 +1,183 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+Task:
+Refactor the current `/teacher_content` flow so that it behaves like a clean dialog-driven Telegram UI instead of a cluster of separate messages.
+
+IMPORTANT:
+This task is about Telegram UI/UX structure for teacher content flows.
+Do NOT redesign the domain model.
+Do NOT redesign training/homework flows.
+Do NOT add unrelated authoring capabilities.
+Do NOT introduce new storage layers.
+Do NOT expand business logic unnecessarily.
+
+Goal:
+Convert the current teacher content flow into a compact, screen-based dialog experience using aiogram-dialog for the non-trivial multi-step teacher navigation/editor flow.
+
+Core UI requirements:
+
+1. Single-screen principle
+
+* One logical screen must be represented by one primary Telegram message.
+* A second message is allowed only if strictly necessary for media display, but the default goal is one screen = one message.
+* Navigation must update the existing screen via message editing instead of sending new messages.
+
+2. Teacher flow must feel like a dialog, not a message log
+   The user should be able to:
+
+* enter teacher content
+* choose workspace
+* choose topic
+* browse items inside topic
+* move prev/next between items
+* enter edit mode for current item field
+* go back to topic list
+* go back to workspace list
+  without accumulating stale UI messages in chat.
+
+3. aiogram-dialog
+
+* Use aiogram-dialog for the teacher-side multi-step flow.
+* The dialog must control:
+
+  * current screen
+  * current selected workspace/topic/item
+  * transitions between browse/edit screens
+* Do NOT use ad-hoc multi-message navigation when dialog screens can represent the flow cleanly.
+* SQLite remains the source of truth for content.
+* Dialog state is only transient UI/navigation state.
+
+4. Screen structure
+   At minimum define clear dialog screens for:
+
+* teacher workspace list
+* topic list in selected workspace
+* topic item browser/editor
+* field edit prompt (only when needed)
+
+5. Screen design rules
+   Each screen must:
+
+* have a clear header
+* be compact and readable
+* show position when browsing items (for example `Item 1/6`)
+* avoid duplicated information
+* use consistent action labels
+
+Use consistent buttons:
+
+* `⬅ Back`
+* `Cancel`
+* `⬅ Prev`
+* `Next ➡`
+* `✏ Edit`
+* `🗂 Topics`
+* `🏠 Workspaces`
+* `➕ Create`
+* `📤 Publish`
+* `📦 Archive`
+
+Do not invent multiple labels for the same action.
+
+6. Item browser requirements
+   The topic item view should behave like a focused record viewer/editor, not as a list dump.
+
+Preferred shape:
+
+* topic title
+* current item position
+* headword / text
+* translations shown compactly as:
+
+  * `ru: ...`
+  * `uk: ...`
+  * `bg: ...`
+* image/audio refs only if present, or a short placeholder if absent
+* prev/next navigation
+* edit/archive/add/back/publish actions
+
+Avoid rendering the full topic as a long text dump and avoid large item button lists.
+
+7. Lists and pagination
+
+* Workspace and topic lists may use buttons, but they must remain compact.
+* If a list becomes large, use pagination or indexed navigation.
+* Do NOT render large item collections as giant inline keyboard walls.
+
+8. Editing behavior
+   Keep editing narrow and explicit.
+
+* Prefer field-by-field editing over free-form “mini document” editing.
+* Dialog may enter a transient edit state such as:
+
+  * edit headword/text
+  * edit ru
+  * edit uk
+  * edit bg
+  * edit image_ref
+  * edit audio_ref
+* Missing translation fields must remain supported by the existing domain model.
+* Do NOT redesign translation storage.
+* Do NOT introduce a new hint/translation model.
+
+9. Message hygiene
+
+* Existing stale teacher-content UI messages must not accumulate.
+* Refactor away the current cluttered multi-message topic editor behavior.
+* Reuse/edit current dialog message whenever possible.
+* If a secondary media message is unavoidable, manage it explicitly and keep it in sync.
+
+10. Architecture constraints
+
+* Business logic stays in domain modules.
+* Telegram layer remains orchestration/UI only.
+* aiogram-dialog is used for teacher multi-step flow because this is now an explicitly non-trivial UI flow.
+* Do not introduce generic UI frameworks beyond aiogram-dialog itself.
+* Keep the solution minimal and localized.
+
+11. Tests
+    Add or update focused tests to cover at least:
+
+* dialog navigation between workspace list, topic list, and item browser
+* prev/next item browsing behavior
+* back/cancel behavior
+* compact screen rendering expectations
+* no stale multi-message accumulation in the refactored flow where practical to assert
+* field-edit entry/exit behavior
+* strict teacher workspace access enforcement still holds
+
+Prefer focused test updates over creating excessive new test files.
+
+12. Documentation updates
+    After implementation, update:
+
+* CHANGELOG.md
+* context/current_state.md
+
+Current state must mention:
+
+* `/teacher_content` now behaves as a dialog-driven UI
+* teacher multi-step flow uses aiogram-dialog
+* the old cluttered multi-message screen behavior was replaced
+* SQLite remains the source of truth and dialog state is transient only
+
+Output:
+
+* minimal localized refactor
+* focused tests
+* short summary of what changed
+
+Additional non-negotiable rule:
+If the proposed implementation still behaves like “message spraying” instead of a real screen-based dialog, reject that implementation and redesign it before coding.

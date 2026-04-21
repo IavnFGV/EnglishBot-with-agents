@@ -3,133 +3,77 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.base import StorageKey
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram_dialog import StartMode
 from aiogram.types import User
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.teacher_content_handlers import (
-    TEACHER_CONTENT_ADD_ITEM_PREFIX,
-    TEACHER_CONTENT_ARCHIVE_PREFIX,
-    TEACHER_CONTENT_EDIT_PREFIX,
-    TEACHER_CONTENT_FIELD_PREFIX,
-    TEACHER_CONTENT_IMAGE_PREFIX,
-    TEACHER_CONTENT_PAGE_PREFIX,
-    TEACHER_CONTENT_TOPIC_BACK,
-    TEACHER_CONTENT_TOPIC_CREATE,
-    TEACHER_CONTENT_TOPIC_PREFIX,
-    TEACHER_CONTENT_WORKSPACE_BACK,
-    TEACHER_CONTENT_WORKSPACE_CREATE,
-    TEACHER_CONTENT_WORKSPACE_PREFIX,
-    TeacherContentStates,
-    archive_teacher_item,
-    change_teacher_topic_page,
-    open_teacher_topic,
-    open_teacher_workspace,
-    save_teacher_item_field_value,
-    save_teacher_item_image_ref,
-    save_teacher_item_text,
-    save_teacher_topic_title,
-    save_teacher_workspace_name,
-    select_teacher_topic_item,
-    show_teacher_item_edit_fields,
-    start_teacher_item_field_edit,
-    start_teacher_item_image_update,
-    start_teacher_topic_create,
-    start_teacher_workspace_create,
-    teacher_content,
+from englishbot.teacher_content_dialog import (
+    TeacherContentDialogSG,
+    choose_field,
+    get_browser_window_data,
+    get_publish_window_data,
+    get_prompt_window_data,
+    get_topics_window_data,
+    get_workspaces_window_data,
+    go_to_browser,
+    go_to_prompt_return,
+    next_item,
+    on_prompt_input,
+    on_topic_selected,
+    on_workspace_selected,
+    open_create_topic,
+    open_edit_prompt,
+    open_publish_targets,
+    prev_item,
 )
-from englishbot.teacher_content import build_teacher_topic_editor_snapshot
+from englishbot.teacher_content_handlers import teacher_content
 from englishbot.user_profiles import set_user_role
 from englishbot.workspaces import add_workspace_member, create_workspace
 
 
-class FakeBot:
-    def __init__(self) -> None:
-        self.edited_messages: list[dict[str, object]] = []
-        self._next_message_id = 1
+class FakeDialogManager:
+    def __init__(self, user: User) -> None:
+        self.event = SimpleNamespace(from_user=user)
+        self.dialog_data: dict[str, object] = {}
+        self.start_calls: list[dict[str, object]] = []
+        self.switch_calls: list[object] = []
+        self.update_calls: list[dict[str, object] | None] = []
 
-    def next_message_id(self) -> int:
-        message_id = self._next_message_id
-        self._next_message_id += 1
-        return message_id
+    async def start(self, state, mode=None, data=None, **kwargs) -> None:
+        self.start_calls.append({"state": state, "mode": mode, "data": data, "kwargs": kwargs})
 
-    async def edit_message_text(
-        self,
-        *,
-        chat_id: int,
-        message_id: int,
-        text: str,
-        reply_markup=None,
-    ) -> None:
-        self.edited_messages.append(
-            {
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "text": text,
-                "reply_markup": reply_markup,
-            }
-        )
+    async def switch_to(self, state) -> None:
+        self.switch_calls.append(state)
+
+    async def update(self, data=None, **kwargs) -> None:
+        if data:
+            self.dialog_data.update(data)
+        self.update_calls.append(data)
 
 
 class FakeMessage:
-    def __init__(
-        self,
-        user: User,
-        text: str | None = None,
-        photo=None,
-        bot: FakeBot | None = None,
-        message_id: int | None = None,
-    ) -> None:
+    def __init__(self, user: User, text: str | None = None, photo=None) -> None:
         self.from_user = user
         self.text = text
         self.photo = photo
-        self.bot = bot or FakeBot()
-        self.chat = SimpleNamespace(id=user.id)
-        self.message_id = 0 if message_id is None else message_id
-        self.answers: list[dict[str, object]] = []
+        self.answers: list[str] = []
 
-    async def answer(self, text: str, **kwargs: object) -> SimpleNamespace:
-        sent = SimpleNamespace(message_id=self.bot.next_message_id())
-        self.answers.append({"text": text, "kwargs": kwargs, "message_id": sent.message_id})
-        return sent
-
-
-class FakeCallback:
-    def __init__(self, user: User, data: str, message: FakeMessage) -> None:
-        self.from_user = user
-        self.data = data
-        self.message = message
-        self.answered = False
-
-    async def answer(self) -> None:
-        self.answered = True
+    async def answer(self, text: str, **kwargs) -> None:
+        self.answers.append(text)
 
 
 def make_user(user_id: int, first_name: str) -> User:
     return User(id=user_id, is_bot=False, first_name=first_name, username=first_name.lower())
 
 
-def make_state(user: User) -> FSMContext:
-    return FSMContext(
-        storage=MemoryStorage(),
-        key=StorageKey(bot_id=1, chat_id=user.id, user_id=user.id),
-    )
-
-
 def setup_db(tmp_path: Path) -> None:
-    db.DB_PATH = tmp_path / "teacher_content_handlers.sqlite3"
+    db.DB_PATH = tmp_path / "teacher_content_dialog.sqlite3"
     db.init_db()
 
 
-def seed_topic(
-    teacher_user_id: int,
-    *,
-    item_count: int = 1,
-) -> tuple[int, int]:
+def seed_topic(teacher_user_id: int, *, item_count: int = 2) -> tuple[int, int]:
     from englishbot.teacher_content import create_teacher_topic, create_teacher_topic_item
 
     workspace = create_workspace("Authoring", kind="teacher")
@@ -145,188 +89,147 @@ def seed_topic(
     return int(workspace["workspace_id"]), int(topic["id"])
 
 
-def test_teacher_content_handler_lists_workspaces_and_creates_workspace(tmp_path: Path) -> None:
+def test_teacher_content_command_starts_dialog_without_extra_reply(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher = make_user(101, "Teacher")
     db.save_user(teacher)
     set_user_role(teacher.id, "teacher")
-    add_workspace_member(create_workspace("Authoring", kind="teacher")["workspace_id"], teacher.id, "teacher")
-    message = FakeMessage(teacher, message_id=1)
-    state = make_state(teacher)
+    manager = FakeDialogManager(teacher)
+    message = FakeMessage(teacher)
 
-    asyncio.run(teacher_content(message, state))
-    callback = FakeCallback(teacher, TEACHER_CONTENT_WORKSPACE_CREATE, message)
-    asyncio.run(start_teacher_workspace_create(callback, state))
-    asyncio.run(save_teacher_workspace_name(FakeMessage(teacher, text="Second Space", bot=message.bot), state))
+    asyncio.run(teacher_content(message, manager))
 
-    assert message.answers[0]["text"] == "Your teacher spaces:"
-    assert callback.answered is True
-    assert message.bot.edited_messages[0]["text"] == "Send the new workspace name."
-    assert message.bot.edited_messages[-1]["text"] == "Your teacher spaces:"
-    latest_data = asyncio.run(state.get_data())
-    assert latest_data == {}
+    assert message.answers == []
+    assert manager.start_calls == [
+        {
+            "state": TeacherContentDialogSG.workspaces,
+            "mode": StartMode.RESET_STACK,
+            "data": None,
+            "kwargs": {},
+        }
+    ]
 
 
-def test_teacher_can_browse_topics_create_topic_and_open_three_message_editor(tmp_path: Path) -> None:
+def test_teacher_content_command_rejects_non_teacher(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher = make_user(102, "Teacher")
-    db.save_user(teacher)
-    set_user_role(teacher.id, "teacher")
-    workspace = create_workspace("Authoring", kind="teacher")
-    add_workspace_member(workspace["workspace_id"], teacher.id, "teacher")
-    message = FakeMessage(teacher, message_id=1)
-    state = make_state(teacher)
+    student = make_user(102, "Student")
+    db.save_user(student)
+    set_user_role(student.id, "student")
+    manager = FakeDialogManager(student)
+    message = FakeMessage(student)
 
-    callback = FakeCallback(teacher, f"{TEACHER_CONTENT_WORKSPACE_PREFIX}{workspace['workspace_id']}", message)
-    asyncio.run(open_teacher_workspace(callback, state))
-    create_callback = FakeCallback(
-        teacher,
-        f"{TEACHER_CONTENT_TOPIC_CREATE}{workspace['workspace_id']}",
-        message,
-    )
-    asyncio.run(start_teacher_topic_create(create_callback, state))
-    create_message = FakeMessage(teacher, text="Animals", bot=message.bot)
-    asyncio.run(save_teacher_topic_title(create_message, state))
+    asyncio.run(teacher_content(message, manager))
 
-    assert callback.answered is True
-    assert create_callback.answered is True
-    assert message.bot.edited_messages[0]["text"] == "Topics in Authoring:"
-    assert message.bot.edited_messages[1]["text"] == "Send the new topic title."
-    assert message.bot.edited_messages[2]["text"] == (
-        "Topic: Animals\nPage 1/1. Items: 0.\nThis topic has no learning items yet."
-    )
-    assert [answer["text"] for answer in create_message.answers[-2:]] == ["No image.", "Animals\nNo active items in this topic yet."]
-    state_data = asyncio.run(state.get_data())
-    assert state_data["navigator_message_id"] == 1
-    assert state_data["image_message_id"] == 1
-    assert state_data["card_message_id"] == 2
+    assert manager.start_calls == []
+    assert message.answers == [
+        "Command /teacher_content is available only to users with the teacher role."
+    ]
 
 
-def test_topic_create_back_restores_previous_topics_message_in_place(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    teacher = make_user(108, "Teacher")
-    db.save_user(teacher)
-    set_user_role(teacher.id, "teacher")
-    workspace = create_workspace("Authoring", kind="teacher")
-    add_workspace_member(workspace["workspace_id"], teacher.id, "teacher")
-    message = FakeMessage(teacher, message_id=1)
-    state = make_state(teacher)
-
-    asyncio.run(open_teacher_workspace(FakeCallback(teacher, f"{TEACHER_CONTENT_WORKSPACE_PREFIX}{workspace['workspace_id']}", message), state))
-    asyncio.run(start_teacher_topic_create(FakeCallback(teacher, f"{TEACHER_CONTENT_TOPIC_CREATE}{workspace['workspace_id']}", message), state))
-    from englishbot.teacher_content_handlers import back_to_teacher_topics
-
-    asyncio.run(back_to_teacher_topics(FakeCallback(teacher, f"{TEACHER_CONTENT_TOPIC_BACK}{workspace['workspace_id']}", message), state))
-
-    assert message.bot.edited_messages[-1]["text"] == "Topics in Authoring:"
-
-
-def test_topic_editor_page_navigation_updates_three_message_model(tmp_path: Path) -> None:
+def test_dialog_navigation_renders_compact_workspace_topic_and_item_screens(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher = make_user(103, "Teacher")
     db.save_user(teacher)
     set_user_role(teacher.id, "teacher")
-    workspace_id, topic_id = seed_topic(teacher.id, item_count=27)
-    message = FakeMessage(teacher, message_id=1)
-    state = make_state(teacher)
+    workspace_id, topic_id = seed_topic(teacher.id)
+    manager = FakeDialogManager(teacher)
 
-    callback = FakeCallback(teacher, f"{TEACHER_CONTENT_TOPIC_PREFIX}{workspace_id}:{topic_id}", message)
-    asyncio.run(open_teacher_topic(callback, state))
-    page_callback = FakeCallback(teacher, f"{TEACHER_CONTENT_PAGE_PREFIX}{workspace_id}:{topic_id}:1", message)
-    asyncio.run(change_teacher_topic_page(page_callback, state))
+    asyncio.run(on_workspace_selected(None, None, manager, str(workspace_id)))
+    topics_view = asyncio.run(get_topics_window_data(manager))
+    asyncio.run(on_topic_selected(None, None, manager, str(topic_id)))
+    browser_view = asyncio.run(get_browser_window_data(manager))
 
-    assert callback.answered is True
-    assert page_callback.answered is True
-    assert len(message.answers) == 3
-    assert len(message.bot.edited_messages) == 3
-    assert "Page 2/2. Items: 27." in message.bot.edited_messages[0]["text"]
-    state_data = asyncio.run(state.get_data())
-    assert state_data["page"] == 1
+    assert manager.switch_calls == [TeacherContentDialogSG.topics, TeacherContentDialogSG.browser]
+    assert "Workspace: Authoring" in topics_view["screen_text"]
+    assert "1. Fruits (2)" in topics_view["screen_text"]
+    assert "Topic: Fruits" in browser_view["screen_text"]
+    assert "Item 1/2" in browser_view["screen_text"]
+    assert "ru: -" in browser_view["screen_text"]
+    assert "audio_ref: -" in browser_view["screen_text"]
 
 
-def test_prev_next_navigation_and_field_editing_update_db_backed_editor(tmp_path: Path) -> None:
+def test_prev_next_item_navigation_updates_selected_item_in_place(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher = make_user(104, "Teacher")
     db.save_user(teacher)
     set_user_role(teacher.id, "teacher")
     workspace_id, topic_id = seed_topic(teacher.id, item_count=3)
-    message = FakeMessage(teacher, message_id=1)
-    state = make_state(teacher)
+    manager = FakeDialogManager(teacher)
+    manager.dialog_data.update({"workspace_id": workspace_id, "topic_id": topic_id})
 
-    asyncio.run(open_teacher_topic(FakeCallback(teacher, f"{TEACHER_CONTENT_TOPIC_PREFIX}{workspace_id}:{topic_id}", message), state))
-    next_callback_data = message.answers[2]["kwargs"]["reply_markup"].inline_keyboard[0][0].callback_data
-    asyncio.run(select_teacher_topic_item(FakeCallback(teacher, next_callback_data, message), state))
-    edit_callback_data = message.bot.edited_messages[-1]["reply_markup"].inline_keyboard[1][0].callback_data
-    asyncio.run(show_teacher_item_edit_fields(FakeCallback(teacher, edit_callback_data, message), state))
-    asyncio.run(start_teacher_item_field_edit(FakeCallback(teacher, f"{TEACHER_CONTENT_FIELD_PREFIX}bg", message), state))
-    asyncio.run(save_teacher_item_field_value(FakeMessage(teacher, text="ябълка", bot=message.bot), state))
+    first_view = asyncio.run(get_browser_window_data(manager))
+    asyncio.run(next_item(None, None, manager))
+    second_view = asyncio.run(get_browser_window_data(manager))
+    asyncio.run(prev_item(None, None, manager))
+    third_view = asyncio.run(get_browser_window_data(manager))
 
-    snapshot = build_teacher_topic_editor_snapshot(
-        teacher.id,
-        workspace_id,
-        topic_id,
-        selected_item_id=asyncio.run(state.get_data())["item_id"],
-    )
-    assert snapshot["current_item"]["translations"]["bg"] == "ябълка"
+    assert "Item 1/3" in first_view["screen_text"]
+    assert "Item 2/3" in second_view["screen_text"]
+    assert "Item 1/3" in third_view["screen_text"]
+    assert len(manager.update_calls) == 2
 
 
-def test_add_item_archive_and_photo_image_rejection_work(tmp_path: Path) -> None:
+def test_field_edit_prompt_entry_save_and_back_flow(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher = make_user(105, "Teacher")
     db.save_user(teacher)
     set_user_role(teacher.id, "teacher")
-    workspace_id, topic_id = seed_topic(teacher.id, item_count=1)
-    message = FakeMessage(teacher)
-    state = make_state(teacher)
+    workspace_id, topic_id = seed_topic(teacher.id)
+    manager = FakeDialogManager(teacher)
+    manager.dialog_data.update({"workspace_id": workspace_id, "topic_id": topic_id})
+    asyncio.run(get_browser_window_data(manager))
 
-    asyncio.run(open_teacher_topic(FakeCallback(teacher, f"{TEACHER_CONTENT_TOPIC_PREFIX}{workspace_id}:{topic_id}", message), state))
-    add_callback = FakeCallback(
-        teacher,
-        f"{TEACHER_CONTENT_ADD_ITEM_PREFIX}{workspace_id}:{topic_id}:0",
-        message,
-    )
-    from englishbot.teacher_content_handlers import start_teacher_item_create
+    asyncio.run(open_edit_prompt(None, None, manager))
+    prompt_picker = asyncio.run(get_prompt_window_data(manager))
+    asyncio.run(choose_field(None, None, manager, "audio_ref"))
+    prompt_input = asyncio.run(get_prompt_window_data(manager))
+    asyncio.run(on_prompt_input(FakeMessage(teacher, text="audio://clip.mp3"), None, manager))
+    browser_view = asyncio.run(get_browser_window_data(manager))
 
-    asyncio.run(start_teacher_item_create(add_callback, state))
-    asyncio.run(save_teacher_item_text(FakeMessage(teacher, text="pear", bot=message.bot), state))
-    state_data = asyncio.run(state.get_data())
-    archive_callback = FakeCallback(
-        teacher,
-        f"{TEACHER_CONTENT_ARCHIVE_PREFIX}{workspace_id}:{topic_id}:{state_data['item_id']}:0",
-        message,
-    )
-    asyncio.run(archive_teacher_item(archive_callback, state))
-    image_callback = FakeCallback(
-        teacher,
-        f"{TEACHER_CONTENT_IMAGE_PREFIX}{workspace_id}:{topic_id}:{build_teacher_topic_editor_snapshot(teacher.id, workspace_id, topic_id)['selected_item_id']}",
-        message,
-    )
-    asyncio.run(start_teacher_item_image_update(image_callback, state))
-    photo_message = FakeMessage(teacher, photo=[object()], bot=message.bot)
-    asyncio.run(save_teacher_item_image_ref(photo_message, state))
+    assert manager.switch_calls[-2:] == [TeacherContentDialogSG.prompt, TeacherContentDialogSG.browser]
+    assert "Choose a field to edit." in prompt_picker["screen_text"]
+    assert "Send the new value for audio_ref." in prompt_input["screen_text"]
+    assert "audio_ref: audio://clip.mp3" in browser_view["screen_text"]
 
-    assert add_callback.answered is True
-    assert archive_callback.answered is True
-    assert image_callback.answered is True
-    assert photo_message.answers[-1]["text"] == (
-        "Telegram photo upload persistence is not implemented yet. Send a text image_ref instead."
-    )
+    asyncio.run(open_create_topic(None, None, manager))
+    asyncio.run(go_to_prompt_return(None, None, manager))
+    assert manager.switch_calls[-2:] == [TeacherContentDialogSG.prompt, TeacherContentDialogSG.topics]
 
 
-def test_unauthorized_teacher_content_access_is_rejected(tmp_path: Path) -> None:
+def test_publish_screen_and_back_do_not_spray_extra_messages(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher = make_user(106, "Teacher")
-    stranger = make_user(107, "Stranger")
     db.save_user(teacher)
-    db.save_user(stranger)
     set_user_role(teacher.id, "teacher")
-    set_user_role(stranger.id, "teacher")
-    workspace_id, topic_id = seed_topic(teacher.id, item_count=1)
-    message = FakeMessage(stranger, message_id=1)
-    state = make_state(stranger)
+    workspace_id, topic_id = seed_topic(teacher.id)
+    student_workspace = create_workspace("Runtime", kind="student")
+    add_workspace_member(student_workspace["workspace_id"], teacher.id, "teacher")
+    manager = FakeDialogManager(teacher)
+    manager.dialog_data.update({"workspace_id": workspace_id, "topic_id": topic_id})
 
-    callback = FakeCallback(stranger, f"{TEACHER_CONTENT_TOPIC_PREFIX}{workspace_id}:{topic_id}", message)
-    asyncio.run(open_teacher_topic(callback, state))
+    asyncio.run(open_publish_targets(None, None, manager))
+    publish_view = asyncio.run(get_publish_window_data(manager))
+    asyncio.run(go_to_browser(None, None, manager))
 
-    assert callback.answered is True
-    assert message.answers == [{"text": "This teacher content is not available to you.", "kwargs": {}, "message_id": 1}]
+    assert "Publish topic" in publish_view["screen_text"]
+    assert "1. Runtime" in publish_view["screen_text"]
+    assert manager.switch_calls[-2:] == [TeacherContentDialogSG.publish, TeacherContentDialogSG.browser]
+
+
+def test_unauthorized_workspace_selection_falls_back_to_workspaces(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher = make_user(107, "Teacher")
+    outsider = make_user(108, "Outsider")
+    db.save_user(teacher)
+    db.save_user(outsider)
+    set_user_role(teacher.id, "teacher")
+    set_user_role(outsider.id, "teacher")
+    workspace_id, _topic_id = seed_topic(teacher.id)
+    manager = FakeDialogManager(outsider)
+
+    asyncio.run(on_workspace_selected(None, None, manager, str(workspace_id)))
+    workspaces_view = asyncio.run(get_workspaces_window_data(manager))
+
+    assert manager.switch_calls == [TeacherContentDialogSG.workspaces]
+    assert manager.dialog_data["status_text"] == "This teacher content is not available to you."
+    assert "This teacher content is not available to you." in workspaces_view["screen_text"]

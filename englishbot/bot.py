@@ -3,12 +3,14 @@ import logging
 from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import ErrorEvent, Message
+from aiogram_dialog import setup_dialogs
 
 from .basic_topics_seed import seed_basic_topics
 from .command_registry import BOT_COMMANDS, ME_COMMAND
 from .db import count_text_interactions, get_user, init_db
 from .i18n import translate_for_user
 from .runtime import build_bot, dispatcher, router
+from .teacher_content_dialog import teacher_content_dialog
 from .user_profiles import get_user_role
 from . import cancel_handlers  # noqa: F401
 from . import homework_handlers  # noqa: F401
@@ -21,6 +23,9 @@ from . import workbook_handlers  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
+
+dispatcher.include_router(teacher_content_dialog)
+setup_dialogs(dispatcher)
 
 
 async def configure_bot_commands(bot) -> None:
