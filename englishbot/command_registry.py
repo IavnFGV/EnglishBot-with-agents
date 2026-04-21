@@ -57,41 +57,48 @@ INVITE_COMMAND = CommandDefinition(
     name="invite",
     description_key="command.invite",
     scope="teacher",
-)
+    register_after_startup=True,)
 JOIN_COMMAND = CommandDefinition(
     name="join",
     description_key="command.join",
     scope="user",
+    register_after_startup=True,
 )
 ASSIGN_COMMAND = CommandDefinition(
     name="assign",
     description_key="command.assign",
     scope="teacher",
+    register_after_startup=True,
 )
 GRANTTOPIC_COMMAND = CommandDefinition(
     name="granttopic",
     description_key="command.granttopic",
     scope="teacher",
+    register_after_startup=True,
 )
 TOPICS_COMMAND = CommandDefinition(
     name="topics",
     description_key="command.topics",
     scope="student",
+    register_after_startup=True,
 )
 WORKBOOK_EXPORT_COMMAND = CommandDefinition(
     name="workbook_export",
     description_key="command.workbook_export",
     scope="teacher",
+    register_after_startup=True,
 )
 WORKBOOK_IMPORT_COMMAND = CommandDefinition(
     name="workbook_import",
     description_key="command.workbook_import",
     scope="teacher",
+    register_after_startup=True,
 )
 TEACHER_CONTENT_COMMAND = CommandDefinition(
     name="teacher_content",
     description_key="command.teacher_content",
     scope="teacher",
+    register_after_startup=True,
 )
 
 ALL_COMMANDS = (
