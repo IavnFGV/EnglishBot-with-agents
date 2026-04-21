@@ -1,5 +1,6 @@
 import sqlite3
 
+from .assets import PRIMARY_IMAGE_ROLE, resolve_asset_ref_for_role
 from .db import DEFAULT_HINT_LANGUAGE, get_connection, utc_now
 from .exercises import ExerciseBuildError, ResolvedLearningItem, TranslationEntry, build_exercise
 from .user_profiles import get_user_hint_language
@@ -709,7 +710,7 @@ def _resolve_learning_item(learning_item_id: int) -> ResolvedLearningItem:
             )
             for translation in translations
         ],
-        image_ref=str(learning_item["image_ref"]) if learning_item["image_ref"] else None,
+        image_ref=resolve_asset_ref_for_role(int(learning_item["id"]), PRIMARY_IMAGE_ROLE),
     )
 
 

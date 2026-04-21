@@ -1,6 +1,14 @@
 import math
 import re
 
+from .assets import (
+    ASSET_TYPE_AUDIO,
+    ASSET_TYPE_IMAGE,
+    PRIMARY_AUDIO_ROLE,
+    PRIMARY_IMAGE_ROLE,
+    replace_learning_item_assets_for_role,
+    resolve_asset_ref_for_role,
+)
 from .db import get_connection, utc_now
 from .topics import (
     create_topic_for_teacher_workspace,
@@ -273,11 +281,30 @@ def update_teacher_topic_item_field(
             normalized_value,
         )
         return
-    if field_name in {"image_ref", "audio_ref"}:
-        update_learning_item(
-            teacher_user_id,
+    if field_name == "image_ref":
+        replace_learning_item_assets_for_role(
             learning_item_id,
-            **{field_name: normalized_value},
+            PRIMARY_IMAGE_ROLE,
+            assets=[
+                {
+                    "asset_type": ASSET_TYPE_IMAGE,
+                    "source_url": normalized_value if normalized_value.startswith(("http://", "https://")) else None,
+                    "local_path": None if normalized_value.startswith(("http://", "https://")) else normalized_value,
+                }
+            ] if normalized_value else [],
+        )
+        return
+    if field_name == "audio_ref":
+        replace_learning_item_assets_for_role(
+            learning_item_id,
+            PRIMARY_AUDIO_ROLE,
+            assets=[
+                {
+                    "asset_type": ASSET_TYPE_AUDIO,
+                    "source_url": normalized_value if normalized_value.startswith(("http://", "https://")) else None,
+                    "local_path": None if normalized_value.startswith(("http://", "https://")) else normalized_value,
+                }
+            ] if normalized_value else [],
         )
         return
     raise ValueError(f"unsupported field: {field_name}")
@@ -462,16 +489,8 @@ def _build_editor_current_item(learning_item) -> dict[str, object]:
         ),
         "text": str(learning_item["text"]),
         "translations": translations_by_language,
-        "image_ref": (
-            str(learning_item["image_ref"])
-            if learning_item["image_ref"] is not None
-            else None
-        ),
-        "audio_ref": (
-            str(learning_item["audio_ref"])
-            if learning_item["audio_ref"] is not None
-            else None
-        ),
+        "image_ref": resolve_asset_ref_for_role(int(learning_item["id"]), PRIMARY_IMAGE_ROLE),
+        "audio_ref": resolve_asset_ref_for_role(int(learning_item["id"]), PRIMARY_AUDIO_ROLE),
         "is_archived": bool(learning_item["is_archived"]),
     }
 

@@ -15,6 +15,7 @@ WORKSPACE_KIND_TEACHER = "teacher"
 WORKSPACE_KIND_STUDENT = "student"
 TOPIC_WORKBOOK_KEY_PREFIX = "topic"
 LEARNING_ITEM_WORKBOOK_KEY_PREFIX = "learning-item"
+ASSET_WORKBOOK_KEY_PREFIX = "asset"
 
 
 def utc_now() -> str:
@@ -37,6 +38,246 @@ def get_table_columns(connection: sqlite3.Connection, table_name: str) -> set[st
 
 def build_workbook_key(prefix: str, row_id: int) -> str:
     return f"{prefix}-{int(row_id)}"
+
+
+def _is_url_like_asset_ref(value: str) -> bool:
+    normalized = value.strip().lower()
+    return normalized.startswith("http://") or normalized.startswith("https://")
+
+
+def _ensure_assets_schema(
+    connection: sqlite3.Connection,
+    *,
+    include_learning_item_links: bool = True,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS assets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workbook_key TEXT,
+            asset_type TEXT NOT NULL,
+            source_url TEXT,
+            local_path TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    asset_columns = get_table_columns(connection, "assets")
+    if "workbook_key" not in asset_columns:
+        connection.execute(
+            """
+            ALTER TABLE assets
+            ADD COLUMN workbook_key TEXT
+            """
+        )
+    legacy_assets = connection.execute(
+        """
+        SELECT id
+        FROM assets
+        WHERE workbook_key IS NULL OR TRIM(workbook_key) = ''
+        ORDER BY id
+        """
+    ).fetchall()
+    for row in legacy_assets:
+        connection.execute(
+            """
+            UPDATE assets
+            SET workbook_key = ?
+            WHERE id = ?
+            """,
+            (
+                build_workbook_key(ASSET_WORKBOOK_KEY_PREFIX, int(row["id"])),
+                int(row["id"]),
+            ),
+        )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_workbook_key_unique
+        ON assets (workbook_key)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_assets_asset_type
+        ON assets (asset_type)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_assets_set_workbook_key
+        AFTER INSERT ON assets
+        FOR EACH ROW
+        WHEN NEW.workbook_key IS NULL OR TRIM(NEW.workbook_key) = ''
+        BEGIN
+            UPDATE assets
+            SET workbook_key = 'asset-' || NEW.id
+            WHERE id = NEW.id;
+        END
+        """
+    )
+    if include_learning_item_links:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS learning_item_assets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                learning_item_id INTEGER NOT NULL,
+                asset_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id),
+                FOREIGN KEY (asset_id) REFERENCES assets (id),
+                UNIQUE (learning_item_id, role, sort_order)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_learning_item_assets_learning_item_sort
+            ON learning_item_assets (learning_item_id, sort_order)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_learning_item_assets_learning_item_role
+            ON learning_item_assets (learning_item_id, role)
+            """
+        )
+
+
+def _collect_legacy_learning_item_assets(
+    connection: sqlite3.Connection,
+) -> list[tuple[int, str, str]]:
+    learning_item_columns = get_table_columns(connection, "learning_items")
+    if "image_ref" not in learning_item_columns and "audio_ref" not in learning_item_columns:
+        return []
+
+    pending_links: list[tuple[int, str, str]] = []
+    for column_name, asset_type, role in (
+        ("image_ref", "image", "primary_image"),
+        ("audio_ref", "audio", "primary_audio"),
+    ):
+        if column_name not in learning_item_columns:
+            continue
+        rows = connection.execute(
+            f"""
+            SELECT id, {column_name} AS asset_ref
+            FROM learning_items
+            WHERE {column_name} IS NOT NULL
+              AND TRIM({column_name}) != ''
+            ORDER BY id
+            """,
+        ).fetchall()
+        for row in rows:
+            pending_links.append((int(row["id"]), asset_type, str(row["asset_ref"]).strip(), role))
+    return pending_links
+
+
+def _insert_migrated_learning_item_assets(
+    connection: sqlite3.Connection,
+    pending_links: list[tuple[int, str, str, str]],
+) -> None:
+    for learning_item_id, asset_type, asset_ref, role in pending_links:
+        existing = connection.execute(
+            """
+            SELECT 1
+            FROM learning_item_assets
+            WHERE learning_item_id = ? AND role = ?
+            LIMIT 1
+            """,
+            (learning_item_id, role),
+        ).fetchone()
+        if existing is not None:
+            continue
+        source_url = asset_ref if _is_url_like_asset_ref(asset_ref) else None
+        local_path = None if source_url is not None else asset_ref
+        cursor = connection.execute(
+            """
+            INSERT INTO assets (
+                workbook_key,
+                asset_type,
+                source_url,
+                local_path,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                None,
+                asset_type,
+                source_url,
+                local_path,
+                utc_now(),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO learning_item_assets (
+                learning_item_id,
+                asset_id,
+                role,
+                sort_order
+            )
+            VALUES (?, ?, ?, 0)
+            """,
+            (learning_item_id, int(cursor.lastrowid), role),
+        )
+
+
+def _rebuild_learning_items_without_legacy_media_columns(connection: sqlite3.Connection) -> None:
+    learning_item_columns = get_table_columns(connection, "learning_items")
+    if "image_ref" not in learning_item_columns and "audio_ref" not in learning_item_columns:
+        return
+
+    connection.execute("DROP TRIGGER IF EXISTS trg_learning_items_set_workbook_key")
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute("ALTER TABLE learning_items RENAME TO learning_items_legacy")
+    connection.execute(
+        """
+        CREATE TABLE learning_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workspace_id INTEGER NOT NULL,
+            workbook_key TEXT,
+            source_learning_item_id INTEGER,
+            lexeme_id INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            is_archived INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+            FOREIGN KEY (source_learning_item_id) REFERENCES learning_items (id),
+            FOREIGN KEY (lexeme_id) REFERENCES lexemes (id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO learning_items (
+            id,
+            workspace_id,
+            workbook_key,
+            source_learning_item_id,
+            lexeme_id,
+            text,
+            is_archived,
+            created_at,
+            updated_at
+        )
+        SELECT
+            id,
+            workspace_id,
+            workbook_key,
+            source_learning_item_id,
+            lexeme_id,
+            text,
+            is_archived,
+            created_at,
+            updated_at
+        FROM learning_items_legacy
+        ORDER BY id
+        """
+    )
+    connection.execute("DROP TABLE learning_items_legacy")
+    connection.execute("PRAGMA foreign_keys = ON")
 
 
 def _ensure_default_content_workspace(connection: sqlite3.Connection) -> int:
@@ -313,8 +554,6 @@ def init_db() -> None:
                 source_learning_item_id INTEGER,
                 lexeme_id INTEGER NOT NULL,
                 text TEXT NOT NULL,
-                image_ref TEXT,
-                audio_ref TEXT,
                 is_archived INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -368,20 +607,6 @@ def init_db() -> None:
                     int(row["id"]),
                 ),
             )
-        if "image_ref" not in learning_item_columns:
-            connection.execute(
-                """
-                ALTER TABLE learning_items
-                ADD COLUMN image_ref TEXT
-                """
-            )
-        if "audio_ref" not in learning_item_columns:
-            connection.execute(
-                """
-                ALTER TABLE learning_items
-                ADD COLUMN audio_ref TEXT
-                """
-            )
         if "is_archived" not in learning_item_columns:
             connection.execute(
                 """
@@ -397,6 +622,11 @@ def init_db() -> None:
                 REFERENCES learning_items (id)
                 """
             )
+        _ensure_assets_schema(connection, include_learning_item_links=False)
+        pending_asset_links = _collect_legacy_learning_item_assets(connection)
+        _rebuild_learning_items_without_legacy_media_columns(connection)
+        _ensure_assets_schema(connection)
+        _insert_migrated_learning_item_assets(connection, pending_asset_links)
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS learning_item_translations (

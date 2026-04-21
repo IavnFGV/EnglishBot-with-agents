@@ -358,17 +358,19 @@ Workbook — это teacher-side bulk editing format, а не отдельный
 
 - workbook identity строится на `workbook_key` для `topics` и `learning_items`;
 - workbook export/import работают только для одного teacher workspace за раз;
-- export создаёт `.xlsx` ровно с 3 листами:
+- export создаёт `.xlsx` с явными листами:
   - `topics`
   - `topic_items`
   - `learning_items`
+  - `assets`
+  - `learning_item_assets`
 - import выполняет atomic partial upsert по `workbook_key`;
 - delete-on-missing не используется: отсутствие строки в workbook не удаляет сущность;
 - archive semantics поддерживаются через archive flags, а не physical delete;
 - topic-item linking additive: import добавляет/обновляет связи, но не трактует отсутствие связи как delete sync;
 - переводы импортируются как wide columns для поддерживаемых языков и обновляются без обязательного удаления существующих значений при пустой ячейке;
-- `image_ref` — source-of-truth поле для asset reference;
-- `image` — display-only колонка для spreadsheet-friendly preview и должна игнорироваться на import.
+- media хранится канонически через `assets` и `learning_item_assets`, а не через direct fields на `learning_items`;
+- workbook хранит asset metadata и item-to-asset links отдельными листами, без binary embed.
 
 ### Target behavior
 
@@ -635,7 +637,9 @@ Teacher-student связь используется как onboarding bridge, н
 - current topic ordering остаётся неявным и определяется relation-row insertion order;
 - workbook persistence mappings уже согласованы с текущим кодом:
   - `topics`: `name`, `title`, `workbook_key`
-  - `learning_items`: `text`, `image_ref`, `audio_ref`, `workbook_key`
+  - `learning_items`: `text`, `workbook_key`
+  - `assets`: `asset_type`, `source_url`, `local_path`, `workbook_key`
+  - `learning_item_assets`: `role`, `sort_order`, item workbook key, asset workbook key
   - translations: wide workbook columns -> `learning_item_translations`
 
 ### Target behavior

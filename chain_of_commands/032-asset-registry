@@ -1,0 +1,145 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+Task:
+Replace the old direct media-field approach with a simple asset registry model and migrate the codebase to use it.
+
+IMPORTANT:
+
+* This step is domain-only
+* Do NOT add Telegram file cache logic in this step
+* Do NOT keep obsolete legacy media fields as a permanent parallel model
+* Do NOT redesign unrelated training/teacher dialog flows
+* Be willing to remove outdated code and outdated schema fields without hesitation once migration is complete
+
+Goal:
+Move the project from direct `learning_items.image_ref` / `learning_items.audio_ref` fields to a simple extensible asset model that supports images, audio, voice, and future video assets.
+
+New target model:
+
+1. `assets`
+   Fields:
+
+* `id`
+* `asset_type` (`image`, `audio`, `voice`, `video`)
+* `source_url` (nullable)
+* `local_path` (nullable)
+* `created_at`
+
+2. `learning_item_assets`
+   Fields:
+
+* `id`
+* `learning_item_id`
+* `asset_id`
+* `role`
+* `sort_order`
+
+Rules:
+
+* one learning item may have multiple linked assets
+* role is a simple business label such as:
+
+  * `primary_image`
+  * `primary_audio`
+  * `female_voice`
+  * `male_voice`
+  * `video_demo`
+
+Scope:
+
+1. Schema
+
+* add the two new tables
+* migrate existing direct media references into the new model where practical
+* remove obsolete direct media-field behavior once migration is complete
+* do not leave a permanent dual-model setup
+
+2. Domain helpers
+   Create or update focused helpers so the domain can:
+
+* create an asset
+* link an asset to a learning item
+* list assets for a learning item
+* resolve assets by role and/or type
+
+3. Learning item integration
+
+* learning item media access must now come through linked assets
+* do NOT keep `image_ref` / `audio_ref` as the canonical model
+* remove dead code tied to the old direct-field approach
+
+4. Workbook import/export
+   Refactor workbook import/export to use the new asset model.
+
+Expected workbook direction:
+
+* do NOT embed binary files
+* represent assets through explicit metadata and links
+* use separate workbook sheets such as:
+
+  * `assets`
+  * `learning_item_assets`
+
+Workbook must support:
+
+* asset identity
+* asset type
+* source_url/local_path
+* asset role
+* link from learning item to asset
+
+5. Architecture rules
+
+* keep business logic in focused modules
+* do not move rendering logic into the asset domain
+* keep the model simple and explicit
+* do not add archival/versioning/lifecycle complexity in this step
+* if replacing an asset, old unlinked asset records/files may be removed rather than archived
+
+6. Cleanup rules
+
+* remove obsolete schema fields, code paths, and import/export assumptions tied to direct `image_ref` / `audio_ref`
+* do not keep legacy code “just in case”
+
+7. Tests
+   Add or update focused tests to cover at least:
+
+* asset creation
+* linking asset to learning item
+* multiple assets per item
+* role-based lookup
+* migration from old direct refs to new linked assets
+* workbook import/export with `assets` and `learning_item_assets`
+* removal of old direct media-field assumptions
+
+8. Documentation updates
+   After implementation, update:
+
+* CHANGELOG.md
+* context/current_state.md
+* context/englishbot_handoff.md if needed
+
+Current state must mention:
+
+* asset registry is now the canonical media model
+* learning items use linked assets instead of direct media fields
+* workbook import/export uses the asset model
+* Telegram-specific file reuse is not implemented yet in this step
+
+Output:
+
+* minimal but decisive schema/domain refactor
+* focused tests
+* short summary of removed legacy media paths and new canonical model

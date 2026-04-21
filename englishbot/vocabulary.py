@@ -1,5 +1,15 @@
 import sqlite3
 
+from .assets import (
+    ASSET_TYPE_AUDIO,
+    ASSET_TYPE_IMAGE,
+    PRIMARY_AUDIO_ROLE,
+    PRIMARY_IMAGE_ROLE,
+    clone_learning_item_assets,
+    list_learning_item_assets,
+    replace_learning_item_assets_for_role,
+    resolve_asset_ref_for_role,
+)
 from .db import (
     get_connection,
     get_default_content_workspace_id,
@@ -55,12 +65,10 @@ def create_learning_item(
                 source_learning_item_id,
                 lexeme_id,
                 text,
-                image_ref,
-                audio_ref,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 stored_workspace_id,
@@ -68,13 +76,13 @@ def create_learning_item(
                 source_learning_item_id,
                 lexeme_id,
                 text,
-                image_ref,
-                audio_ref,
                 timestamp,
                 timestamp,
             ),
         )
-    return int(cursor.lastrowid)
+    learning_item_id = int(cursor.lastrowid)
+    _replace_media_assets(learning_item_id, image_ref=image_ref, audio_ref=audio_ref)
+    return learning_item_id
 
 
 def create_learning_item_for_teacher_workspace(
@@ -95,9 +103,9 @@ def create_learning_item_for_teacher_workspace(
     )
 
 
-def get_learning_item(learning_item_id: int) -> sqlite3.Row | None:
+def get_learning_item(learning_item_id: int) -> dict[str, object] | None:
     with get_connection() as connection:
-        return connection.execute(
+        row = connection.execute(
             """
             SELECT
                 id,
@@ -106,8 +114,6 @@ def get_learning_item(learning_item_id: int) -> sqlite3.Row | None:
                 source_learning_item_id,
                 lexeme_id,
                 text,
-                image_ref,
-                audio_ref,
                 is_archived,
                 created_at,
                 updated_at
@@ -116,13 +122,14 @@ def get_learning_item(learning_item_id: int) -> sqlite3.Row | None:
             """,
             (learning_item_id,),
         ).fetchone()
+        return _serialize_learning_item_row(row, connection) if row is not None else None
 
 
 def list_learning_items(
     limit: int | None = None,
     workspace_id: int | None = None,
     include_archived: bool = False,
-) -> list[sqlite3.Row]:
+) -> list[dict[str, object]]:
     stored_workspace_id = (
         get_default_content_workspace_id() if workspace_id is None else int(workspace_id)
     )
@@ -134,8 +141,6 @@ def list_learning_items(
             learning_items.source_learning_item_id,
             learning_items.lexeme_id,
             learning_items.text,
-            learning_items.image_ref,
-            learning_items.audio_ref,
             learning_items.is_archived,
             learning_items.created_at,
             learning_items.updated_at
@@ -151,7 +156,8 @@ def list_learning_items(
         parameters = (stored_workspace_id, limit)
 
     with get_connection() as connection:
-        return connection.execute(query, parameters).fetchall()
+        rows = connection.execute(query, parameters).fetchall()
+        return [_serialize_learning_item_row(row, connection) for row in rows]
 
 
 def create_learning_item_translation(
@@ -198,7 +204,7 @@ def list_learning_item_translations(learning_item_id: int) -> list[sqlite3.Row]:
 
 def get_learning_item_with_translations(
     learning_item_id: int,
-) -> dict[str, sqlite3.Row | list[sqlite3.Row]] | None:
+) -> dict[str, object] | None:
     learning_item = get_learning_item(learning_item_id)
     if learning_item is None:
         return None
@@ -225,14 +231,13 @@ def update_learning_item(
             """
             UPDATE learning_items
             SET text = COALESCE(?, text),
-                image_ref = COALESCE(?, image_ref),
-                audio_ref = COALESCE(?, audio_ref),
                 is_archived = 0,
                 updated_at = ?
             WHERE id = ?
             """,
-            (text, image_ref, audio_ref, utc_now(), learning_item_id),
+            (text, utc_now(), learning_item_id),
         )
+    _replace_media_assets(learning_item_id, image_ref=image_ref, audio_ref=audio_ref)
 
 
 def upsert_learning_item_translation(
@@ -333,8 +338,6 @@ def publish_learning_item_to_workspace(
                 int(learning_item["lexeme_id"]),
                 str(learning_item["text"]),
                 workspace_id=target_workspace_id,
-                image_ref=learning_item["image_ref"],
-                audio_ref=learning_item["audio_ref"],
                 source_learning_item_id=learning_item_id,
             )
         else:
@@ -344,8 +347,6 @@ def publish_learning_item_to_workspace(
                 UPDATE learning_items
                 SET lexeme_id = ?,
                     text = ?,
-                    image_ref = ?,
-                    audio_ref = ?,
                     is_archived = 0,
                     updated_at = ?
                 WHERE id = ?
@@ -353,8 +354,6 @@ def publish_learning_item_to_workspace(
                 (
                     int(learning_item["lexeme_id"]),
                     str(learning_item["text"]),
-                    learning_item["image_ref"],
-                    learning_item["audio_ref"],
                     utc_now(),
                     published_learning_item_id,
                 ),
@@ -372,4 +371,61 @@ def publish_learning_item_to_workspace(
             str(translation["language_code"]),
             str(translation["translation_text"]),
         )
+    clone_learning_item_assets(learning_item_id, published_learning_item_id)
     return published_learning_item_id
+
+
+def _serialize_learning_item_row(
+    row: sqlite3.Row,
+    connection: sqlite3.Connection,
+) -> dict[str, object]:
+    return {
+        "id": int(row["id"]),
+        "workspace_id": int(row["workspace_id"]),
+        "workbook_key": str(row["workbook_key"]) if row["workbook_key"] is not None else None,
+        "source_learning_item_id": (
+            int(row["source_learning_item_id"])
+            if row["source_learning_item_id"] is not None
+            else None
+        ),
+        "lexeme_id": int(row["lexeme_id"]),
+        "text": str(row["text"]),
+        "image_ref": resolve_asset_ref_for_role(int(row["id"]), PRIMARY_IMAGE_ROLE),
+        "audio_ref": resolve_asset_ref_for_role(int(row["id"]), PRIMARY_AUDIO_ROLE),
+        "is_archived": int(row["is_archived"]),
+        "created_at": str(row["created_at"]),
+        "updated_at": str(row["updated_at"]),
+        "assets": [dict(asset_row) for asset_row in list_learning_item_assets(int(row["id"]), connection=connection)],
+    }
+
+
+def _replace_media_assets(
+    learning_item_id: int,
+    *,
+    image_ref: str | None = None,
+    audio_ref: str | None = None,
+) -> None:
+    if image_ref is not None:
+        replace_learning_item_assets_for_role(
+            learning_item_id,
+            PRIMARY_IMAGE_ROLE,
+            assets=[
+                {
+                    "asset_type": ASSET_TYPE_IMAGE,
+                    "source_url": image_ref if image_ref.startswith(("http://", "https://")) else None,
+                    "local_path": None if image_ref.startswith(("http://", "https://")) else image_ref,
+                }
+            ] if image_ref else [],
+        )
+    if audio_ref is not None:
+        replace_learning_item_assets_for_role(
+            learning_item_id,
+            PRIMARY_AUDIO_ROLE,
+            assets=[
+                {
+                    "asset_type": ASSET_TYPE_AUDIO,
+                    "source_url": audio_ref if audio_ref.startswith(("http://", "https://")) else None,
+                    "local_path": None if audio_ref.startswith(("http://", "https://")) else audio_ref,
+                }
+            ] if audio_ref else [],
+        )

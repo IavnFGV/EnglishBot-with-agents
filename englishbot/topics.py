@@ -5,7 +5,7 @@ from .db import (
     get_default_content_workspace_id,
     utc_now,
 )
-from .vocabulary import publish_learning_item_to_workspace
+from .vocabulary import get_learning_item, publish_learning_item_to_workspace
 from .workspaces import ensure_teacher_can_edit_workspace_content
 
 
@@ -324,19 +324,10 @@ def get_topic_learning_item_ids(
 def get_learning_items_for_topic(
     topic_id: int,
     include_archived: bool = False,
-) -> list[sqlite3.Row]:
+) -> list[dict[str, object]]:
     query = """
         SELECT
-            learning_items.id,
-            learning_items.workspace_id,
-            learning_items.source_learning_item_id,
-            learning_items.lexeme_id,
-            learning_items.text,
-            learning_items.image_ref,
-            learning_items.audio_ref,
-            learning_items.is_archived,
-            learning_items.created_at,
-            learning_items.updated_at
+            learning_items.id
         FROM topic_learning_items
         JOIN learning_items
           ON learning_items.id = topic_learning_items.learning_item_id
@@ -346,7 +337,13 @@ def get_learning_items_for_topic(
         query = f"{query}\nAND learning_items.is_archived = 0"
     query = f"{query}\nORDER BY topic_learning_items.id"
     with get_connection() as connection:
-        return connection.execute(query, (topic_id,)).fetchall()
+        rows = connection.execute(query, (topic_id,)).fetchall()
+    learning_items: list[dict[str, object]] = []
+    for row in rows:
+        learning_item = get_learning_item(int(row["id"]))
+        if learning_item is not None:
+            learning_items.append(learning_item)
+    return learning_items
 
 
 def publish_topic_to_workspace(

@@ -172,13 +172,11 @@ def seed_basic_topics() -> dict[str, int]:
                             source_learning_item_id,
                             lexeme_id,
                             text,
-                            image_ref,
-                            audio_ref,
                             is_archived,
                             created_at,
                             updated_at
                         )
-                        VALUES (?, NULL, NULL, ?, ?, NULL, NULL, 0, ?, ?)
+                        VALUES (?, NULL, NULL, ?, ?, 0, ?, ?)
                         """,
                         (workspace_id, lexeme_id, lemma, timestamp, timestamp),
                     )

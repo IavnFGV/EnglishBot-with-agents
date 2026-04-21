@@ -16,8 +16,12 @@ from englishbot.vocabulary import (
     create_lexeme,
 )
 from englishbot.workbook_export import (
+    ASSETS_COLUMNS,
+    ASSETS_SHEET_NAME,
     LEARNING_ITEMS_COLUMNS,
     LEARNING_ITEMS_SHEET_NAME,
+    LEARNING_ITEM_ASSETS_COLUMNS,
+    LEARNING_ITEM_ASSETS_SHEET_NAME,
     TOPIC_ITEMS_COLUMNS,
     TOPIC_ITEMS_SHEET_NAME,
     TOPICS_COLUMNS,
@@ -128,14 +132,17 @@ def build_workbook_bytes() -> bytes:
             "кот",
             None,
             None,
-            None,
-            None,
-            None,
             0,
             None,
             None,
         )
     )
+
+    assets_sheet = workbook.create_sheet(ASSETS_SHEET_NAME)
+    assets_sheet.append(ASSETS_COLUMNS)
+
+    learning_item_assets_sheet = workbook.create_sheet(LEARNING_ITEM_ASSETS_SHEET_NAME)
+    learning_item_assets_sheet.append(LEARNING_ITEM_ASSETS_COLUMNS)
 
     buffer = BytesIO()
     workbook.save(buffer)

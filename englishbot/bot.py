@@ -1,6 +1,5 @@
 import logging
 
-from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import ErrorEvent, Message
 from aiogram_dialog import setup_dialogs
@@ -54,19 +53,6 @@ async def me(message: Message) -> None:
             message_count=message_count,
         )
     )
-
-
-@router.message(F.text)
-async def echo_text(message: Message) -> None:
-    if message.text is None or message.text.startswith("/"):
-        return
-    if message.from_user is None:
-        return
-
-    await message.answer(
-        translate_for_user(message.from_user.id, "bot.echo", text=message.text)
-    )
-
 
 @router.errors()
 async def on_error(event: ErrorEvent) -> None:
