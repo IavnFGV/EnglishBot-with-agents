@@ -19,9 +19,12 @@
         "openai.chatgpt",
         "k--kato.intellij-idea-keybindings",
         "ms-azuretools.vscode-containers",
-        "zknpr.sqlite-explorer"
+        "zknpr.sqlite-explorer",
+        "eamodio.gitlens",
+        "GoogleCloudTools.cloudcode"
       ]
     }
   },
-  "postCreateCommand": "python -m pip install -r requirements.txt"
+  "postCreateCommand": "python -m pip install -r requirements.txt",
+  "postStartCommand": "sudo mkdir -p /home/vscode/.cache /home/vscode/.cache/pip && sudo chown -R vscode:vscode /home/vscode/.cache"
 }

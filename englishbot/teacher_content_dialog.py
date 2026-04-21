@@ -528,10 +528,19 @@ async def get_prompt_window_data(
             PromptKind.EDIT_FIELD: "teacher.content.prompt.edit_field",
         }[prompt_kind]
     )
+
+    # Получаем headword, если мы в режиме редактирования или создания элемента в теме
+    headword = ""
+    if prompt_kind in {PromptKind.EDIT_FIELD, PromptKind.CREATE_ITEM}:
+        snapshot = _load_browser_snapshot(dialog_manager)
+        current_item = snapshot.get("current_item")
+        if current_item:
+            headword = current_item.get("headword", "")
+
     lines = [
-        translate_for_user(user_id, "teacher.content.screen.prompt"),
+        translate_for_user(user_id, "teacher.content.screen.prompt", headword=headword),
         "",
-        translate_for_user(user_id, prompt_key, field_name=field_name),
+        translate_for_user(user_id, prompt_key, field_name=field_name, headword=headword),
     ]
     prompt_error = dialog_manager.dialog_data.get("prompt_error")
     if prompt_error:
