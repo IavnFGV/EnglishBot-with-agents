@@ -68,3 +68,80 @@ After every completed task:
   - code is implemented
   - tests are added
   - relevant tests pass
+
+  ## Telegram UI / Flow Rules (CRITICAL)
+
+This project uses Telegram as a UI platform, not as a message log.
+
+### Core principle
+
+- One logical screen = one Telegram message (max two if strictly necessary)
+- Navigation MUST reuse the same message via `edit_message_text` / `edit_message_reply_markup`
+
+### Forbidden patterns
+
+DO NOT:
+
+- Send multiple messages to represent a single screen
+- Leave outdated UI messages in chat
+- Render large datasets as inline keyboard button lists
+- Mix UI state with message history
+- Use message spam instead of state transitions
+
+### Required behavior
+
+- Every interactive flow MUST behave like a UI, not a chat log
+- Screen transitions MUST update existing messages
+- Handlers MUST store and reuse message_id for UI updates
+- Old UI messages SHOULD be deleted when no longer relevant
+
+### Navigation consistency
+
+All flows MUST use consistent buttons:
+
+- Back: `⬅ Back`
+- Cancel: `Cancel`
+- Navigation: `⬅ Prev` / `Next ➡`
+- Actions: `✏ Edit`, `🗑 Archive`, `➕ Create`
+
+Do not invent new labels for the same actions.
+
+### Lists and collections
+
+- Large lists MUST NOT be rendered as inline keyboard buttons
+- Use:
+  - pagination
+  - index-based selection
+  - navigation buttons
+
+### Screen design
+
+Each screen MUST:
+
+- have a clear header (Topic, Item, etc.)
+- show position (e.g. `Item 1/6`)
+- be compact and readable
+- not duplicate content across messages
+
+### aiogram-dialog usage
+
+For non-trivial multi-step flows (editing, navigation, creation):
+
+- aiogram-dialog MUST be used
+- FSM or manual state handling MUST NOT replace dialog flows
+- Dialog defines:
+  - current screen
+  - transitions
+  - UI structure
+
+Simple one-step commands MAY avoid dialogs.
+
+### Responsibility split
+
+- Telegram handlers = UI orchestration only
+- Navigation/state = dialog or training domain
+- Business logic MUST stay outside Telegram layer
+
+### Goal
+
+The bot must feel like navigating a UI, not reading a chat log.

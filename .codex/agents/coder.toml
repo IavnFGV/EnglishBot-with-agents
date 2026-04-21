@@ -16,6 +16,10 @@ Rules:
 - Prefer small focused files over one growing multipurpose file
 - Business logic must not be mixed into Telegram glue if it can be isolated cleanly
 - Keep code minimal and local
+- All Telegram flows MUST follow AGENTS.md UI rules
+- Do not use multiple send_message calls for navigation
+- Prefer edit_message over sending new messages
+- Use aiogram-dialog for multi-step flows
 
 Dependency rules:
 - Any new import MUST be reflected in requirements.txt
@@ -27,6 +31,8 @@ Final checklist:
 - requirements.txt updated
 - New logic is placed in the correct module(s)
 - Existing files are not turned into catch-all dumps
+- UI follows single-screen rule
+- No message clutter introduced
 
 Testing rules:
 - Any non-trivial feature MUST include tests

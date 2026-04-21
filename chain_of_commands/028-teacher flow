@@ -1,30 +1,40 @@
 Use the agent workflow for this task.
 
 Execution order:
-
 1. architect
 2. complexity_guard
 3. coder
 
 Read first:
-
-* context/englishbot_handoff.md
-* context/current_state.md
-* AGENTS.md
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
 
 Task:
 Implement a Telegram teacher content editor flow centered around `/teacher_content`.
 
 IMPORTANT:
+- Use FSM only for transient UI/navigation state.
+- Do NOT move domain truth into FSM.
+- Do NOT redesign learner training.
+- Do NOT introduce generic menu frameworks.
+- Do NOT implement hard delete in this step.
+- Keep callback payloads short and minimal.
+- Keep all user-visible text in centralized i18n.
+- Keep command registration centralized in `englishbot/command_registry.py`.
 
-* Use FSM only for transient UI/navigation state
-* Do NOT move domain truth into FSM
-* Do NOT redesign learner training
-* Do NOT introduce generic menu frameworks
-* Do NOT implement hard delete in this step
-* Keep callback payloads short and minimal
-* Keep all user-visible text in centralized i18n
-* Keep command registration centralized in `englishbot/command_registry.py`
+CRITICAL TELEGRAM UX RULES:
+- Do not accumulate duplicate menu messages during `/teacher_content` navigation.
+- Workspace list and topic list are single-screen menus and must be updated in place via message editing whenever possible.
+- Entering “create workspace” or “create topic” must replace the current menu message with a compact prompt screen, not send a new menu copy.
+- Prompt screens must show only:
+  - one compact prompt text
+  - one back button
+- Pressing Back from a prompt must restore the previous menu in the same message.
+- Use new `answer()` messages only when necessary:
+  - for the dedicated 3-message topic editor screen
+  - or as fallback when Telegram editing fails
+- Topic editor may remain a 3-message screen by design, but prompt-like subflows inside it should prefer message replacement instead of piling up transient prompts.
 
 Goal:
 Turn `/teacher_content` from read-only browsing into a minimal but usable teacher-side content editor.
@@ -32,141 +42,124 @@ Turn `/teacher_content` from read-only browsing into a minimal but usable teache
 Scope:
 
 1. Workspace level
-
-* `/teacher_content` must allow the teacher to:
-
-  * browse their teacher workspaces
-  * create a new teacher workspace
+- `/teacher_content` must allow the teacher to:
+  - browse their teacher workspaces
+  - create a new teacher workspace
 
 2. Topic level
-   Inside a selected teacher workspace:
-
-* browse topics
-* create a new topic
-* open a selected topic
+Inside a selected teacher workspace:
+- browse topics
+- create a new topic
+- open a selected topic
 
 3. Topic editor screen
-   Inside a selected topic, implement a 3-message UI model:
+Inside a selected topic, implement a 3-message UI model:
 
 Message A: topic navigator
-
-* show up to 25 item rows for the current page
-* clearly mark the currently selected item
-* support page navigation if topic has more than 25 items
+- show up to 25 item rows for the current page
+- clearly mark the currently selected item
+- support page navigation if topic has more than 25 items
 
 Message B: current item image
-
-* show current item image if present
-* otherwise show a compact no-image placeholder
-* support setting/replacing image through a dedicated button flow
+- show current item image if present
+- otherwise show a compact no-image placeholder
+- support setting/replacing image through a dedicated button flow
 
 Message C: current item card + actions
-
-* show current item details:
-
-  * headword/text
-  * ru / uk / bg translations if present
-  * image_ref / audio_ref compactly
-  * archive status
-* include navigation/actions:
-
-  * previous item
-  * next item
-  * edit item
-  * archive item
-  * add item
-  * back to topics
-  * publish topic
+- show current item details:
+  - headword/text
+  - ru / uk / bg translations if present
+  - image_ref / audio_ref compactly
+  - archive status
+- include navigation/actions:
+  - previous item
+  - next item
+  - edit item
+  - archive item
+  - add item
+  - back to topics
+  - publish topic
 
 4. Editing flow
-   Implement item editing through FSM-backed field editing.
+Implement item editing through FSM-backed field editing.
 
 FSM is allowed only for:
-
-* selected workspace/topic/item ids
-* current page
-* which field is being edited
-* message ids for the 3-message screen
+- selected workspace/topic/item ids
+- current page
+- which field is being edited
+- message ids for screen restoration / the 3-message topic editor
+- prompt message id when a menu screen is temporarily replaced
 
 Do NOT store domain truth in FSM.
 
 Field editing requirements:
-
-* support editing:
-
-  * item text/headword
-  * ru translation
-  * uk translation
-  * bg translation
-* missing translation tags are allowed at the data level
-* adding a translation later must be supported naturally
-* use one-field-at-a-time editing, not a free-form document editor
-* after saving, refresh the 3-message screen
+- support editing:
+  - item text/headword
+  - ru translation
+  - uk translation
+  - bg translation
+- missing translation tags are allowed at the data level
+- adding a translation later must be supported naturally
+- use one-field-at-a-time editing, not a free-form document editor
+- after saving, refresh the 3-message screen
 
 5. Item creation
-
-* allow adding a new item inside the current topic
-* minimal creation flow is enough:
-
-  * create base item text
-  * optionally add translations afterward through the same field-edit flow
+- allow adding a new item inside the current topic
+- minimal creation flow is enough:
+  - create base item text
+  - optionally add translations afterward through the same field-edit flow
 
 6. Image flow
-
-* from the item screen, allow “set image”
-* bot then waits for a photo/message relevant to image input
-* update `image_ref` using the project’s existing local asset-reference approach if compatible
-* if full asset persistence is not yet implemented for uploaded Telegram files, keep the flow minimal and explicit instead of faking support
+- from the item screen, allow “set image”
+- bot then waits for a photo/message relevant to image input
+- update `image_ref` using the project’s existing local asset-reference approach if compatible
+- if full asset persistence is not yet implemented for uploaded Telegram files, keep the flow minimal and explicit instead of faking support
 
 7. Publish
-
-* from topic screen, allow explicit publish action
-* reuse existing publish/topic-access logic where possible
-* do not duplicate domain logic
+- from topic screen, allow explicit publish action
+- reuse existing publish/topic-access logic where possible
+- do not duplicate domain logic
 
 8. Access rules
-
-* strict teacher-workspace membership checks on every step
-* no cross-workspace linking
-* no unauthorized browsing/editing
+- strict teacher-workspace membership checks on every step
+- no cross-workspace linking
+- no unauthorized browsing/editing
 
 9. Architecture rules
-
-* prefer extending existing focused modules
-* keep handlers thin
-* introduce only the smallest reasonable FSM layer for UI navigation/editing
-* avoid overengineering
+- prefer extending existing focused modules
+- keep handlers thin
+- introduce only the smallest reasonable FSM layer for UI navigation/editing
+- avoid overengineering
 
 10. Testing
-    Add or update focused tests to cover at least:
-
-* teacher can browse/create workspace through `/teacher_content`
-* teacher can browse/create topics
-* topic screen renders the 3-message model correctly
-* page navigation works for more than 25 items
-* item prev/next navigation works
-* field-by-field item editing works
-* missing translations can be added later
-* archive action works
-* unauthorized access is rejected
-* no FSM is used as source of truth for domain state
+Add or update focused tests to cover at least:
+- teacher can browse/create workspace through `/teacher_content`
+- teacher can browse/create topics
+- entering create-topic or create-workspace replaces the current menu message instead of appending a duplicate menu
+- back from prompt restores the previous menu in the same message
+- topic screen renders the 3-message model correctly
+- page navigation works for more than 25 items
+- item prev/next navigation works
+- field-by-field item editing works
+- missing translations can be added later
+- archive action works
+- unauthorized access is rejected
+- no FSM is used as source of truth for domain state
 
 11. Documentation
-    After implementation, update:
-
-* CHANGELOG.md
-* context/current_state.md
+After implementation, update:
+- CHANGELOG.md
+- context/current_state.md
 
 Current state must mention:
-
-* `/teacher_content` is now a minimal teacher-side editor, not only a browser
-* 3-message topic editor model exists
-* FSM is used only for transient UI navigation/editing state
-* hard delete is still not implemented
-* advanced authoring UI is still intentionally narrow
+- `/teacher_content` is now a minimal teacher-side editor, not only a browser
+- 3-message topic editor model exists
+- workspace/topic creation prompts reuse the current menu message via Telegram message editing
+- FSM is used only for transient UI navigation/editing state
+- hard delete is still not implemented
+- advanced authoring UI is still intentionally narrow
 
 Output:
-
-* minimal working implementation
-* focused tests
-* short summary of changes
+- minimal working implementation
+- focused tests
+- short summary of changes

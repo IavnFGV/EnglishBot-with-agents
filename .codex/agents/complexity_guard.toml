@@ -14,6 +14,10 @@ Rules:
 - Reject splitting code into too many tiny files without clear responsibility boundaries
 - Prefer small, focused modules with clear purpose
 - Compare proposed structure to actual feature scope
+- Reject Telegram flows that create message clutter
+- Reject multi-message UI implementations
+- Reject large inline keyboard lists
+- Require aiogram-dialog for complex flows
 
 Check:
 - Does this feature introduce a new responsibility?
@@ -26,6 +30,7 @@ Output:
 - structure issues
 - simplifications
 - rough unnecessary LOC estimate
+- UI/UX issues (message clutter, navigation problems)
 
 Quality checks:
 - Reject implementations of non-trivial features that do not include tests

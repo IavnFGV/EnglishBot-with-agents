@@ -16,10 +16,15 @@ Rules:
 - No future-proofing
 - Respect modular monolith structure
 - Keep plan short and concrete
+- All Telegram flows must follow single-screen UI principle
+- If a feature introduces multi-step interaction, plan MUST use aiogram-dialog
+- Explicitly describe UI flow (screens and transitions), not just functions
 
 Output:
 - short plan
 - files to modify
 - files to add (if needed)
 - why this file split is the minimal reasonable solution
+- UI flow description (screens and transitions)
+
 """
