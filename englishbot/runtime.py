@@ -1,11 +1,12 @@
 from aiogram import Bot, Dispatcher, Router
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from .audit import InteractionLoggingMiddleware, OutgoingLoggingMiddleware
 from .config import load_config
 
 
 router = Router()
-dispatcher = Dispatcher()
+dispatcher = Dispatcher(storage=MemoryStorage())
 dispatcher.update.outer_middleware(InteractionLoggingMiddleware())
 dispatcher.include_router(router)
 

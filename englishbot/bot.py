@@ -12,6 +12,7 @@ from .runtime import build_bot, dispatcher, router
 from .user_profiles import get_user_role
 from . import homework_handlers  # noqa: F401
 from . import settings_handlers  # noqa: F401
+from . import teacher_content_handlers  # noqa: F401
 from . import teacher_handlers  # noqa: F401
 from . import topic_access_handlers  # noqa: F401
 from . import training_handlers  # noqa: F401
