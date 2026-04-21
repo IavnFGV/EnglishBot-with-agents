@@ -10,6 +10,7 @@ from .db import count_text_interactions, get_user, init_db
 from .i18n import translate_for_user
 from .runtime import build_bot, dispatcher, router
 from .user_profiles import get_user_role
+from . import cancel_handlers  # noqa: F401
 from . import homework_handlers  # noqa: F401
 from . import settings_handlers  # noqa: F401
 from . import teacher_content_handlers  # noqa: F401

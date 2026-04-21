@@ -395,6 +395,26 @@ def set_training_session_current_question_message_id(
         )
 
 
+def cancel_active_training_session(telegram_user_id: int) -> bool:
+    session = get_active_training_session(telegram_user_id)
+    if session is None:
+        return False
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET current_index = total_questions,
+                progress_message_id = NULL,
+                current_question_message_id = NULL,
+                status = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (COMPLETED_STATUS, utc_now(), int(session["id"])),
+        )
+    return True
+
+
 def _update_session_after_answer(
     session: sqlite3.Row,
     updated_correct_answers: int,

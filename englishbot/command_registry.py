@@ -47,6 +47,12 @@ SETTINGS_COMMAND = CommandDefinition(
     scope="user",
     register_after_startup=True,
 )
+CANCEL_COMMAND = CommandDefinition(
+    name="cancel",
+    description_key="command.cancel",
+    scope="user",
+    register_after_startup=True,
+)
 INVITE_COMMAND = CommandDefinition(
     name="invite",
     description_key="command.invite",
@@ -93,6 +99,7 @@ ALL_COMMANDS = (
     LEARN_COMMAND,
     ME_COMMAND,
     SETTINGS_COMMAND,
+    CANCEL_COMMAND,
     INVITE_COMMAND,
     JOIN_COMMAND,
     ASSIGN_COMMAND,

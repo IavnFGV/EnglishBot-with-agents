@@ -155,6 +155,19 @@ def build_teacher_publish_targets_keyboard(
     )
 
 
+def build_teacher_prompt_back_keyboard(callback_data: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⬅️",
+                    callback_data=callback_data,
+                )
+            ]
+        ]
+    )
+
+
 @router.message(Command(TEACHER_CONTENT_COMMAND.name))
 async def teacher_content(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
@@ -183,12 +196,16 @@ async def start_teacher_workspace_create(
     if callback.from_user is None or callback.message is None:
         return
     await state.clear()
+    await state.update_data(prompt_message_id=getattr(callback.message, "message_id", None))
     await state.set_state(TeacherContentStates.awaiting_workspace_name)
-    await callback.message.answer(
+    await _replace_message(
+        callback.message,
+        getattr(callback.message, "message_id", None),
         translate_for_user(
             callback.from_user.id,
             "teacher.content.prompt.workspace_name",
-        )
+        ),
+        build_teacher_prompt_back_keyboard(TEACHER_CONTENT_WORKSPACE_BACK),
     )
 
 
@@ -196,25 +213,27 @@ async def start_teacher_workspace_create(
 async def save_teacher_workspace_name(message: Message, state: FSMContext) -> None:
     if message.from_user is None or message.text is None:
         return
+    data = await state.get_data()
+    prompt_message_id = data.get("prompt_message_id")
     try:
-        workspace = create_teacher_workspace_for_user(message.from_user.id, message.text)
+        create_teacher_workspace_for_user(message.from_user.id, message.text)
     except ValueError:
-        await message.answer(
+        await _replace_message(
+            message,
+            prompt_message_id,
             translate_for_user(
                 message.from_user.id,
                 "teacher.content.prompt.workspace_name",
-            )
+            ),
+            build_teacher_prompt_back_keyboard(TEACHER_CONTENT_WORKSPACE_BACK),
         )
         return
     await state.clear()
-    await message.answer(
-        translate_for_user(
-            message.from_user.id,
-            "teacher.content.workspace.created",
-            workspace_name=str(workspace["name"]),
-        )
+    await _render_teacher_workspaces(
+        message,
+        message.from_user.id,
+        replace_message_id=prompt_message_id,
     )
-    await _render_teacher_workspaces(message, message.from_user.id)
 
 
 @router.callback_query(lambda callback: callback.data == TEACHER_CONTENT_WORKSPACE_BACK)
@@ -226,7 +245,11 @@ async def back_to_teacher_workspaces(
     if callback.from_user is None or callback.message is None:
         return
     await state.clear()
-    await _render_teacher_workspaces(callback.message, callback.from_user.id)
+    await _render_teacher_workspaces(
+        callback.message,
+        callback.from_user.id,
+        replace_message_id=getattr(callback.message, "message_id", None),
+    )
 
 
 @router.callback_query(
@@ -248,13 +271,15 @@ async def open_teacher_workspace(
         return
 
     await state.update_data(workspace_id=workspace_id)
-    await callback.message.answer(
+    await _replace_message(
+        callback.message,
+        getattr(callback.message, "message_id", None),
         translate_for_user(
             callback.from_user.id,
             "teacher.content.topics.title",
             workspace_name=_resolve_workspace_name(callback.from_user.id, workspace_id),
         ),
-        reply_markup=build_teacher_topics_keyboard(
+        build_teacher_topics_keyboard(
             callback.from_user.id,
             workspace_id,
             topics,
@@ -279,13 +304,19 @@ async def start_teacher_topic_create(
     except (TeacherContentAccessError, ValueError):
         await _answer_teacher_content_unavailable(callback.message, callback.from_user.id, state)
         return
-    await state.update_data(workspace_id=workspace_id)
+    await state.update_data(
+        workspace_id=workspace_id,
+        prompt_message_id=getattr(callback.message, "message_id", None),
+    )
     await state.set_state(TeacherContentStates.awaiting_topic_title)
-    await callback.message.answer(
+    await _replace_message(
+        callback.message,
+        getattr(callback.message, "message_id", None),
         translate_for_user(
             callback.from_user.id,
             "teacher.content.prompt.topic_title",
-        )
+        ),
+        build_teacher_prompt_back_keyboard(f"{TEACHER_CONTENT_TOPIC_BACK}{workspace_id}"),
     )
 
 
@@ -295,6 +326,7 @@ async def save_teacher_topic_title(message: Message, state: FSMContext) -> None:
         return
     data = await state.get_data()
     workspace_id = data.get("workspace_id")
+    prompt_message_id = data.get("prompt_message_id")
     if workspace_id is None:
         await state.clear()
         return
@@ -304,22 +336,19 @@ async def save_teacher_topic_title(message: Message, state: FSMContext) -> None:
         await _answer_teacher_content_unavailable(message, message.from_user.id, state)
         return
     except ValueError:
-        await message.answer(
+        await _replace_message(
+            message,
+            prompt_message_id,
             translate_for_user(
                 message.from_user.id,
                 "teacher.content.prompt.topic_title",
-            )
+            ),
+            build_teacher_prompt_back_keyboard(f"{TEACHER_CONTENT_TOPIC_BACK}{workspace_id}"),
         )
         return
 
     await state.set_state(None)
-    await message.answer(
-        translate_for_user(
-            message.from_user.id,
-            "teacher.content.topic.created",
-            topic_title=str(topic["title"]),
-        )
-    )
+    await state.update_data(navigator_message_id=prompt_message_id)
     await refresh_teacher_topic_editor(
         message,
         message.from_user.id,
@@ -765,17 +794,20 @@ async def back_to_teacher_topics(
         topic_id=None,
         item_id=None,
         page=0,
+        prompt_message_id=None,
         navigator_message_id=None,
         image_message_id=None,
         card_message_id=None,
     )
-    await callback.message.answer(
+    await _replace_message(
+        callback.message,
+        getattr(callback.message, "message_id", None),
         translate_for_user(
             callback.from_user.id,
             "teacher.content.topics.title",
             workspace_name=_resolve_workspace_name(callback.from_user.id, workspace_id),
         ),
-        reply_markup=build_teacher_topics_keyboard(
+        build_teacher_topics_keyboard(
             callback.from_user.id,
             workspace_id,
             topics,
@@ -940,27 +972,57 @@ async def refresh_teacher_topic_editor(
         )
 
 
-async def _render_teacher_workspaces(message: Message, telegram_user_id: int) -> None:
+async def _render_teacher_workspaces(
+    message: Message,
+    telegram_user_id: int,
+    *,
+    replace_message_id: int | None = None,
+) -> None:
     workspaces = list_teacher_browsable_workspaces(telegram_user_id)
     if not workspaces:
-        await message.answer(
+        await _replace_message(
+            message,
+            replace_message_id,
             translate_for_user(
                 telegram_user_id,
                 "teacher.content.workspaces.empty",
             ),
-            reply_markup=build_teacher_workspaces_keyboard(telegram_user_id, []),
+            build_teacher_workspaces_keyboard(telegram_user_id, []),
         )
         return
-    await message.answer(
+    await _replace_message(
+        message,
+        replace_message_id,
         translate_for_user(
             telegram_user_id,
             "teacher.content.workspaces.title",
         ),
-        reply_markup=build_teacher_workspaces_keyboard(telegram_user_id, workspaces),
+        build_teacher_workspaces_keyboard(telegram_user_id, workspaces),
     )
 
 
 async def _render_or_replace_message(
+    anchor_message: Message,
+    existing_message_id: int | None,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None,
+) -> int:
+    if existing_message_id is not None:
+        try:
+            await anchor_message.bot.edit_message_text(
+                chat_id=anchor_message.chat.id,
+                message_id=int(existing_message_id),
+                text=text,
+                reply_markup=reply_markup,
+            )
+            return int(existing_message_id)
+        except Exception:
+            pass
+    sent_message = await anchor_message.answer(text, reply_markup=reply_markup)
+    return int(sent_message.message_id)
+
+
+async def _replace_message(
     anchor_message: Message,
     existing_message_id: int | None,
     text: str,

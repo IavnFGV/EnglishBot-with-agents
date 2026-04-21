@@ -7,6 +7,7 @@ from englishbot.command_registry import (
     ALL_COMMANDS,
     ASSIGN_COMMAND,
     BOT_COMMANDS,
+    CANCEL_COMMAND,
     GRANTTOPIC_COMMAND,
     JOIN_COMMAND,
     LEARN_COMMAND,
@@ -37,6 +38,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "learn",
         "me",
         "settings",
+        "cancel",
         "invite",
         "join",
         "assign",
@@ -57,6 +59,7 @@ def test_bot_command_collection_respects_registration_flag() -> None:
         LEARN_COMMAND.name,
         ME_COMMAND.name,
         SETTINGS_COMMAND.name,
+        CANCEL_COMMAND.name,
     ]
     assert BOT_COMMANDS == build_bot_commands()
     assert [command.command for command in BOT_COMMANDS] == [
@@ -64,6 +67,7 @@ def test_bot_command_collection_respects_registration_flag() -> None:
         LEARN_COMMAND.name,
         ME_COMMAND.name,
         SETTINGS_COMMAND.name,
+        CANCEL_COMMAND.name,
     ]
 
 

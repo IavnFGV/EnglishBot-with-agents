@@ -18,6 +18,7 @@ from englishbot.teacher_content_handlers import (
     TEACHER_CONTENT_FIELD_PREFIX,
     TEACHER_CONTENT_IMAGE_PREFIX,
     TEACHER_CONTENT_PAGE_PREFIX,
+    TEACHER_CONTENT_TOPIC_BACK,
     TEACHER_CONTENT_TOPIC_CREATE,
     TEACHER_CONTENT_TOPIC_PREFIX,
     TEACHER_CONTENT_WORKSPACE_BACK,
@@ -49,6 +50,12 @@ from englishbot.workspaces import add_workspace_member, create_workspace
 class FakeBot:
     def __init__(self) -> None:
         self.edited_messages: list[dict[str, object]] = []
+        self._next_message_id = 1
+
+    def next_message_id(self) -> int:
+        message_id = self._next_message_id
+        self._next_message_id += 1
+        return message_id
 
     async def edit_message_text(
         self,
@@ -69,18 +76,24 @@ class FakeBot:
 
 
 class FakeMessage:
-    def __init__(self, user: User, text: str | None = None, photo=None, bot: FakeBot | None = None) -> None:
+    def __init__(
+        self,
+        user: User,
+        text: str | None = None,
+        photo=None,
+        bot: FakeBot | None = None,
+        message_id: int | None = None,
+    ) -> None:
         self.from_user = user
         self.text = text
         self.photo = photo
         self.bot = bot or FakeBot()
         self.chat = SimpleNamespace(id=user.id)
+        self.message_id = 0 if message_id is None else message_id
         self.answers: list[dict[str, object]] = []
-        self._next_message_id = 1
 
     async def answer(self, text: str, **kwargs: object) -> SimpleNamespace:
-        sent = SimpleNamespace(message_id=self._next_message_id)
-        self._next_message_id += 1
+        sent = SimpleNamespace(message_id=self.bot.next_message_id())
         self.answers.append({"text": text, "kwargs": kwargs, "message_id": sent.message_id})
         return sent
 
@@ -138,7 +151,7 @@ def test_teacher_content_handler_lists_workspaces_and_creates_workspace(tmp_path
     db.save_user(teacher)
     set_user_role(teacher.id, "teacher")
     add_workspace_member(create_workspace("Authoring", kind="teacher")["workspace_id"], teacher.id, "teacher")
-    message = FakeMessage(teacher)
+    message = FakeMessage(teacher, message_id=1)
     state = make_state(teacher)
 
     asyncio.run(teacher_content(message, state))
@@ -148,6 +161,8 @@ def test_teacher_content_handler_lists_workspaces_and_creates_workspace(tmp_path
 
     assert message.answers[0]["text"] == "Your teacher spaces:"
     assert callback.answered is True
+    assert message.bot.edited_messages[0]["text"] == "Send the new workspace name."
+    assert message.bot.edited_messages[-1]["text"] == "Your teacher spaces:"
     latest_data = asyncio.run(state.get_data())
     assert latest_data == {}
 
@@ -159,7 +174,7 @@ def test_teacher_can_browse_topics_create_topic_and_open_three_message_editor(tm
     set_user_role(teacher.id, "teacher")
     workspace = create_workspace("Authoring", kind="teacher")
     add_workspace_member(workspace["workspace_id"], teacher.id, "teacher")
-    message = FakeMessage(teacher)
+    message = FakeMessage(teacher, message_id=1)
     state = make_state(teacher)
 
     callback = FakeCallback(teacher, f"{TEACHER_CONTENT_WORKSPACE_PREFIX}{workspace['workspace_id']}", message)
@@ -175,15 +190,35 @@ def test_teacher_can_browse_topics_create_topic_and_open_three_message_editor(tm
 
     assert callback.answered is True
     assert create_callback.answered is True
-    assert [answer["text"] for answer in create_message.answers[-3:]] == [
-        "Topic: Animals\nPage 1/1. Items: 0.\nThis topic has no learning items yet.",
-        "No image.",
-        "Animals\nNo active items in this topic yet.",
-    ]
+    assert message.bot.edited_messages[0]["text"] == "Topics in Authoring:"
+    assert message.bot.edited_messages[1]["text"] == "Send the new topic title."
+    assert message.bot.edited_messages[2]["text"] == (
+        "Topic: Animals\nPage 1/1. Items: 0.\nThis topic has no learning items yet."
+    )
+    assert [answer["text"] for answer in create_message.answers[-2:]] == ["No image.", "Animals\nNo active items in this topic yet."]
     state_data = asyncio.run(state.get_data())
-    assert state_data["navigator_message_id"] == 2
-    assert state_data["image_message_id"] == 3
-    assert state_data["card_message_id"] == 4
+    assert state_data["navigator_message_id"] == 1
+    assert state_data["image_message_id"] == 1
+    assert state_data["card_message_id"] == 2
+
+
+def test_topic_create_back_restores_previous_topics_message_in_place(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher = make_user(108, "Teacher")
+    db.save_user(teacher)
+    set_user_role(teacher.id, "teacher")
+    workspace = create_workspace("Authoring", kind="teacher")
+    add_workspace_member(workspace["workspace_id"], teacher.id, "teacher")
+    message = FakeMessage(teacher, message_id=1)
+    state = make_state(teacher)
+
+    asyncio.run(open_teacher_workspace(FakeCallback(teacher, f"{TEACHER_CONTENT_WORKSPACE_PREFIX}{workspace['workspace_id']}", message), state))
+    asyncio.run(start_teacher_topic_create(FakeCallback(teacher, f"{TEACHER_CONTENT_TOPIC_CREATE}{workspace['workspace_id']}", message), state))
+    from englishbot.teacher_content_handlers import back_to_teacher_topics
+
+    asyncio.run(back_to_teacher_topics(FakeCallback(teacher, f"{TEACHER_CONTENT_TOPIC_BACK}{workspace['workspace_id']}", message), state))
+
+    assert message.bot.edited_messages[-1]["text"] == "Topics in Authoring:"
 
 
 def test_topic_editor_page_navigation_updates_three_message_model(tmp_path: Path) -> None:
@@ -192,7 +227,7 @@ def test_topic_editor_page_navigation_updates_three_message_model(tmp_path: Path
     db.save_user(teacher)
     set_user_role(teacher.id, "teacher")
     workspace_id, topic_id = seed_topic(teacher.id, item_count=27)
-    message = FakeMessage(teacher)
+    message = FakeMessage(teacher, message_id=1)
     state = make_state(teacher)
 
     callback = FakeCallback(teacher, f"{TEACHER_CONTENT_TOPIC_PREFIX}{workspace_id}:{topic_id}", message)
@@ -215,7 +250,7 @@ def test_prev_next_navigation_and_field_editing_update_db_backed_editor(tmp_path
     db.save_user(teacher)
     set_user_role(teacher.id, "teacher")
     workspace_id, topic_id = seed_topic(teacher.id, item_count=3)
-    message = FakeMessage(teacher)
+    message = FakeMessage(teacher, message_id=1)
     state = make_state(teacher)
 
     asyncio.run(open_teacher_topic(FakeCallback(teacher, f"{TEACHER_CONTENT_TOPIC_PREFIX}{workspace_id}:{topic_id}", message), state))
@@ -287,7 +322,7 @@ def test_unauthorized_teacher_content_access_is_rejected(tmp_path: Path) -> None
     set_user_role(teacher.id, "teacher")
     set_user_role(stranger.id, "teacher")
     workspace_id, topic_id = seed_topic(teacher.id, item_count=1)
-    message = FakeMessage(stranger)
+    message = FakeMessage(stranger, message_id=1)
     state = make_state(stranger)
 
     callback = FakeCallback(stranger, f"{TEACHER_CONTENT_TOPIC_PREFIX}{workspace_id}:{topic_id}", message)
