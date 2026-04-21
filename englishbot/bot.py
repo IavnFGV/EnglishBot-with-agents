@@ -5,11 +5,10 @@ from aiogram.filters import Command
 from aiogram.types import ErrorEvent, Message
 from aiogram_dialog import setup_dialogs
 
-from .basic_topics_seed import seed_basic_topics
 from .command_registry import BOT_COMMANDS, ME_COMMAND
-from .db import count_text_interactions, get_user, init_db
+from .db import count_text_interactions, get_user
 from .i18n import translate_for_user
-from .runtime import build_bot, dispatcher, router
+from .runtime import dispatcher, router
 from .teacher_content_dialog import teacher_content_dialog
 from .user_profiles import get_user_role
 from . import cancel_handlers  # noqa: F401
@@ -75,17 +74,3 @@ async def on_error(event: ErrorEvent) -> None:
         "Unhandled exception while processing an update",
         exc_info=event.exception,
     )
-
-
-async def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-
-    init_db()
-    seed_basic_topics()
-    bot = build_bot()
-    await configure_bot_commands(bot)
-    logger.info("Starting EnglishBot with long polling")
-    await dispatcher.start_polling(bot)

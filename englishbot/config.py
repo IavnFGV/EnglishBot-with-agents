@@ -3,8 +3,11 @@ import os
 from dotenv import load_dotenv
 
 
+def load_environment() -> None:
+    load_dotenv(dotenv_path=".env")
+
+
 def load_config() -> str:
-    load_dotenv()
     token = os.getenv("TELEGRAM_BOT_TOKEN")
 
     if not token:

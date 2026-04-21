@@ -1,0 +1,152 @@
+# Prompt
+
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+Before planning or coding, read:
+
+- `AGENTS.md`
+- `context/englishbot_handoff.md`
+- `context/current_state.md`
+
+## Task
+
+Implement production-usable but minimal centralized application logging for this project.
+
+## Primary goal
+
+Add centralized stdlib logging with:
+
+- console logging
+- one active main log file
+- timed rollover
+- gzip-compressed archived logs with custom names
+- retention cleanup
+- separate maintenance log for archive/delete lifecycle events
+
+## Required constraints
+
+- Use Python standard library logging only
+- Do NOT add external logging frameworks
+- Do NOT scatter logging configuration across modules
+- Keep the solution minimal and localized
+- Feature modules must continue using `logging.getLogger(__name__)`
+- No per-module handler setup
+- If this reveals a startup-order problem, fix it properly in the same task using the smallest explicit bootstrap/startup path
+- Do not leave hidden `.env` loading side effects spread across unrelated modules
+
+## Logging requirements
+
+1. Create a focused centralized module, for example:
+   - `englishbot/logging_setup.py`
+
+2. Support environment variables:
+   - `ENGLISHBOT_LOG_DIR`
+   - `ENGLISHBOT_LOG_LEVEL`
+   - `ENGLISHBOT_LOG_BACKUP_COUNT`
+   - `ENGLISHBOT_LOG_MAX_SIZE_BYTES`
+   - `ENGLISHBOT_LOG_RETENTION_DAYS`
+
+3. Main runtime log:
+   - keep one active file such as `englishbot.log`
+   - keep console logging enabled
+
+4. Timed rollover:
+   - use stdlib timed rotation
+   - on rollover, archive with a custom name including:
+     - application name
+     - hostname
+     - timestamp
+   - compress archives as `.gz`
+
+   Example:
+   - `englishbot__server-01__2026-04-21_22-15-00.log.gz`
+
+5. Retention:
+   - remove old archives by age and/or backup count
+   - keep implementation explicit and simple
+
+6. Maintenance log:
+   - separate file such as `englishbot_maintenance.log`
+   - write archive lifecycle records there:
+     - archive created
+     - archive deleted
+   - do not write those lifecycle events into the rotating application log during rollover
+
+7. Safety:
+   - create log directory if missing
+   - use UTF-8
+   - invalid numeric env values must fall back safely to defaults
+   - startup must not fail if file logging is unavailable; console logging must still work
+
+## Startup / infrastructure requirement
+
+If needed, centralize startup infrastructure order into one explicit module, for example `englishbot/bootstrap.py`, so the startup path is deterministic.
+
+Preferred order:
+
+1. load `.env`
+2. configure logging
+3. initialize/migrate DB
+4. seed startup content if needed
+5. build bot/runtime
+6. register commands
+7. start polling
+
+If you introduce or change this startup path:
+
+- keep `englishbot/bot.py` focused on Telegram wiring and handlers
+- keep bootstrap small and explicit
+- avoid DI containers, service locators, or any heavy “infrastructure framework”
+
+## Tests
+
+Add focused tests that cover at least:
+
+- console-only startup when file logging is not configured
+- log directory creation
+- timed rotating file handler configuration
+- custom archive naming includes app name and hostname
+- rollover creates `.gz`
+- retention cleanup removes old archives
+- maintenance log receives archive/delete records
+- invalid config values fall back safely
+- startup/bootstrap ordering if startup logic is centralized
+- regression coverage so logging sees env loaded from `.env` through the real startup path
+
+## Documentation and repo rules
+
+Follow `AGENTS.md` strictly.
+
+After implementation you MUST update:
+
+- `CHANGELOG.md`
+- `context/current_state.md`
+
+If you add or change environment variables, you MUST also update:
+
+- `.env.example`
+
+## Implementation style
+
+- Propose the smallest possible design
+- Run complexity review before implementation
+- Implement only the approved minimal plan
+- Keep changes local
+- Reject overengineering
+- Use tests as specification
+- Finish the task end-to-end in one go unless blocked
+
+## Final output
+
+At the end provide:
+
+- short summary of what changed
+- important architectural note if startup/bootstrap was refactored
+- tests run
+- changed files

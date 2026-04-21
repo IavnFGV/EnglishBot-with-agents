@@ -30,6 +30,7 @@ For implementation tasks:
 After every completed task:
 - append a short entry to `CHANGELOG.md`
 - update `context/current_state.md` with the new current capabilities, constraints, and changed files
+- if the task adds or changes environment variables, update `.env.example` in the same task
 - keep both files concise and factual
 
 ## Development Rules
@@ -46,6 +47,7 @@ After every completed task:
 - Any new import MUST be reflected in requirements.txt
 - If a package is used but not listed, add it
 - Never assume dependencies are preinstalled
+- Any new or changed environment variable MUST be added to `.env.example`
 
 ## File structure rules
 

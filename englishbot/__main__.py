@@ -1,7 +1,7 @@
 import asyncio
 
-from .bot import main
+from .bootstrap import run
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run())
