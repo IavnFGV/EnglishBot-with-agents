@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
 from englishbot.bot import BOT_COMMANDS, configure_bot_commands, dispatcher, me
-from englishbot.command_registry import CANCEL_COMMAND, ME_COMMAND, SETTINGS_COMMAND
+from englishbot.command_registry import ALL_COMMANDS
 from englishbot.training import create_training_session, get_active_training_session
 from englishbot.vocabulary import create_learning_item, create_learning_item_translation, create_lexeme
 
@@ -63,13 +63,7 @@ def test_configure_bot_commands_registers_expected_commands() -> None:
     asyncio.run(configure_bot_commands(bot))
 
     assert bot.commands == BOT_COMMANDS
-    assert [command.command for command in bot.commands] == [
-        "start",
-        "learn",
-        ME_COMMAND.name,
-        SETTINGS_COMMAND.name,
-        CANCEL_COMMAND.name,
-    ]
+    assert [command.command for command in bot.commands] == [command.name for command in ALL_COMMANDS]
 
 
 def test_me_command_is_not_swallowed_by_active_training_session(

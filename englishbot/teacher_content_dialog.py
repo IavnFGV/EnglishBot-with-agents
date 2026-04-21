@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from io import BytesIO
 
 from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
@@ -11,6 +12,7 @@ from aiogram_dialog.widgets.kbd import Button, Cancel, Row, ScrollingGroup, Sele
 from aiogram_dialog.widgets.text import Format
 
 from .command_registry import TEACHER_CONTENT_COMMAND
+from .assets import store_teacher_content_image
 from .db import save_user
 from .i18n import translate_for_user
 from .runtime import router
@@ -330,12 +332,34 @@ async def _on_prompt_input(
     if prompt_kind == PromptKind.EDIT_FIELD and dialog_manager.dialog_data.get("edit_field") is None:
         return
     if prompt_kind == PromptKind.EDIT_FIELD and message.photo:
-        if dialog_manager.dialog_data.get("edit_field") == "image_ref":
+        field_name = str(dialog_manager.dialog_data["edit_field"])
+        if field_name != "image_ref":
             dialog_manager.dialog_data["prompt_error"] = translate_for_user(
                 user_id,
                 "teacher.content.image.upload_not_supported",
             )
             await dialog_manager.update({})
+            return
+        buffer = BytesIO()
+        await message.bot.download(message.photo[-1], destination=buffer)
+        image_ref = store_teacher_content_image(
+            int(dialog_manager.dialog_data["item_id"]),
+            buffer.getvalue(),
+        )
+        update_teacher_topic_item_field(
+            user_id,
+            int(dialog_manager.dialog_data["workspace_id"]),
+            int(dialog_manager.dialog_data["topic_id"]),
+            int(dialog_manager.dialog_data["item_id"]),
+            field_name,
+            image_ref,
+        )
+        dialog_manager.dialog_data["status_text"] = translate_for_user(
+            user_id,
+            "teacher.content.image.saved",
+        )
+        await _reset_prompt_state(dialog_manager)
+        await dialog_manager.switch_to(TeacherContentDialogSG.browser)
         return
     if message.text is None:
         return

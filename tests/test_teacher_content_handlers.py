@@ -1,5 +1,6 @@
 import asyncio
 import sys
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -54,14 +55,25 @@ class FakeDialogManager:
 
 
 class FakeMessage:
-    def __init__(self, user: User, text: str | None = None, photo=None) -> None:
+    def __init__(self, user: User, text: str | None = None, photo=None, bot=None) -> None:
         self.from_user = user
         self.text = text
         self.photo = photo
+        self.bot = bot or FakeBot()
         self.answers: list[str] = []
 
     async def answer(self, text: str, **kwargs) -> None:
         self.answers.append(text)
+
+
+class FakeBot:
+    def __init__(self, download_payload: bytes | None = None) -> None:
+        self.download_payload = download_payload or b""
+
+    async def download(self, file: object, destination: BytesIO) -> BytesIO:
+        destination.write(self.download_payload)
+        destination.seek(0)
+        return destination
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -194,6 +206,38 @@ def test_field_edit_prompt_entry_save_and_back_flow(tmp_path: Path) -> None:
     asyncio.run(open_create_topic(None, None, manager))
     asyncio.run(go_to_prompt_return(None, None, manager))
     assert manager.switch_calls[-2:] == [TeacherContentDialogSG.prompt, TeacherContentDialogSG.topics]
+
+
+def test_image_field_upload_persists_local_image_and_saves_local_ref(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher = make_user(109, "Teacher")
+    db.save_user(teacher)
+    set_user_role(teacher.id, "teacher")
+    workspace_id, topic_id = seed_topic(teacher.id)
+    manager = FakeDialogManager(teacher)
+    manager.dialog_data.update({"workspace_id": workspace_id, "topic_id": topic_id})
+    asyncio.run(get_browser_window_data(manager))
+
+    asyncio.run(open_edit_prompt(None, None, manager))
+    asyncio.run(choose_field(None, None, manager, "image_ref"))
+    asyncio.run(
+        on_prompt_input(
+            FakeMessage(
+                teacher,
+                photo=[SimpleNamespace(file_id="small-file"), SimpleNamespace(file_id="real-photo-file")],
+                bot=FakeBot(download_payload=b"fake-image-bytes"),
+            ),
+            None,
+            manager,
+        )
+    )
+    browser_view = asyncio.run(get_browser_window_data(manager))
+
+    assert manager.switch_calls[-2:] == [TeacherContentDialogSG.prompt, TeacherContentDialogSG.browser]
+    assert manager.dialog_data["status_text"] == "Image reference saved."
+    image_ref = browser_view["screen_text"].split("image_ref: ", 1)[1].splitlines()[0]
+    assert image_ref.startswith("assets/images/teacher-content/learning-item-")
+    assert Path(tmp_path / image_ref).read_bytes() == b"fake-image-bytes"
 
 
 def test_publish_screen_and_back_do_not_spray_extra_messages(tmp_path: Path) -> None:

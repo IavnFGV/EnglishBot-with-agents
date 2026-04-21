@@ -51,24 +51,12 @@ def test_command_registry_contains_all_canonical_commands() -> None:
     assert len({command.name for command in ALL_COMMANDS}) == len(ALL_COMMANDS)
 
 
-def test_bot_command_collection_respects_registration_flag() -> None:
+def test_bot_command_collection_stays_consistent_with_registry() -> None:
     registered = get_registered_commands()
 
-    assert [command.name for command in registered] == [
-        START_COMMAND.name,
-        LEARN_COMMAND.name,
-        ME_COMMAND.name,
-        SETTINGS_COMMAND.name,
-        CANCEL_COMMAND.name,
-    ]
+    assert registered == ALL_COMMANDS
     assert BOT_COMMANDS == build_bot_commands()
-    assert [command.command for command in BOT_COMMANDS] == [
-        START_COMMAND.name,
-        LEARN_COMMAND.name,
-        ME_COMMAND.name,
-        SETTINGS_COMMAND.name,
-        CANCEL_COMMAND.name,
-    ]
+    assert [command.command for command in BOT_COMMANDS] == [command.name for command in ALL_COMMANDS]
 
 
 def test_usage_messages_and_caption_parsing_use_canonical_command_names() -> None:

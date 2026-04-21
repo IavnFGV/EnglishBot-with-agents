@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-21
+- Teacher content editing now accepts real Telegram photos for `image_ref`: uploaded images are downloaded and persisted locally under `assets/images/teacher-content/`, the saved `learning_items.image_ref` now points to that stable backend path instead of a transient Telegram file id, the image prompt text was updated through centralized i18n, and focused teacher-content tests now cover the local file persistence path.
+- Aligned command-registration tests with the current temporary behavior where all canonical commands are registered by default on startup, so the suite now checks registry consistency instead of asserting the older reduced command subset.
+
 ## 2026-04-20
 - Reconciled the documentation snapshot with the repository state: `context/current_state.md` no longer claims that `hint_language` is missing, no longer describes localized homework UI with stale hardcoded Russian examples, no longer keeps duplicate command-registry notes or an obsolete "current slice" file list, `context/englishbot_handoff.md` now reflects the already-implemented separate `hint_language` setting, and `englishbot/user_profiles.py` now fails closed to default language behavior when a legacy or not-yet-migrated `user_profiles` schema is read.
 - Added a dedicated homework learner flow on top of the staged training engine: unfinished assignment launches now resume the persisted staged state for that assignment, including after the learner switches to another session, homework progress now renders the assignment title plus completed count/current item/current stage and compact item statuses, and homework completion now sends a homework-specific final summary while still reusing the shared answer-processing flow.
