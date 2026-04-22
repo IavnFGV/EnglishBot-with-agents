@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from urllib.parse import urlparse
+from urllib.request import urlopen
 from uuid import uuid4
 
 from . import db
 
 TEACHER_CONTENT_IMAGE_DIR = Path("assets/images/teacher-content")
+NO_IMAGE_PLACEHOLDER_PATH = Path("assets/images/no-image.png")
 WORKBOOK_IMPORT_ASSET_DIR = Path("assets/workbook-import")
 ASSET_TYPE_IMAGE = "image"
 ASSET_TYPE_AUDIO = "audio"
@@ -368,6 +370,25 @@ def store_teacher_content_image(
     output_path = asset_dir / filename
     output_path.write_bytes(content)
     return str((TEACHER_CONTENT_IMAGE_DIR / filename).as_posix())
+
+
+def store_teacher_content_image_from_url(
+    learning_item_id: int,
+    source_url: str,
+) -> str:
+    parsed_url = urlparse(source_url)
+    if parsed_url.scheme not in {"http", "https"}:
+        raise ValueError("image url must be http or https")
+
+    with urlopen(source_url, timeout=15) as response:
+        content = response.read()
+
+    extension = Path(parsed_url.path).suffix.lower() or ".jpg"
+    return store_teacher_content_image(
+        learning_item_id,
+        content,
+        extension=extension,
+    )
 
 
 def store_workbook_import_asset(

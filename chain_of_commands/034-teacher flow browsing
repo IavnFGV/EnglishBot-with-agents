@@ -1,0 +1,147 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+Task:
+Refine the current `/teacher_content` dialog-driven teacher flow so that topic browsing gives better overview without turning the UI back into message clutter.
+
+IMPORTANT:
+
+* This is a focused UI refinement task
+* Do NOT redesign the teacher-content dialog architecture
+* Do NOT reintroduce multi-message screen clutter
+* Do NOT add giant inline button lists for items
+* Do NOT redesign asset/domain model
+* Audio presence is NOT part of this task
+* Only image presence matters for item list markers in this step
+
+Goal:
+Improve the current teacher topic flow by adding a human-friendly "show all items" overview and a clearer list+focus browsing experience, while keeping the main teacher dialog compact.
+
+Requirements:
+
+1. Keep the current dialog-driven structure
+
+* `/teacher_content` must remain aiogram-dialog based
+* The current main teacher-content screen must remain a single primary screen reused through message editing
+* Do NOT regress back into message spraying for the main flow
+
+2. Improve topic item browser overview
+   Refine the current topic item browser so the teacher can understand the topic contents faster without opening every item mentally one by one.
+
+Preferred behavior:
+
+* the main topic screen should still show:
+
+  * topic title
+  * current item position
+  * current selected item details
+* additionally, the screen may show a compact visible list window around the current selected item if that improves usability
+* keep it compact and readable
+
+3. Add a "Show all" action
+   When a topic contains more than 10 items:
+
+* show a dedicated button such as `📄 Show all`
+* pressing it sends a separate read-only message with the full list of English item texts in that topic
+* this full-list message is intentionally separate from the main dialog screen
+* it must not replace the main dialog state
+* it must not create a new navigation mode
+* it must not contain per-item inline action buttons
+
+4. Full-list message format
+   The full-list message should contain:
+
+* topic title
+* total item count
+* one line per item
+* only the English/headword text
+* no translations
+* no extra fields
+* no raw ids
+
+Each item line must show only a simple image-presence marker:
+
+* use one consistent marker for "has image"
+* use one consistent marker for "no image"
+
+Do NOT include audio markers in this step.
+
+Choose a clean minimal visual style, for example:
+
+* `🖼 word` for items that have an image
+* `• word` for items without an image
+
+or another equally compact readable scheme.
+Keep it visually consistent and not noisy.
+
+5. Full-list message behavior
+
+* this message is read-only
+* no per-item buttons
+* no giant inline keyboard
+* ideally only a minimal close/back acknowledgement if really needed, otherwise plain message is acceptable
+* do not turn this into a second complex UI flow
+
+6. Threshold behavior
+
+* if topic item count is 10 or fewer, the separate `Show all` button should be hidden
+* if topic item count is greater than 10, show it
+
+7. Architecture rules
+
+* keep business logic out of Telegram handlers
+* use existing teacher-content domain helpers where possible
+* if a new helper is needed for "list all item summaries for topic", keep it focused and small
+* do not expand unrelated features
+* do not redesign translation handling
+* do not redesign media handling
+* image presence is determined from the current canonical item asset/media model already present in the project
+
+8. Tests
+   Add or update focused tests to cover at least:
+
+* `Show all` button appears only when topic has more than 10 items
+* full-list message contains all item headwords
+* full-list message uses image-presence marker correctly
+* full-list message does not expose ids or extra fields
+* main dialog flow remains intact after using `Show all`
+* no giant inline keyboard list is introduced
+
+9. Documentation updates
+   After implementation, update:
+
+* CHANGELOG.md
+* context/current_state.md
+
+Current state must mention:
+
+* teacher topic flow now supports a separate read-only "show all items" message for larger topics
+* the full list uses only headwords plus a simple image-presence marker
+* audio presence is not shown in that overview
+* the main `/teacher_content` dialog remains the primary navigation/editing UI
+
+10. Scope control
+    Do NOT:
+
+* add audio markers
+* add per-item action buttons to the full-list message
+* redesign the whole topic screen from scratch unless minimally needed
+* reintroduce multi-message main screen clutter
+* add new commands for this feature
+
+Output:
+
+* minimal teacher-flow refinement
+* focused tests
+* short summary of what changed

@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from html import escape
 from io import BytesIO
+from pathlib import Path
 
+from aiogram import F
+from aiogram.enums import ContentType
 from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
-from aiogram_dialog import Dialog, DialogManager, StartMode, Window
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram_dialog import Dialog, DialogManager, ShowMode, StartMode, Window
+from aiogram_dialog.api.entities.media import MediaAttachment
 from aiogram_dialog.widgets.input import MessageInput
-from aiogram_dialog.widgets.kbd import Button, Cancel, Row, ScrollingGroup, Select
+from aiogram_dialog.widgets.kbd import Button, Column, Row, ScrollingGroup, Select
+from aiogram_dialog.widgets.media import DynamicMedia
 from aiogram_dialog.widgets.text import Format
 
 from .command_registry import TEACHER_CONTENT_COMMAND
-from .assets import store_teacher_content_image
+from .assets import NO_IMAGE_PLACEHOLDER_PATH, store_teacher_content_image, store_teacher_content_image_from_url
 from .db import save_user
 from .i18n import translate_for_user
 from .runtime import router
@@ -20,6 +26,7 @@ from .teacher_content import (
     TeacherContentAccessError,
     TeacherContentPublishTargetError,
     archive_teacher_topic_item,
+    build_teacher_topic_full_list_overview,
     build_teacher_topic_editor_snapshot,
     create_teacher_topic,
     create_teacher_topic_item,
@@ -34,6 +41,7 @@ from .teacher_content import (
 LIST_PAGE_SIZE = 8
 TRANSLATION_LANGUAGE_CODES = ("ru", "uk", "bg")
 EDITABLE_FIELDS = ("text", "ru", "uk", "bg", "image_ref", "audio_ref")
+SHOW_ALL_HIDE_CALLBACK = "teacher_content:hide_show_all"
 
 
 class TeacherContentDialogSG(StatesGroup):
@@ -115,7 +123,7 @@ async def _on_topic_selected(
         await _handle_unavailable(dialog_manager)
         return
     dialog_manager.dialog_data["item_id"] = snapshot.get("selected_item_id")
-    await dialog_manager.switch_to(TeacherContentDialogSG.browser)
+    await _show_browser_with_overview(dialog_manager, callback.message)
 
 
 async def _on_publish_target_selected(
@@ -201,6 +209,7 @@ async def _go_to_topics(
     button: Button,
     dialog_manager: DialogManager,
 ) -> None:
+    await _delete_browser_overview_message(dialog_manager, callback.message)
     await _reset_prompt_state(dialog_manager)
     await dialog_manager.switch_to(TeacherContentDialogSG.topics)
 
@@ -210,6 +219,7 @@ async def _go_to_workspaces(
     button: Button,
     dialog_manager: DialogManager,
 ) -> None:
+    await _delete_browser_overview_message(dialog_manager, callback.message)
     await _reset_prompt_state(dialog_manager)
     await dialog_manager.switch_to(TeacherContentDialogSG.workspaces)
 
@@ -225,6 +235,7 @@ async def _go_to_prompt_return(
         await dialog_manager.switch_to(TeacherContentDialogSG.topics)
         return
     if prompt_kind in {PromptKind.CREATE_ITEM, PromptKind.EDIT_FIELD}:
+        await _sync_browser_overview_message(dialog_manager, callback.message)
         await dialog_manager.switch_to(TeacherContentDialogSG.browser)
         return
     await dialog_manager.switch_to(TeacherContentDialogSG.workspaces)
@@ -274,6 +285,7 @@ async def _prev_item(
         return
     dialog_manager.dialog_data["item_id"] = previous_item_id
     dialog_manager.dialog_data.pop("status_text", None)
+    await _sync_browser_overview_message(dialog_manager, callback.message)
     await dialog_manager.update({})
 
 
@@ -288,6 +300,7 @@ async def _next_item(
         return
     dialog_manager.dialog_data["item_id"] = next_item_id
     dialog_manager.dialog_data.pop("status_text", None)
+    await _sync_browser_overview_message(dialog_manager, callback.message)
     await dialog_manager.update({})
 
 
@@ -317,7 +330,53 @@ async def _archive_item(
         user_id,
         "teacher.content.item.archived",
     )
+    await _sync_browser_overview_message(dialog_manager, callback.message)
     await dialog_manager.update({})
+
+
+async def _show_all_items(
+    callback: CallbackQuery,
+    button: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    user_id = _get_user_id(dialog_manager)
+    try:
+        overview = build_teacher_topic_full_list_overview(
+            user_id,
+            int(dialog_manager.dialog_data["workspace_id"]),
+            int(dialog_manager.dialog_data["topic_id"]),
+        )
+        snapshot = _load_browser_snapshot(dialog_manager)
+    except TeacherContentAccessError:
+        await _handle_unavailable(dialog_manager)
+        return
+    if not snapshot.get("show_all_available"):
+        return
+    if callback.message is None:
+        return
+    await callback.message.answer(
+        _build_full_list_message_text(
+            user_id=user_id,
+            overview=overview,
+        ),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=translate_for_user(user_id, "teacher.content.action.ok"),
+                        callback_data=SHOW_ALL_HIDE_CALLBACK,
+                    )
+                ]
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data == SHOW_ALL_HIDE_CALLBACK)
+async def hide_show_all_message(callback: CallbackQuery) -> None:
+    if callback.message is not None:
+        await callback.message.delete()
+    await callback.answer()
 
 
 async def _on_prompt_input(
@@ -359,7 +418,9 @@ async def _on_prompt_input(
             "teacher.content.image.saved",
         )
         await _reset_prompt_state(dialog_manager)
-        await dialog_manager.switch_to(TeacherContentDialogSG.browser)
+        await _sync_browser_overview_message(dialog_manager, message)
+        await dialog_manager.switch_to(TeacherContentDialogSG.browser, show_mode=ShowMode.EDIT)
+        await _delete_user_message(message)
         return
     if message.text is None:
         return
@@ -391,7 +452,7 @@ async def _on_prompt_input(
             dialog_manager.dialog_data["topic_id"] = topic["id"]
             dialog_manager.dialog_data["item_id"] = None
             await _reset_prompt_state(dialog_manager)
-            await dialog_manager.switch_to(TeacherContentDialogSG.browser)
+            await _show_browser_with_overview(dialog_manager, message)
             return
         if prompt_kind == PromptKind.CREATE_ITEM:
             item = create_teacher_topic_item(
@@ -406,24 +467,34 @@ async def _on_prompt_input(
             )
             dialog_manager.dialog_data["item_id"] = int(item["learning_item_id"])
             await _reset_prompt_state(dialog_manager)
-            await dialog_manager.switch_to(TeacherContentDialogSG.browser)
+            await _sync_browser_overview_message(dialog_manager, message)
+            await dialog_manager.switch_to(TeacherContentDialogSG.browser, show_mode=ShowMode.EDIT)
             return
         if prompt_kind == PromptKind.EDIT_FIELD:
             field_name = str(dialog_manager.dialog_data["edit_field"])
+            value = message.text
+            if field_name == "image_ref" and value.startswith(("http://", "https://")):
+                value = store_teacher_content_image_from_url(
+                    int(dialog_manager.dialog_data["item_id"]),
+                    value,
+                )
             update_teacher_topic_item_field(
                 user_id,
                 int(dialog_manager.dialog_data["workspace_id"]),
                 int(dialog_manager.dialog_data["topic_id"]),
                 int(dialog_manager.dialog_data["item_id"]),
                 field_name,
-                message.text,
+                value,
             )
             dialog_manager.dialog_data["status_text"] = translate_for_user(
                 user_id,
                 "teacher.content.item.saved",
             )
             await _reset_prompt_state(dialog_manager)
-            await dialog_manager.switch_to(TeacherContentDialogSG.browser)
+            await _sync_browser_overview_message(dialog_manager, message)
+            await dialog_manager.switch_to(TeacherContentDialogSG.browser, show_mode=ShowMode.EDIT)
+            if field_name == "image_ref":
+                await _delete_user_message(message)
             return
     except TeacherContentAccessError:
         await _handle_unavailable(dialog_manager)
@@ -513,18 +584,22 @@ async def get_browser_window_data(
             snapshot=snapshot,
             status_text=_get_status_text(dialog_manager),
         ),
+        "current_item_media": _build_current_item_media(snapshot),
         "prev_label": translate_for_user(user_id, "teacher.content.action.prev"),
         "next_label": translate_for_user(user_id, "teacher.content.action.next"),
         "edit_label": translate_for_user(user_id, "teacher.content.action.edit"),
         "archive_label": translate_for_user(user_id, "teacher.content.action.archive"),
         "create_label": translate_for_user(user_id, "teacher.content.action.create"),
         "publish_label": translate_for_user(user_id, "teacher.content.action.publish"),
+        "show_all_label": translate_for_user(user_id, "teacher.content.action.show_all"),
         "topics_label": translate_for_user(user_id, "teacher.content.action.topics"),
         "workspaces_label": translate_for_user(user_id, "teacher.content.action.workspaces"),
         "cancel_label": translate_for_user(user_id, "teacher.content.action.cancel"),
         "has_prev_item": snapshot.get("prev_item_id") is not None,
         "has_next_item": snapshot.get("next_item_id") is not None,
         "has_current_item": current_item is not None,
+        "has_current_image": _current_item_has_real_image(snapshot),
+        "show_all_available": bool(snapshot.get("show_all_available")),
     }
 
 
@@ -543,7 +618,11 @@ async def get_prompt_window_data(
         else ""
     )
     prompt_key = (
-        "teacher.content.prompt.field_value"
+        (
+            "teacher.content.prompt.image_ref"
+            if edit_field == "image_ref"
+            else "teacher.content.prompt.field_value"
+        )
         if prompt_kind == PromptKind.EDIT_FIELD and edit_field is not None
         else {
             PromptKind.CREATE_WORKSPACE: "teacher.content.prompt.workspace_name",
@@ -552,20 +631,7 @@ async def get_prompt_window_data(
             PromptKind.EDIT_FIELD: "teacher.content.prompt.edit_field",
         }[prompt_kind]
     )
-
-    # Получаем headword, если мы в режиме редактирования или создания элемента в теме
-    headword = ""
-    if prompt_kind in {PromptKind.EDIT_FIELD, PromptKind.CREATE_ITEM}:
-        snapshot = _load_browser_snapshot(dialog_manager)
-        current_item = snapshot.get("current_item")
-        if current_item:
-            headword = current_item.get("headword", "")
-
-    lines = [
-        translate_for_user(user_id, "teacher.content.screen.prompt", headword=headword),
-        "",
-        translate_for_user(user_id, prompt_key, field_name=field_name, headword=headword),
-    ]
+    lines = [translate_for_user(user_id, prompt_key, field_name=field_name)]
     prompt_error = dialog_manager.dialog_data.get("prompt_error")
     if prompt_error:
         lines.extend(("", str(prompt_error)))
@@ -721,11 +787,6 @@ def _build_browser_screen_text(
             ),
             translate_for_user(
                 user_id,
-                "teacher.content.browser.headword",
-                value=str(current_item["headword"]),
-            ),
-            translate_for_user(
-                user_id,
                 "teacher.content.browser.text",
                 value=str(current_item["text"]),
             ),
@@ -740,20 +801,39 @@ def _build_browser_screen_text(
                 value=str(current_item["translations"].get(language_code) or "-"),
             )
         )
-    lines.append(
+    return "\n".join(lines)
+
+
+def _build_full_list_message_text(
+    *,
+    user_id: int,
+    overview: dict[str, object],
+) -> str:
+    lines = [
         translate_for_user(
             user_id,
-            "teacher.content.browser.image_ref",
-            value=str(current_item["image_ref"] or "-"),
-        )
-    )
-    lines.append(
+            "teacher.content.full_list.title",
+            topic_title=str(overview["topic_title"]),
+        ),
         translate_for_user(
             user_id,
-            "teacher.content.browser.audio_ref",
-            value=str(current_item["audio_ref"] or "-"),
+            "teacher.content.full_list.count",
+            item_count=int(overview["item_count"]),
+        ),
+        "",
+    ]
+    for row in overview["rows"]:
+        lines.append(
+            translate_for_user(
+                user_id,
+                (
+                    "teacher.content.full_list.row.with_image"
+                    if bool(row["has_image"])
+                    else "teacher.content.full_list.row.no_image"
+                ),
+                headword=str(row["headword"]),
+            )
         )
-    )
     return "\n".join(lines)
 
 
@@ -778,6 +858,7 @@ def _build_publish_screen_text(
 def _build_unavailable_view(user_id: int) -> dict[str, object]:
     return {
         "screen_text": translate_for_user(user_id, "teacher.content.unavailable"),
+        "current_item_media": None,
         "workspace_items": [],
         "topic_items": [],
         "target_items": [],
@@ -790,6 +871,7 @@ def _build_unavailable_view(user_id: int) -> dict[str, object]:
         "edit_label": translate_for_user(user_id, "teacher.content.action.edit"),
         "archive_label": translate_for_user(user_id, "teacher.content.action.archive"),
         "publish_label": translate_for_user(user_id, "teacher.content.action.publish"),
+        "show_all_label": translate_for_user(user_id, "teacher.content.action.show_all"),
         "topics_label": translate_for_user(user_id, "teacher.content.action.topics"),
         "workspaces_label": translate_for_user(user_id, "teacher.content.action.workspaces"),
         "has_prev_page": False,
@@ -797,8 +879,166 @@ def _build_unavailable_view(user_id: int) -> dict[str, object]:
         "has_prev_item": False,
         "has_next_item": False,
         "has_current_item": False,
+        "has_current_image": False,
+        "show_all_available": False,
         "show_field_picker": False,
     }
+
+
+def _build_browser_overview_text(
+    *,
+    user_id: int,
+    snapshot: dict[str, object],
+) -> str:
+    lines = [
+        translate_for_user(
+            user_id,
+            "teacher.content.overview.title",
+            topic_title=escape(str(snapshot["topic_title"])),
+        )
+    ]
+    visible_items = list(snapshot.get("visible_items") or [])
+    if not visible_items:
+        lines.extend(
+            (
+                translate_for_user(
+                    user_id,
+                    "teacher.content.overview.window",
+                    start=0,
+                    end=0,
+                    item_count=int(snapshot["item_count"]),
+                ),
+                "",
+                translate_for_user(user_id, "teacher.content.topic.empty"),
+            )
+        )
+        return "\n".join(lines)
+    lines.append(
+        translate_for_user(
+            user_id,
+            "teacher.content.overview.window",
+            start=int(visible_items[0]["position"]),
+            end=int(visible_items[-1]["position"]),
+            item_count=int(snapshot["item_count"]),
+        )
+    )
+    lines.append("")
+    for item in visible_items:
+        marker_key = (
+            "teacher.content.overview.item.selected.with_image"
+            if bool(item["is_selected"]) and bool(item["has_image"])
+            else "teacher.content.overview.item.selected.no_image"
+            if bool(item["is_selected"])
+            else "teacher.content.overview.item.default.with_image"
+            if bool(item["has_image"])
+            else "teacher.content.overview.item.default.no_image"
+        )
+        lines.append(
+            translate_for_user(
+                user_id,
+                marker_key,
+                position=int(item["position"]),
+                headword=escape(str(item["headword"])),
+            )
+        )
+    return "\n".join(lines)
+
+
+def _build_current_item_media(snapshot: dict[str, object]) -> MediaAttachment | None:
+    current_item = snapshot.get("current_item")
+    if current_item is None:
+        return None
+    image_ref = current_item.get("image_ref")
+    if not image_ref:
+        return MediaAttachment(ContentType.PHOTO, path=NO_IMAGE_PLACEHOLDER_PATH)
+    image_ref = str(image_ref)
+    if image_ref.startswith(("http://", "https://")):
+        return MediaAttachment(ContentType.PHOTO, url=image_ref)
+    return MediaAttachment(ContentType.PHOTO, path=Path(image_ref))
+
+
+def _current_item_has_real_image(snapshot: dict[str, object]) -> bool:
+    current_item = snapshot.get("current_item")
+    if current_item is None:
+        return False
+    return bool(current_item.get("image_ref"))
+
+
+async def _show_browser_with_overview(
+    dialog_manager: DialogManager,
+    source_message: Message | None,
+) -> None:
+    if source_message is None:
+        await dialog_manager.switch_to(TeacherContentDialogSG.browser)
+        return
+    user_id = _get_user_id(dialog_manager)
+    snapshot = _load_browser_snapshot(dialog_manager)
+    chat_id = _get_chat_id(source_message, dialog_manager)
+    current_message_id = dialog_manager.current_stack().last_message_id
+    if current_message_id is not None and chat_id is not None:
+        await source_message.bot.edit_message_text(
+            text=_build_browser_overview_text(user_id=user_id, snapshot=snapshot),
+            chat_id=chat_id,
+            message_id=current_message_id,
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+        dialog_manager.dialog_data["browser_overview_message_id"] = int(current_message_id)
+        dialog_manager.dialog_data["browser_overview_chat_id"] = int(chat_id)
+    await dialog_manager.switch_to(TeacherContentDialogSG.browser, show_mode=ShowMode.SEND)
+
+
+async def _sync_browser_overview_message(
+    dialog_manager: DialogManager,
+    source_message: Message | None,
+) -> None:
+    if source_message is None:
+        return
+    overview_message_id = dialog_manager.dialog_data.get("browser_overview_message_id")
+    chat_id = dialog_manager.dialog_data.get("browser_overview_chat_id")
+    if overview_message_id is None or chat_id is None:
+        return
+    user_id = _get_user_id(dialog_manager)
+    snapshot = _load_browser_snapshot(dialog_manager)
+    await source_message.bot.edit_message_text(
+        text=_build_browser_overview_text(user_id=user_id, snapshot=snapshot),
+        chat_id=int(chat_id),
+        message_id=int(overview_message_id),
+        parse_mode="HTML",
+        reply_markup=None,
+    )
+
+
+async def _delete_browser_overview_message(
+    dialog_manager: DialogManager,
+    source_message: Message | None,
+) -> None:
+    overview_message_id = dialog_manager.dialog_data.pop("browser_overview_message_id", None)
+    chat_id = dialog_manager.dialog_data.pop("browser_overview_chat_id", None)
+    if source_message is None or overview_message_id is None or chat_id is None:
+        return
+    await source_message.bot.delete_message(
+        chat_id=int(chat_id),
+        message_id=int(overview_message_id),
+    )
+
+
+async def _delete_user_message(message: Message) -> None:
+    try:
+        await message.delete()
+    except Exception:
+        return
+
+
+async def _cancel_dialog(
+    callback: CallbackQuery,
+    button: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    await _delete_browser_overview_message(dialog_manager, callback.message)
+    if callback.message is not None:
+        await callback.message.delete()
+    await dialog_manager.done(show_mode=ShowMode.NO_UPDATE)
 
 
 async def _enter_prompt(dialog_manager: DialogManager, prompt_kind: PromptKind) -> None:
@@ -874,6 +1114,16 @@ def _get_user_id(dialog_manager: DialogManager) -> int:
     return int(user.id)
 
 
+def _get_chat_id(source_message: Message, dialog_manager: DialogManager) -> int | None:
+    chat = getattr(source_message, "chat", None)
+    if chat is not None and getattr(chat, "id", None) is not None:
+        return int(chat.id)
+    event_chat = getattr(dialog_manager.event, "chat", None)
+    if event_chat is not None and getattr(event_chat, "id", None) is not None:
+        return int(event_chat.id)
+    return _get_user_id(dialog_manager)
+
+
 teacher_content_dialog = Dialog(
     Window(
         Format("{screen_text}"),
@@ -895,7 +1145,7 @@ teacher_content_dialog = Dialog(
         ),
         Row(
             Button(Format("{create_label}"), id="create_workspace", on_click=_open_create_workspace),
-            Cancel(Format("{cancel_label}")),
+            Button(Format("{cancel_label}"), id="workspaces_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherContentDialogSG.workspaces,
         getter=get_workspaces_window_data,
@@ -921,12 +1171,13 @@ teacher_content_dialog = Dialog(
         Row(
             Button(Format("{create_label}"), id="create_topic", on_click=_open_create_topic),
             Button(Format("{back_label}"), id="back_to_workspaces", on_click=_go_to_workspaces),
-            Cancel(Format("{cancel_label}")),
+            Button(Format("{cancel_label}"), id="topics_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherContentDialogSG.topics,
         getter=get_topics_window_data,
     ),
     Window(
+        DynamicMedia("current_item_media", when="has_current_item"),
         Format("{screen_text}"),
         Row(
             Button(Format("{prev_label}"), id="prev_item", on_click=_prev_item, when="has_prev_item"),
@@ -941,16 +1192,19 @@ teacher_content_dialog = Dialog(
             Button(Format("{publish_label}"), id="publish_topic", on_click=_open_publish_targets),
         ),
         Row(
+            Button(Format("{show_all_label}"), id="show_all_items", on_click=_show_all_items, when="show_all_available"),
+        ),
+        Row(
             Button(Format("{topics_label}"), id="back_to_topics", on_click=_go_to_topics),
             Button(Format("{workspaces_label}"), id="back_to_workspaces", on_click=_go_to_workspaces),
-            Cancel(Format("{cancel_label}")),
+            Button(Format("{cancel_label}"), id="browser_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherContentDialogSG.browser,
         getter=get_browser_window_data,
     ),
     Window(
         Format("{screen_text}"),
-        ScrollingGroup(
+        Column(
             Select(
                 Format("{item[label]}"),
                 id="field_select",
@@ -959,15 +1213,12 @@ teacher_content_dialog = Dialog(
                 on_click=_choose_field,
                 when="show_field_picker",
             ),
-            id="field_scroll",
-            width=1,
-            height=6,
             when="show_field_picker",
         ),
         MessageInput(_on_prompt_input),
         Row(
             Button(Format("{back_label}"), id="prompt_back", on_click=_go_to_prompt_return),
-            Cancel(Format("{cancel_label}")),
+            Button(Format("{cancel_label}"), id="prompt_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherContentDialogSG.prompt,
         getter=get_prompt_window_data,
@@ -988,7 +1239,7 @@ teacher_content_dialog = Dialog(
         ),
         Row(
             Button(Format("{back_label}"), id="publish_back", on_click=_go_to_browser),
-            Cancel(Format("{cancel_label}")),
+            Button(Format("{cancel_label}"), id="publish_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherContentDialogSG.publish,
         getter=get_publish_window_data,
@@ -999,6 +1250,7 @@ teacher_content_dialog = Dialog(
 choose_field = _choose_field
 go_to_browser = _go_to_browser
 go_to_prompt_return = _go_to_prompt_return
+hide_show_all = hide_show_all_message
 next_item = _next_item
 on_prompt_input = _on_prompt_input
 on_topic_selected = _on_topic_selected
@@ -1007,3 +1259,4 @@ open_create_topic = _open_create_topic
 open_edit_prompt = _open_edit_prompt
 open_publish_targets = _open_publish_targets
 prev_item = _prev_item
+show_all_items = _show_all_items

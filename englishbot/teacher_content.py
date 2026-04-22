@@ -43,6 +43,8 @@ from .workspaces import (
 )
 
 EDITOR_PAGE_SIZE = 25
+VISIBLE_ITEM_WINDOW_SIZE = 10
+SHOW_ALL_THRESHOLD = 10
 TRANSLATION_LANGUAGE_CODES = ("ru", "uk", "bg")
 
 
@@ -176,6 +178,10 @@ def build_teacher_topic_editor_snapshot(
         if selected_item is not None
         else None
     )
+    visible_items = _build_visible_items_window(
+        learning_items,
+        selected_item_id=int(selected_item["id"]) if selected_item is not None else None,
+    )
 
     return {
         "workspace_id": int(workspace["id"]),
@@ -199,19 +205,44 @@ def build_teacher_topic_editor_snapshot(
             }
             for learning_item in page_items
         ],
+        "visible_items": visible_items,
         "current_item": current_item,
+        "show_all_available": item_count > SHOW_ALL_THRESHOLD,
         "has_prev_page": clamped_page > 0,
         "has_next_page": clamped_page + 1 < page_count,
         "prev_item_id": (
-            item_ids[selected_index - 1]
-            if selected_index is not None and selected_index > 0
+            item_ids[(selected_index - 1) % item_count]
+            if selected_index is not None and item_count > 1
             else None
         ),
         "next_item_id": (
-            item_ids[selected_index + 1]
-            if selected_index is not None and selected_index + 1 < item_count
+            item_ids[(selected_index + 1) % item_count]
+            if selected_index is not None and item_count > 1
             else None
         ),
+    }
+
+
+def build_teacher_topic_full_list_overview(
+    teacher_user_id: int,
+    workspace_id: int,
+    topic_id: int,
+) -> dict[str, object]:
+    _, topic = _ensure_teacher_topic_access(teacher_user_id, workspace_id, topic_id)
+    learning_items = get_learning_items_for_topic(topic_id)
+    rows = []
+    for learning_item in learning_items:
+        current_item = _build_editor_current_item(learning_item)
+        rows.append(
+            {
+                "headword": str(current_item["headword"]),
+                "has_image": bool(current_item["image_ref"]),
+            }
+        )
+    return {
+        "topic_title": str(topic["title"]),
+        "item_count": len(rows),
+        "rows": rows,
     }
 
 
@@ -500,3 +531,37 @@ def _build_item_label(learning_item) -> str:
     if lexeme is not None and lexeme["lemma"]:
         return str(lexeme["lemma"])
     return str(learning_item["text"])
+
+
+def _build_visible_items_window(
+    learning_items,
+    *,
+    selected_item_id: int | None,
+) -> list[dict[str, object]]:
+    if not learning_items or selected_item_id is None:
+        return []
+    item_ids = [int(learning_item["id"]) for learning_item in learning_items]
+    if selected_item_id not in item_ids:
+        return []
+    item_count = len(learning_items)
+    selected_index = item_ids.index(selected_item_id)
+    window_size = min(VISIBLE_ITEM_WINDOW_SIZE, item_count)
+    half_window = window_size // 2
+    start = (selected_index - half_window) % item_count
+    return [
+        {
+            "position": item_index + 1,
+            "headword": _build_item_label(learning_items[item_index]),
+            "has_image": bool(
+                resolve_asset_ref_for_role(
+                    int(learning_items[item_index]["id"]),
+                    PRIMARY_IMAGE_ROLE,
+                )
+            ),
+            "is_selected": int(learning_items[item_index]["id"]) == selected_item_id,
+        }
+        for item_index in (
+            (start + offset) % item_count
+            for offset in range(window_size)
+        )
+    ]

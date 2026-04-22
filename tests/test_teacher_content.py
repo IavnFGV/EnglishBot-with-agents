@@ -9,6 +9,7 @@ from englishbot import db
 from englishbot.teacher_content import (
     TeacherContentAccessError,
     build_teacher_topic_editor_snapshot,
+    build_teacher_topic_full_list_overview,
     create_teacher_topic,
     create_teacher_topic_item,
     create_teacher_workspace_for_user,
@@ -104,6 +105,89 @@ def test_topic_editor_snapshot_paginates_and_marks_selected_item(tmp_path: Path)
     assert snapshot["selected_item_id"] == item_ids[26]
 
 
+def test_topic_editor_snapshot_adds_visible_item_window_and_show_all_threshold(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    workspace_id, topic_id, item_ids = seed_workspace_with_topic(303, item_count=11)
+
+    snapshot = build_teacher_topic_editor_snapshot(
+        303,
+        workspace_id,
+        topic_id,
+        selected_item_id=item_ids[5],
+    )
+    short_snapshot = build_teacher_topic_editor_snapshot(
+        303,
+        workspace_id,
+        topic_id,
+        selected_item_id=item_ids[0],
+        page=0,
+    )
+
+    assert snapshot["show_all_available"] is True
+    assert snapshot["visible_items"] == [
+        {"position": 1, "headword": "item-1", "has_image": False, "is_selected": False},
+        {"position": 2, "headword": "item-2", "has_image": False, "is_selected": False},
+        {"position": 3, "headword": "item-3", "has_image": False, "is_selected": False},
+        {"position": 4, "headword": "item-4", "has_image": False, "is_selected": False},
+        {"position": 5, "headword": "item-5", "has_image": False, "is_selected": False},
+        {"position": 6, "headword": "item-6", "has_image": False, "is_selected": True},
+        {"position": 7, "headword": "item-7", "has_image": False, "is_selected": False},
+        {"position": 8, "headword": "item-8", "has_image": False, "is_selected": False},
+        {"position": 9, "headword": "item-9", "has_image": False, "is_selected": False},
+        {"position": 10, "headword": "item-10", "has_image": False, "is_selected": False},
+    ]
+    assert short_snapshot["visible_items"] == [
+        {"position": 7, "headword": "item-7", "has_image": False, "is_selected": False},
+        {"position": 8, "headword": "item-8", "has_image": False, "is_selected": False},
+        {"position": 9, "headword": "item-9", "has_image": False, "is_selected": False},
+        {"position": 10, "headword": "item-10", "has_image": False, "is_selected": False},
+        {"position": 11, "headword": "item-11", "has_image": False, "is_selected": False},
+        {"position": 1, "headword": "item-1", "has_image": False, "is_selected": True},
+        {"position": 2, "headword": "item-2", "has_image": False, "is_selected": False},
+        {"position": 3, "headword": "item-3", "has_image": False, "is_selected": False},
+        {"position": 4, "headword": "item-4", "has_image": False, "is_selected": False},
+        {"position": 5, "headword": "item-5", "has_image": False, "is_selected": False},
+    ]
+    assert short_snapshot["show_all_available"] is True
+
+
+def test_topic_editor_snapshot_wraps_prev_and_next_item_ids(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    workspace_id, topic_id, item_ids = seed_workspace_with_topic(305, item_count=3)
+
+    first_snapshot = build_teacher_topic_editor_snapshot(
+        305,
+        workspace_id,
+        topic_id,
+        selected_item_id=item_ids[0],
+    )
+    last_snapshot = build_teacher_topic_editor_snapshot(
+        305,
+        workspace_id,
+        topic_id,
+        selected_item_id=item_ids[2],
+    )
+
+    assert first_snapshot["prev_item_id"] == item_ids[2]
+    assert first_snapshot["next_item_id"] == item_ids[1]
+    assert last_snapshot["prev_item_id"] == item_ids[1]
+    assert last_snapshot["next_item_id"] == item_ids[0]
+
+
+def test_topic_editor_snapshot_hides_show_all_for_ten_or_fewer_items(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    workspace_id, topic_id, item_ids = seed_workspace_with_topic(304, item_count=10)
+
+    snapshot = build_teacher_topic_editor_snapshot(
+        304,
+        workspace_id,
+        topic_id,
+        selected_item_id=item_ids[0],
+    )
+
+    assert snapshot["show_all_available"] is False
+
+
 def test_topic_editor_snapshot_uses_db_truth_when_selected_item_becomes_archived(
     tmp_path: Path,
 ) -> None:
@@ -161,6 +245,25 @@ def test_archive_action_hides_item_and_reselects_remaining_item(tmp_path: Path) 
 
     assert snapshot["item_count"] == 1
     assert snapshot["selected_item_id"] == item_ids[1]
+
+
+def test_topic_full_list_overview_returns_headwords_and_image_flags_only(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    workspace_id, topic_id, item_ids = seed_workspace_with_topic(403, item_count=2)
+    update_teacher_topic_item_field(403, workspace_id, topic_id, item_ids[0], "ru", "яблоко")
+    update_teacher_topic_item_field(403, workspace_id, topic_id, item_ids[0], "image_ref", "assets/images/apple.png")
+    update_teacher_topic_item_field(403, workspace_id, topic_id, item_ids[1], "audio_ref", "audio://pear.mp3")
+
+    overview = build_teacher_topic_full_list_overview(403, workspace_id, topic_id)
+
+    assert overview == {
+        "topic_title": "Fruits",
+        "item_count": 2,
+        "rows": [
+            {"headword": "item-1", "has_image": True},
+            {"headword": "item-2", "has_image": False},
+        ],
+    }
 
 
 def test_publish_reuses_existing_topic_publish_logic(tmp_path: Path) -> None:
