@@ -30,7 +30,13 @@ from englishbot.topics import (
     rename_topic,
     replace_topic_learning_items,
 )
-from englishbot.training import create_training_session, get_active_training_session, submit_training_answer
+from englishbot.training import (
+    create_training_session,
+    get_active_training_session,
+    get_current_question,
+    skip_optional_hard,
+    submit_training_answer,
+)
 from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import (
     archive_learning_item,
@@ -309,6 +315,7 @@ def test_assignment_completion_marks_homework_done(tmp_path: Path) -> None:
     start_assignment_training_session(student.id, int(result["assignment_id"]))
     for _ in range(4):
         answer_result = submit_training_answer(student.id, "lesson-1")
+    answer_result = skip_optional_hard(student.id)
 
     assert answer_result is not None
     assert answer_result["status"] == "completed"
@@ -363,8 +370,11 @@ def test_assignment_progress_snapshot_reports_compact_item_statuses(tmp_path: Pa
 
     training_result = start_assignment_training_session(student.id, int(result["assignment_id"]))
     first_session_id = int(training_result["session_id"])
-    for _ in range(4):
-        answer_result = submit_training_answer(student.id, "lesson-1")
+    for _ in range(8):
+        current_question = get_current_question(student.id)
+        assert current_question is not None
+        answer_result = submit_training_answer(student.id, str(current_question["expected_answer"]))
+    answer_result = skip_optional_hard(student.id)
 
     snapshot = get_assignment_progress_snapshot(int(result["assignment_id"]), first_session_id)
 
@@ -373,8 +383,8 @@ def test_assignment_progress_snapshot_reports_compact_item_statuses(tmp_path: Pa
     assert snapshot["completed_items"] == 1
     assert snapshot["total_items"] == 2
     assert snapshot["current_item_position"] == 2
-    assert snapshot["current_stage"] == "easy"
-    assert snapshot["item_statuses"] == ["completed", "in_progress"]
+    assert snapshot["current_stage"] == "hard"
+    assert snapshot["item_statuses"] == ["done", "almost"]
 
 
 def test_create_assignment_from_group_uses_explicit_teacher_workspace(tmp_path: Path) -> None:

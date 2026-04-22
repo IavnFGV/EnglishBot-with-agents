@@ -10,10 +10,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from englishbot import db
 from englishbot.homework import create_assignment, start_assignment_training_session
 from englishbot.teacher_student import create_invite, join_with_invite
-from englishbot.training import get_active_training_session
+from englishbot.training import get_active_training_session, get_current_question, submit_training_answer
 from englishbot.training_handlers import (
     TRAINING_EASY_CALLBACK_PREFIX,
+    TRAINING_HARD_SKIP_CALLBACK,
+    TRAINING_MEDIUM_ADD_CALLBACK_PREFIX,
+    TRAINING_MEDIUM_BACKSPACE_CALLBACK,
+    TRAINING_MEDIUM_CHECK_CALLBACK,
     answer_training_easy,
+    answer_training_hard_skip,
+    answer_training_medium_add,
+    answer_training_medium_backspace,
+    answer_training_medium_check,
     answer_training_question,
     learn,
     render_started_training_session,
@@ -30,9 +38,21 @@ class FakeBot:
         self.deleted_messages: list[dict[str, object]] = []
         self.fail_delete = False
 
-    async def edit_message_text(self, *, chat_id: int, message_id: int, text: str) -> None:
+    async def edit_message_text(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup=None,
+    ) -> None:
         self.edited_messages.append(
-            {"chat_id": chat_id, "message_id": message_id, "text": text}
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "reply_markup": reply_markup,
+            }
         )
 
     async def delete_message(self, *, chat_id: int, message_id: int) -> None:
@@ -49,6 +69,7 @@ class FakeMessage:
         self.chat = SimpleNamespace(id=user.id)
         self.answers: list[dict[str, object]] = []
         self._next_message_id = 1
+        self.message_id = 0
 
     async def answer(self, text: str, **kwargs: object) -> SimpleNamespace:
         message = SimpleNamespace(message_id=self._next_message_id)
@@ -203,7 +224,8 @@ def test_easy_callback_reuses_progress_message_and_replaces_question_message(tmp
         {
             "chat_id": user.id,
             "message_id": 1,
-            "text": "Item 1/3\nDone 0/3\nStage: easy",
+            "text": "Item 2/3\nDone 0/3\nStage: easy",
+            "reply_markup": None,
         }
     ]
     assert message.bot.deleted_messages == [{"chat_id": user.id, "message_id": 2}]
@@ -231,25 +253,83 @@ def test_question_deletion_failures_are_tolerated_safely(tmp_path: Path) -> None
     assert message.answers[-1]["message_id"] == 3
 
 
-def test_text_answers_continue_working_for_medium_stage(tmp_path: Path) -> None:
+def test_text_answers_are_ignored_for_medium_stage(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(3)
+    seed_learning_items(1)
     user = make_user(405, "Learner")
-    start_message = FakeMessage(user)
+    message = FakeMessage(user)
 
-    asyncio.run(learn(start_message))
+    asyncio.run(learn(message))
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
 
-    first_answer = FakeMessage(user, text="word-1", bot=start_message.bot)
-    first_answer._next_message_id = start_message._next_message_id
-    asyncio.run(answer_training_question(first_answer))
+    medium_answer = FakeMessage(user, text="word-1", bot=message.bot)
+    medium_answer._next_message_id = message._next_message_id
+    asyncio.run(answer_training_question(medium_answer))
 
-    second_answer = FakeMessage(user, text="word-1", bot=start_message.bot)
-    second_answer._next_message_id = first_answer._next_message_id
-    asyncio.run(answer_training_question(second_answer))
+    assert medium_answer.answers == []
 
-    assert "Hint: слово-1" in second_answer.answers[-1]["text"]
-    assert "Letters:" in second_answer.answers[-1]["text"]
-    assert second_answer.answers[-1]["kwargs"]["reply_markup"] is None
+
+def test_medium_callbacks_assemble_and_remove_letters(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    seed_learning_items(1)
+    user = make_user(409, "Learner")
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    asyncio.run(render_started_training_session(message, user.id))
+
+    session = get_active_training_session(user.id)
+    assert session is not None
+    message.message_id = int(session["current_question_message_id"])
+    question = get_current_question(user.id)
+    assert question is not None
+    first_letter_index = 0
+    callback = FakeCallback(user, f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{first_letter_index}", message)
+
+    asyncio.run(answer_training_medium_add(callback))
+
+    assert callback.answered is True
+    assert "Answer: " in message.bot.edited_messages[-1]["text"]
+    asyncio.run(answer_training_medium_backspace(FakeCallback(user, TRAINING_MEDIUM_BACKSPACE_CALLBACK, message)))
+    assert "_ _ _ _ _ _" in message.bot.edited_messages[-1]["text"]
+
+
+def test_medium_check_uses_assembled_answer_and_advances(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    seed_learning_items(1)
+    user = make_user(410, "Learner")
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    asyncio.run(render_started_training_session(message, user.id))
+    session = get_active_training_session(user.id)
+    assert session is not None
+    message.message_id = int(session["current_question_message_id"])
+    question = get_current_question(user.id)
+    assert question is not None
+    remaining_indexes = list(enumerate(str(question["jumbled_letters"])))
+    for character in str(question["expected_answer"]):
+        for position, candidate in remaining_indexes:
+            if candidate == character:
+                asyncio.run(
+                    answer_training_medium_add(
+                        FakeCallback(user, f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{position}", message)
+                    )
+                )
+                remaining_indexes.remove((position, candidate))
+                break
+
+    asyncio.run(answer_training_medium_check(FakeCallback(user, TRAINING_MEDIUM_CHECK_CALLBACK, message)))
+
+    updated_question = get_current_question(user.id)
+    assert updated_question is not None
+    assert updated_question["current_stage"] == "medium"
+    assert updated_question["medium_correct_count"] == 1
 
 
 def test_text_answers_render_hint_and_first_letter_for_hard_stage(tmp_path: Path) -> None:
@@ -272,16 +352,20 @@ def test_session_completion_sends_summary_and_stops_question_rendering(tmp_path:
 
     asyncio.run(learn(start_message))
 
-    active_message = start_message
-    for _ in range(4):
-        next_message = FakeMessage(user, text="word-1", bot=start_message.bot)
-        next_message._next_message_id = active_message._next_message_id
-        asyncio.run(answer_training_question(next_message))
-        active_message = next_message
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    session = get_active_training_session(user.id)
+    assert session is not None
+    start_message.message_id = int(session["current_question_message_id"])
+    callback = FakeCallback(user, TRAINING_HARD_SKIP_CALLBACK, start_message)
+
+    asyncio.run(answer_training_hard_skip(callback))
 
     assert get_active_training_session(user.id) is None
-    assert len(active_message.answers) == 1
-    assert active_message.answers[0]["text"] == "Correct.\nResult: 1 questions, 4 correct answers."
+    assert len(start_message.answers) == 3
+    assert start_message.answers[-1]["text"] == "Hard skipped.\nResult: 1 questions, 4 correct answers."
     assert start_message.bot.edited_messages[-1]["text"] == "Item 1/1\nDone 1/1\nStage: completed"
 
 
@@ -311,13 +395,15 @@ def test_homework_completion_uses_homework_specific_summary(tmp_path: Path) -> N
     start_message = FakeMessage(student)
     asyncio.run(render_started_training_session(start_message, student.id))
 
-    active_message = start_message
-    for _ in range(4):
-        next_message = FakeMessage(student, text="homework-word", bot=active_message.bot)
-        next_message._next_message_id = active_message._next_message_id
-        asyncio.run(answer_training_question(next_message))
-        active_message = next_message
+    submit_training_answer(student.id, "homework-word")
+    submit_training_answer(student.id, "homework-word")
+    submit_training_answer(student.id, "homework-word")
+    submit_training_answer(student.id, "homework-word")
+    session = get_active_training_session(student.id)
+    assert session is not None
+    start_message.message_id = int(session["current_question_message_id"])
+    asyncio.run(answer_training_hard_skip(FakeCallback(student, TRAINING_HARD_SKIP_CALLBACK, start_message)))
 
-    assert active_message.answers[0]["text"] == (
-        'Correct.\nHomework "Homework set" completed.\nResult: 1 questions, 4 correct answers.'
+    assert start_message.answers[-1]["text"] == (
+        'Hard skipped.\nHomework "Homework set" completed.\nResult: 1 questions, 4 correct answers.'
     )

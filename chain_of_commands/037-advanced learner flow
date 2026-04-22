@@ -1,0 +1,144 @@
+Read these files first and treat them as mandatory constraints:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+You must follow the project rules exactly:
+- Telegram-first product
+- SQLite is the runtime source of truth
+- business logic must stay outside Telegram handlers
+- all bot-facing text must go through centralized i18n
+- all Telegram commands must go through englishbot/command_registry.py
+- non-trivial multi-step Telegram flows must use aiogram-dialog where needed
+- use tests as specification
+- keep changes minimal and local
+- do not overengineer
+- update CHANGELOG.md and context/current_state.md after completion
+
+Task:
+Improve the learner homework/training progression flow so the learner rotates through items instead of getting stuck on one item until all stages are fully completed.
+
+Current problem to fix:
+The learner can be hammered by the same word repeatedly until easy/medium/hard progression for that single item is fully finished. This is bad UX.
+We need round-robin progression across the assignment/session items.
+
+Required target behavior:
+1. Session/item progression must go in a circular / round-robin way across active items.
+2. Example:
+   - if the assignment contains January, February, March
+   - the learner should see them in rotation
+   - not January until it fully finishes, then February, then March
+3. Each item starts on easy.
+4. After enough correct answers, the item progresses to medium.
+5. After 4 total correct answers for that item in homework/session progression, hard becomes available.
+6. Hard must remain optional.
+7. When hard is available, the learner must have a clear way to skip hard.
+8. Skipping hard must not block item completion if the item already satisfies the required non-hard completion rules.
+9. The session should continue rotating through remaining active items until all required items are completed.
+10. Completed items must drop out of the active round-robin rotation.
+
+Progress/status requirements:
+Implement clear per-item status tracking and rendering in homework progress.
+
+Status model should be simple and user-facing.
+You do NOT need to implement advanced graphics or a complex diagram.
+But the progress output must clearly communicate item state.
+
+The intended conceptual statuses are approximately:
+- start
+- warm-up
+- almost
+- hard clear
+- done
+
+You may rename the exact internal constants if needed, but the user-facing behavior must reflect these meanings:
+- start: item has not meaningfully progressed yet
+- warm-up: item has initial correct progress
+- almost: item is close to normal completion and/or hard became available
+- hard clear: optional hard was completed
+- done: item is completed
+
+Important:
+- keep the status system minimal
+- do not build a generic workflow/state-machine framework
+- do not redesign the entire training engine
+- reuse the current staged training model and current persistence where possible
+
+Medium exercise UX requirement:
+The medium exercise must use letter selection from an on-screen keyboard / inline buttons built from the target word letters,
+instead of requiring normal text typing.
+
+Expected medium behavior:
+1. Medium shows the target word as a masked/incomplete assembled answer area.
+2. The learner presses letter buttons from the offered letters.
+3. The offered letters should be based on the target answer letters.
+4. There must be a way to remove/backspace the last chosen letter.
+5. Check action validates the assembled answer.
+6. Keep this implementation minimal and robust.
+7. Do not build a Telegram WebApp for this.
+8. Do not switch medium to free-text input in this task.
+
+Architecture requirements:
+- Keep business logic outside Telegram handlers.
+- Prefer extending existing focused training/exercise modules instead of dumping logic into handlers.
+- Do not introduce unrelated abstractions.
+- Do not introduce new persistence tables unless strictly necessary.
+- If existing persistence needs a minimal extension, keep it small and backward-compatible.
+- Existing legacy sessions/rows must fail closed safely instead of crashing.
+- Keep current easy/medium/hard model.
+- Keep hard optional.
+- Keep restart/resume behavior working after bot restart.
+
+Round-robin implementation requirements:
+- Session logic must choose the next item among non-completed items in rotation order.
+- Avoid repeatedly serving the same item when other active items are available.
+- The next-item selection must be deterministic and restart-safe.
+- Persist enough session/item state so rotation survives restart.
+- Do not rely on ephemeral in-memory pointers only.
+
+Homework-specific expectation:
+This behavior is especially important for homework.
+Implement it in the shared training/homework flow only if that is the smallest clean solution.
+Do not fork a separate giant homework engine unless absolutely necessary.
+
+UI requirements:
+- Keep chat clutter low.
+- Reuse the current progress/question message pattern where possible.
+- Add a visible "skip hard" action when hard is available.
+- Update localized text through i18n keys only.
+
+Testing requirements:
+Add focused automated tests for:
+1. round-robin item selection across multiple items
+2. completed items dropping from rotation
+3. hard unlock after the required correct count
+4. skip-hard behavior
+5. medium letter-keyboard answer assembly
+6. backspace/remove behavior on medium
+7. restart/resume preserving rotation correctly
+8. no regression for existing easy/hard progression rules where still applicable
+9. progress/status rendering or mapping logic
+10. legacy/backfill behavior if schema/state extension is required
+
+Implementation process requirements:
+Before coding, briefly determine the smallest reasonable design.
+During coding, actively reject overengineering.
+Do not create a generic engine for arbitrary future training modes.
+Do not redesign unrelated teacher flows.
+Do not touch assignment creation except where strictly needed for compatibility.
+
+Definition of done:
+- learner no longer gets stuck on one item until full completion when multiple active items exist
+- items rotate in round-robin order
+- hard unlock works and hard can be skipped
+- medium uses letter buttons instead of plain text input
+- progress/status becomes clearer
+- restart/resume still works
+- tests are added and pass
+- CHANGELOG.md and context/current_state.md are updated
+
+At the end:
+1. run the relevant tests
+2. summarize what changed
+3. list added/modified files
+4. explicitly state what was intentionally NOT implemented

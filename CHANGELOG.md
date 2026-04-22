@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-04-22
+- Reworked learner homework/training progression to rotate round-robin across unfinished session items instead of exhausting one item at a time: session-item persistence now also stores restart-safe medium answer assembly plus optional hard completion state, hard unlock follows 4 total correct answers on that item, hard can be skipped without blocking completion, medium now uses an inline letter keyboard with backspace/check, and homework progress now renders clearer per-item statuses (`start`, `warm-up`, `almost`, `hard clear`, `done`).
 - Added the next learner-side homework UX step as a minimal `aiogram-dialog` flow: tapping the main homework button now opens a compact two-screen learner UI with a paged assignment list, index-based assignment selection, an overview screen with item count and `Start`/`Continue`, and launch still reuses the existing staged homework/training engine without changing teacher assignment creation, topic access, assignment kinds, or persistence shape.
 - Added a focused learner-homework snapshot layer plus resumable-progress fixups so list/overview screens can safely show compact homework progress even after the learner switches to another session; unfinished homework still resumes the same persisted assignment session instead of starting over.
 - Added focused tests for learner homework list rendering, overview/continue behavior, dialog wiring from the existing homework entrypoint, resumable assignment-session reuse, and no regression in the existing homework launch callback path.

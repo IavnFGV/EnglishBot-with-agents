@@ -184,7 +184,7 @@ def test_launch_selected_homework_reuses_existing_session(tmp_path: Path) -> Non
     assert manager.done_calls == [{"result": None, "show_mode": ShowMode.NO_UPDATE}]
     assert message.answers == [
         {
-            "text": "Homework: Reuse session\nDone 0/1\nCurrent item 1/1\nStage: easy\nItems: 1 in progress",
+            "text": "Homework: Reuse session\nDone 0/1\nCurrent item 1/1\nStage: easy\nItems: 1 warm-up",
             "kwargs": {},
         },
         {

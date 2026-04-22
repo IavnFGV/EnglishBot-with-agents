@@ -12,16 +12,23 @@ from .i18n import translate_for_user
 from .runtime import router
 from .training import (
     NoLearningItemsError,
+    append_medium_answer_letter,
     create_training_session,
     get_active_training_session,
     get_current_question,
+    pop_medium_answer_letter,
     set_training_session_current_question_message_id,
     set_training_session_progress_message_id,
+    skip_optional_hard,
     submit_training_answer,
 )
 
 
 TRAINING_EASY_CALLBACK_PREFIX = "training:easy:"
+TRAINING_MEDIUM_ADD_CALLBACK_PREFIX = "training:medium:add:"
+TRAINING_MEDIUM_BACKSPACE_CALLBACK = "training:medium:backspace"
+TRAINING_MEDIUM_CHECK_CALLBACK = "training:medium:check"
+TRAINING_HARD_SKIP_CALLBACK = "training:hard:skip"
 
 
 def _get_session_assignment_id(session: object) -> int | None:
@@ -50,6 +57,76 @@ def _build_easy_options_keyboard(question: dict[str, object]) -> InlineKeyboardM
             ]
             for index, option in enumerate(options)
         ]
+    )
+
+
+def _build_medium_keyboard(
+    telegram_user_id: int,
+    question: dict[str, object],
+) -> InlineKeyboardMarkup | None:
+    if question.get("exercise_type") != "jumbled_letters":
+        return None
+    jumbled_letters = str(question.get("jumbled_letters") or "")
+    selected_letter_indexes = {
+        int(index) for index in question.get("selected_letter_indexes", []) if isinstance(index, int)
+    }
+    rows: list[list[InlineKeyboardButton]] = []
+    current_row: list[InlineKeyboardButton] = []
+    for index, letter in enumerate(jumbled_letters):
+        if index in selected_letter_indexes:
+            continue
+        current_row.append(
+            InlineKeyboardButton(
+                text=letter,
+                callback_data=f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{index}",
+            )
+        )
+        if len(current_row) == 6:
+            rows.append(current_row)
+            current_row = []
+    if current_row:
+        rows.append(current_row)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=translate_for_user(telegram_user_id, "training.action.backspace"),
+                callback_data=TRAINING_MEDIUM_BACKSPACE_CALLBACK,
+            ),
+            InlineKeyboardButton(
+                text=translate_for_user(telegram_user_id, "training.action.check"),
+                callback_data=TRAINING_MEDIUM_CHECK_CALLBACK,
+            ),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _build_hard_keyboard(
+    telegram_user_id: int,
+    question: dict[str, object],
+) -> InlineKeyboardMarkup | None:
+    if not bool(question.get("can_skip_hard")):
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=translate_for_user(telegram_user_id, "training.action.skip_hard"),
+                    callback_data=TRAINING_HARD_SKIP_CALLBACK,
+                )
+            ]
+        ]
+    )
+
+
+def _build_question_keyboard(
+    telegram_user_id: int,
+    question: dict[str, object],
+) -> InlineKeyboardMarkup | None:
+    return (
+        _build_easy_options_keyboard(question)
+        or _build_medium_keyboard(telegram_user_id, question)
+        or _build_hard_keyboard(telegram_user_id, question)
     )
 
 
@@ -196,6 +273,7 @@ def _render_question_text(
             telegram_user_id,
             "training.question.medium",
             hint_text=hint_text,
+            answer_mask=question["medium_answer_mask"],
             jumbled_letters=question["jumbled_letters"],
         )
     elif question.get("exercise_type") == "typed_answer" and question.get("first_letter"):
@@ -234,7 +312,7 @@ async def render_started_training_session(message: Message, telegram_user_id: in
 
     question_message = await message.answer(
         _render_question_text(telegram_user_id, question),
-        reply_markup=_build_easy_options_keyboard(question),
+        reply_markup=_build_question_keyboard(telegram_user_id, question),
     )
     set_training_session_current_question_message_id(
         int(question["session_id"]),
@@ -307,7 +385,7 @@ async def _send_next_question_message(
 ) -> None:
     question_message = await anchor_message.answer(
         _render_question_text(telegram_user_id, question, feedback=feedback),
-        reply_markup=_build_easy_options_keyboard(question),
+        reply_markup=_build_question_keyboard(telegram_user_id, question),
     )
     set_training_session_current_question_message_id(
         int(question["session_id"]),
@@ -328,7 +406,9 @@ async def _process_training_answer(
     if result is None:
         return
 
-    if result["is_correct"]:
+    if result.get("skipped_hard"):
+        feedback = translate_for_user(telegram_user_id, "training.hard_skipped")
+    elif result["is_correct"]:
         feedback = translate_for_user(telegram_user_id, "training.correct")
     else:
         feedback = translate_for_user(
@@ -412,6 +492,9 @@ async def learn(message: Message) -> None:
 async def answer_training_question(message: Message) -> None:
     if message.from_user is None or message.text is None:
         return
+    question = get_current_question(message.from_user.id)
+    if question is None or str(question.get("exercise_type")) != "typed_answer":
+        return
 
     await _process_training_answer(message, message.from_user.id, message.text)
 
@@ -440,3 +523,121 @@ async def answer_training_easy(callback: CallbackQuery) -> None:
         return
 
     await _process_training_answer(callback.message, callback.from_user.id, str(options[index]))
+
+
+async def _refresh_current_question_message(
+    callback: CallbackQuery,
+    telegram_user_id: int,
+    question: dict[str, object],
+) -> None:
+    if callback.message is None:
+        return
+    try:
+        await callback.message.bot.edit_message_text(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            text=_render_question_text(telegram_user_id, question),
+            reply_markup=_build_question_keyboard(telegram_user_id, question),
+        )
+    except Exception:
+        return
+
+
+@router.callback_query(
+    lambda callback: callback.data is not None
+    and callback.data.startswith(TRAINING_MEDIUM_ADD_CALLBACK_PREFIX)
+)
+async def answer_training_medium_add(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.from_user is None or callback.message is None or callback.data is None:
+        return
+    letter_index = callback.data.removeprefix(TRAINING_MEDIUM_ADD_CALLBACK_PREFIX)
+    if not letter_index.isdigit():
+        return
+    question = append_medium_answer_letter(callback.from_user.id, int(letter_index))
+    if question is None:
+        return
+    await _refresh_current_question_message(callback, callback.from_user.id, question)
+
+
+@router.callback_query(lambda callback: callback.data == TRAINING_MEDIUM_BACKSPACE_CALLBACK)
+async def answer_training_medium_backspace(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.from_user is None or callback.message is None:
+        return
+    question = pop_medium_answer_letter(callback.from_user.id)
+    if question is None:
+        return
+    await _refresh_current_question_message(callback, callback.from_user.id, question)
+
+
+@router.callback_query(lambda callback: callback.data == TRAINING_MEDIUM_CHECK_CALLBACK)
+async def answer_training_medium_check(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.from_user is None or callback.message is None:
+        return
+    question = get_current_question(callback.from_user.id)
+    if question is None or str(question.get("exercise_type")) != "jumbled_letters":
+        return
+    await _process_training_answer(
+        callback.message,
+        callback.from_user.id,
+        str(question["medium_answer"]),
+    )
+
+
+@router.callback_query(lambda callback: callback.data == TRAINING_HARD_SKIP_CALLBACK)
+async def answer_training_hard_skip(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.from_user is None or callback.message is None:
+        return
+
+    session = get_active_training_session(callback.from_user.id)
+    if session is None:
+        return
+    result = skip_optional_hard(callback.from_user.id)
+    if result is None:
+        return
+
+    if result["status"] == "completed":
+        await _edit_progress_message(
+            callback.message,
+            callback.from_user.id,
+            session,
+            question_number=int(result["summary"]["total_questions"]),
+            total_questions=int(result["summary"]["total_questions"]),
+            completed_items=int(result["summary"]["total_questions"]),
+            stage_key="completed",
+            hard_unlocked=False,
+        )
+        await _delete_previous_question_message(callback.message, session)
+        set_training_session_current_question_message_id(int(session["id"]), None)
+        await callback.message.answer(
+            _render_session_summary_text(
+                callback.from_user.id,
+                session,
+                feedback=translate_for_user(callback.from_user.id, "training.hard_skipped"),
+                total_questions=int(result["summary"]["total_questions"]),
+                correct_answers=int(result["summary"]["correct_answers"]),
+            )
+        )
+        return
+
+    next_question = result["next_question"]
+    await _edit_progress_message(
+        callback.message,
+        callback.from_user.id,
+        session,
+        question_number=int(next_question["question_number"]),
+        total_questions=int(next_question["total_questions"]),
+        completed_items=int(next_question["completed_items"]),
+        stage_key=str(next_question["current_stage"]),
+        hard_unlocked=bool(next_question["hard_unlocked"]),
+    )
+    await _delete_previous_question_message(callback.message, session)
+    await _send_next_question_message(
+        callback.message,
+        callback.from_user.id,
+        next_question,
+        feedback=translate_for_user(callback.from_user.id, "training.hard_skipped"),
+    )

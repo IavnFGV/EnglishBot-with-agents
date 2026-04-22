@@ -175,7 +175,7 @@ def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
                 "Done 0/1\n"
                 "Current item 1/1\n"
                 "Stage: easy\n"
-                "Items: 1 in progress"
+                "Items: 1 start"
             ),
             "kwargs": {},
         },
@@ -207,7 +207,7 @@ def test_start_homework_progress_shows_item_statuses_for_multiple_items(tmp_path
     asyncio.run(start_homework(callback))
 
     assert "Homework: Два слова" in callback_message.answers[0]["text"]
-    assert "Items: 1 in progress | 2 not started" in callback_message.answers[0]["text"]
+    assert "Items: 1 start | 2 start" in callback_message.answers[0]["text"]
 
 
 def test_build_homework_button_uses_homework_open_callback() -> None:

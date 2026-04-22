@@ -6,6 +6,7 @@ from .topics import find_topic_by_name_for_teacher_workspace, publish_topic_to_w
 from .training import (
     create_training_session_for_learning_items,
     find_latest_incomplete_assignment_training_session,
+    get_item_progress_status,
     get_current_question,
     resume_training_session,
 )
@@ -23,9 +24,6 @@ from .workspaces import (
 
 ACTIVE_STATUS = "active"
 COMPLETED_STATUS = "completed"
-ITEM_STATUS_NOT_STARTED = "not_started"
-ITEM_STATUS_IN_PROGRESS = "in_progress"
-ITEM_STATUS_COMPLETED = "completed"
 ASSIGNMENT_KIND_HOMEWORK = "homework"
 ASSIGNMENT_MODE_STAGED_DEFAULT = "staged_default"
 SUPPORTED_ASSIGNMENT_KINDS = {ASSIGNMENT_KIND_HOMEWORK}
@@ -349,7 +347,14 @@ def get_assignment_progress_snapshot(
         ).fetchone()
         item_rows = connection.execute(
             """
-            SELECT item_order, current_stage, is_completed
+            SELECT
+                item_order,
+                current_stage,
+                easy_correct_count,
+                medium_correct_count,
+                hard_unlocked,
+                hard_completed,
+                is_completed
             FROM training_session_items
             WHERE session_id = ?
             ORDER BY item_order
@@ -382,18 +387,8 @@ def get_assignment_progress_snapshot(
             current_stage = str(current_row["current_stage"])
 
     item_statuses: list[str] = []
-    current_item_order = None if next_incomplete_row is None else int(next_incomplete_row["item_order"])
     for row in item_rows:
-        item_order = int(row["item_order"])
-        if int(row["is_completed"]) == 1:
-            item_statuses.append(ITEM_STATUS_COMPLETED)
-        elif (
-            (not is_session_completed and item_order == current_index)
-            or (is_session_completed and item_order == current_item_order)
-        ):
-            item_statuses.append(ITEM_STATUS_IN_PROGRESS)
-        else:
-            item_statuses.append(ITEM_STATUS_NOT_STARTED)
+        item_statuses.append(get_item_progress_status(row))
 
     return {
         "assignment_id": int(assignment["id"]),

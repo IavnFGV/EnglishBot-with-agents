@@ -9,9 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from englishbot import db
 from englishbot.training import (
     NoLearningItemsError,
+    get_item_progress_status,
     create_training_session,
     get_active_training_session,
     get_current_question,
+    skip_optional_hard,
     submit_training_answer,
 )
 from englishbot.user_profiles import set_user_hint_language
@@ -57,6 +59,8 @@ def get_session_item_state(session_id: int, item_order: int) -> sqlite3.Row:
                 medium_correct_count,
                 correct_streak,
                 hard_unlocked,
+                hard_completed,
+                answer_state,
                 is_completed
             FROM training_session_items
             WHERE session_id = ? AND item_order = ?
@@ -106,6 +110,8 @@ def test_init_db_creates_training_tables_with_staged_columns(tmp_path: Path) -> 
         "medium_correct_count",
         "correct_streak",
         "hard_unlocked",
+        "hard_completed",
+        "answer_state",
         "is_completed",
     }.issubset(training_item_columns)
 
@@ -123,9 +129,24 @@ def test_new_sessions_initialize_easy_stage_and_zero_counters(tmp_path: Path) ->
     assert first_item["medium_correct_count"] == 0
     assert first_item["correct_streak"] == 0
     assert first_item["hard_unlocked"] == 0
+    assert first_item["hard_completed"] == 0
+    assert first_item["answer_state"] == ""
     assert first_item["is_completed"] == 0
     assert first_item["prompt_text"] == "слово-1"
     assert first_item["expected_answer"] == "word-1"
+
+
+def test_round_robin_moves_to_next_active_item_after_each_attempt(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    create_training_session(user_id)
+
+    answer_current_question(user_id)
+    next_question = get_current_question(user_id)
+
+    assert next_question is not None
+    assert next_question["learning_item_id"] == 2
+    assert next_question["current_stage"] == "easy"
 
 
 def test_easy_transitions_to_medium_after_two_correct_answers(tmp_path: Path) -> None:
@@ -135,6 +156,8 @@ def test_easy_transitions_to_medium_after_two_correct_answers(tmp_path: Path) ->
 
     answer_current_question(user_id)
     answer_current_question(user_id)
+    answer_current_question(user_id)
+    answer_current_question(user_id)
     first_item = get_session_item_state(session_id, 0)
 
     assert first_item["current_stage"] == "medium"
@@ -142,18 +165,19 @@ def test_easy_transitions_to_medium_after_two_correct_answers(tmp_path: Path) ->
     assert first_item["is_completed"] == 0
 
 
-def test_medium_stage_completes_item_after_two_more_correct_answers(tmp_path: Path) -> None:
+def test_medium_stage_unlocks_hard_after_two_more_correct_answers(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    user_id = seed_user_with_learning_items(3)
+    user_id = seed_user_with_learning_items(2)
     session_id = int(create_training_session(user_id)["session_id"])
 
-    for _ in range(4):
+    for _ in range(8):
         answer_current_question(user_id)
     first_item = get_session_item_state(session_id, 0)
 
-    assert first_item["current_stage"] == "medium"
+    assert first_item["current_stage"] == "hard"
     assert first_item["medium_correct_count"] == 2
-    assert first_item["is_completed"] == 1
+    assert first_item["hard_unlocked"] == 1
+    assert first_item["is_completed"] == 0
 
 
 def test_correct_streak_increments_on_correct_answers(tmp_path: Path) -> None:
@@ -161,8 +185,8 @@ def test_correct_streak_increments_on_correct_answers(tmp_path: Path) -> None:
     user_id = seed_user_with_learning_items(3)
     session_id = int(create_training_session(user_id)["session_id"])
 
-    answer_current_question(user_id)
-    answer_current_question(user_id)
+    for _ in range(4):
+        answer_current_question(user_id)
     streak_state = get_session_item_state(session_id, 0)
 
     assert streak_state["correct_streak"] == 2
@@ -175,20 +199,20 @@ def test_correct_streak_resets_on_wrong_answer(tmp_path: Path) -> None:
 
     answer_current_question(user_id)
     wrong_result = submit_training_answer(user_id, "wrong")
-    first_item = get_session_item_state(session_id, 0)
+    second_item = get_session_item_state(session_id, 1)
 
     assert wrong_result is not None
     assert wrong_result["is_correct"] is False
-    assert first_item["correct_streak"] == 0
-    assert first_item["current_stage"] == "easy"
+    assert second_item["correct_streak"] == 0
+    assert second_item["current_stage"] == "easy"
 
 
 def test_hard_unlocks_after_four_correct_answers_in_a_row(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    user_id = seed_user_with_learning_items(3)
+    user_id = seed_user_with_learning_items(2)
     session_id = int(create_training_session(user_id)["session_id"])
 
-    for _ in range(4):
+    for _ in range(8):
         answer_current_question(user_id)
     first_item = get_session_item_state(session_id, 0)
 
@@ -201,15 +225,17 @@ def test_completed_items_are_skipped_and_session_advances(tmp_path: Path) -> Non
     user_id = seed_user_with_learning_items(3)
     create_training_session(user_id)
 
-    for _ in range(4):
+    for _ in range(12):
         answer_current_question(user_id)
+    skip_result = skip_optional_hard(user_id)
     next_question = get_current_question(user_id)
     active_session = get_active_training_session(user_id)
 
+    assert skip_result is not None
     assert next_question is not None
     assert next_question["learning_item_id"] == 2
     assert next_question["question_number"] == 2
-    assert next_question["current_stage"] == "easy"
+    assert next_question["current_stage"] == "hard"
     assert active_session is not None
     assert active_session["current_index"] == 1
 
@@ -221,7 +247,11 @@ def test_full_session_completes_when_all_items_are_completed(tmp_path: Path) -> 
 
     for _ in range(8):
         result = answer_current_question(user_id)
+    result = skip_optional_hard(user_id)
+    assert result is not None
+    result = skip_optional_hard(user_id)
 
+    assert result is not None
     assert result["status"] == "completed"
     assert result["summary"] == {"total_questions": 2, "correct_answers": 8}
     assert get_active_training_session(user_id) is None
@@ -233,17 +263,17 @@ def test_persisted_state_can_be_reread_after_updates(tmp_path: Path) -> None:
     user_id = seed_user_with_learning_items(3)
     session_id = int(create_training_session(user_id)["session_id"])
 
-    answer_current_question(user_id)
-    answer_current_question(user_id)
+    for _ in range(4):
+        answer_current_question(user_id)
     persisted_question = get_current_question(user_id)
     first_item = get_session_item_state(session_id, 0)
 
     assert persisted_question is not None
-    assert persisted_question["learning_item_id"] == 1
-    assert persisted_question["current_stage"] == "medium"
-    assert persisted_question["easy_correct_count"] == 2
+    assert persisted_question["learning_item_id"] == 2
+    assert persisted_question["current_stage"] == "easy"
+    assert persisted_question["easy_correct_count"] == 1
     assert persisted_question["medium_correct_count"] == 0
-    assert persisted_question["correct_streak"] == 2
+    assert persisted_question["correct_streak"] == 1
     assert persisted_question["hard_unlocked"] is False
     assert first_item["current_stage"] == "medium"
 
@@ -289,15 +319,77 @@ def test_stage_rebuild_uses_persisted_hint_language(tmp_path: Path) -> None:
     session_id = int(create_training_session(user_id)["session_id"])
     set_user_hint_language(user_id, "bg")
 
-    answer_current_question(user_id)
-    answer_current_question(user_id)
+    for _ in range(4):
+        answer_current_question(user_id)
     question = get_current_question(user_id)
     first_item = get_session_item_state(session_id, 0)
 
     assert question is not None
-    assert question["current_stage"] == "medium"
-    assert question["prompt"] == "дума-1"
+    assert question["learning_item_id"] == 2
     assert first_item["prompt_text"] == "дума-1"
+
+
+def test_skip_hard_completes_item_without_hard_clear(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(2)
+    session_id = int(create_training_session(user_id)["session_id"])
+
+    for _ in range(8):
+        answer_current_question(user_id)
+    result = skip_optional_hard(user_id)
+    first_item = get_session_item_state(session_id, 0)
+
+    assert result is not None
+    assert first_item["is_completed"] == 1
+    assert first_item["hard_completed"] == 0
+    assert get_item_progress_status(first_item) == "done"
+
+
+def test_correct_hard_answer_marks_hard_clear(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(2)
+    session_id = int(create_training_session(user_id)["session_id"])
+
+    for _ in range(8):
+        answer_current_question(user_id)
+    result = answer_current_question(user_id)
+    first_item = get_session_item_state(session_id, 0)
+
+    assert result["is_correct"] is True
+    assert first_item["hard_completed"] == 1
+    assert first_item["is_completed"] == 1
+    assert get_item_progress_status(first_item) == "hard_clear"
+
+
+def test_item_progress_status_maps_start_warm_up_and_almost(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(2)
+    session_id = int(create_training_session(user_id)["session_id"])
+
+    first_item = get_session_item_state(session_id, 0)
+    assert get_item_progress_status(first_item) == "start"
+
+    answer_current_question(user_id)
+    first_item = get_session_item_state(session_id, 0)
+    assert get_item_progress_status(first_item) == "warm_up"
+
+    for _ in range(7):
+        answer_current_question(user_id)
+    first_item = get_session_item_state(session_id, 0)
+    assert get_item_progress_status(first_item) == "almost"
+
+
+def test_resume_keeps_round_robin_position_after_restart(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    session = create_training_session(user_id)
+
+    answer_current_question(user_id)
+    resumed = get_current_question(user_id)
+
+    assert session["session_id"] is not None
+    assert resumed is not None
+    assert resumed["learning_item_id"] == 2
 
 
 def test_create_training_session_rejects_empty_vocabulary(tmp_path: Path) -> None:

@@ -984,6 +984,8 @@ def init_db() -> None:
                 medium_correct_count INTEGER NOT NULL DEFAULT 0,
                 correct_streak INTEGER NOT NULL DEFAULT 0,
                 hard_unlocked INTEGER NOT NULL DEFAULT 0,
+                hard_completed INTEGER NOT NULL DEFAULT 0,
+                answer_state TEXT NOT NULL DEFAULT '',
                 is_completed INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (session_id) REFERENCES training_sessions (id),
                 FOREIGN KEY (learning_item_id) REFERENCES learning_items (id)
@@ -1040,6 +1042,20 @@ def init_db() -> None:
                 ADD COLUMN hard_unlocked INTEGER NOT NULL DEFAULT 0
                 """
             )
+        if "hard_completed" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN hard_completed INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "answer_state" not in training_session_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_session_items
+                ADD COLUMN answer_state TEXT NOT NULL DEFAULT ''
+                """
+            )
         if "is_completed" not in training_session_item_columns:
             connection.execute(
                 """
@@ -1057,6 +1073,8 @@ def init_db() -> None:
                 medium_correct_count = COALESCE(medium_correct_count, 0),
                 correct_streak = COALESCE(correct_streak, 0),
                 hard_unlocked = COALESCE(hard_unlocked, 0),
+                hard_completed = COALESCE(hard_completed, 0),
+                answer_state = COALESCE(answer_state, ''),
                 is_completed = COALESCE(is_completed, 0)
             """
         )
