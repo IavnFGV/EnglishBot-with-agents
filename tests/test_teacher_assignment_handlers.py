@@ -224,6 +224,7 @@ def test_words_path_uses_summary_and_current_item_browser(tmp_path: Path) -> Non
     asyncio.run(on_workspace_selected(SimpleNamespace(message=message), None, manager, str(workspace_id)))
     first_view = asyncio.run(get_words_window_data(manager))
     asyncio.run(toggle_current_word(SimpleNamespace(message=message), None, manager))
+    edit_call_count_after_toggle = len(bot.edit_calls)
     asyncio.run(next_word(SimpleNamespace(message=message), None, manager))
     second_view = asyncio.run(get_words_window_data(manager))
 
@@ -233,6 +234,7 @@ def test_words_path_uses_summary_and_current_item_browser(tmp_path: Path) -> Non
     assert "Selected: no" in first_view["screen_text"]
     assert "Selected: no" in second_view["screen_text"]
     assert "Selected: 1" in bot.edit_calls[-1]["text"]
+    assert len(bot.edit_calls) == edit_call_count_after_toggle
     assert count_assignments() == 0
 
 

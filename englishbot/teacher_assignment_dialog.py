@@ -130,7 +130,6 @@ async def _prev_word(
     if previous_item_id is None:
         return
     dialog_manager.dialog_data["current_learning_item_id"] = int(previous_item_id)
-    await _sync_summary_message(dialog_manager, callback.message)
     await dialog_manager.update({})
 
 
@@ -144,7 +143,6 @@ async def _next_word(
     if next_item_id is None:
         return
     dialog_manager.dialog_data["current_learning_item_id"] = int(next_item_id)
-    await _sync_summary_message(dialog_manager, callback.message)
     await dialog_manager.update({})
 
 
@@ -535,9 +533,12 @@ async def _sync_summary_message(
     source_message: Message,
 ) -> None:
     summary_text = _build_summary_text(dialog_manager)
+    previous_summary_text = dialog_manager.dialog_data.get("summary_text")
     summary_message_id = _get_optional_int(dialog_manager.dialog_data.get("summary_message_id"))
-    chat_id = _get_chat_id(dialog_manager, source_message)
+    chat_id = _get_optional_int(dialog_manager.dialog_data.get("summary_chat_id")) or _get_chat_id(dialog_manager, source_message)
     if chat_id is None:
+        return
+    if summary_message_id is not None and previous_summary_text == summary_text:
         return
     if summary_message_id is None:
         await source_message.bot.edit_message_text(
@@ -548,6 +549,7 @@ async def _sync_summary_message(
         )
         dialog_manager.dialog_data["summary_message_id"] = source_message.message_id
         dialog_manager.dialog_data["summary_chat_id"] = chat_id
+        dialog_manager.dialog_data["summary_text"] = summary_text
         return
     await source_message.bot.edit_message_text(
         text=summary_text,
@@ -555,6 +557,7 @@ async def _sync_summary_message(
         message_id=summary_message_id,
         parse_mode="HTML",
     )
+    dialog_manager.dialog_data["summary_text"] = summary_text
 
 
 async def _delete_summary_message(
@@ -573,6 +576,7 @@ async def _delete_summary_message(
             pass
     dialog_manager.dialog_data.pop("summary_message_id", None)
     dialog_manager.dialog_data.pop("summary_chat_id", None)
+    dialog_manager.dialog_data.pop("summary_text", None)
 
 
 def _build_summary_text(dialog_manager: DialogManager) -> str:
@@ -635,6 +639,7 @@ def _reset_content_state(dialog_manager: DialogManager) -> None:
         "selected_recipient_user_ids",
         "summary_message_id",
         "summary_chat_id",
+        "summary_text",
         "workspace_page",
         "topic_page",
         "recipient_page",
