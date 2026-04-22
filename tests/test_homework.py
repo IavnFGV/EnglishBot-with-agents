@@ -413,7 +413,7 @@ def test_assignment_progress_snapshot_reports_compact_item_statuses(tmp_path: Pa
     assert snapshot["assignment_title"] == "Status test"
     assert snapshot["completed_items"] == 0
     assert snapshot["total_items"] == 2
-    assert snapshot["current_item_position"] == 2
+    assert snapshot["current_item_position"] == 1
     assert snapshot["current_stage"] == "medium"
     assert snapshot["item_statuses"] == ["warm_up", "almost"]
 
@@ -438,7 +438,7 @@ def test_homework_uses_fifth_question_as_hard_after_four_consecutive_correct_ans
     assert hard_question["can_skip_hard"] is True
 
 
-def test_homework_skip_hard_resets_global_streak_and_returns_to_normal_order(tmp_path: Path) -> None:
+def test_homework_skip_hard_resets_global_streak_and_returns_to_same_word_base_stage(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
     learning_item_ids = seed_teacher_learning_items(teacher.id, 2)
@@ -460,8 +460,11 @@ def test_homework_skip_hard_resets_global_streak_and_returns_to_normal_order(tmp
     assert first_item["is_completed"] == 0
     assert next_question is not None
     assert next_question["current_stage"] == "medium"
+    assert int(next_question["current_index"]) == 0
+    assert int(next_question["learning_item_id"]) == int(first_item["learning_item_id"])
     active_session = get_active_training_session(student.id)
     assert active_session is not None
+    assert int(active_session["current_index"]) == 0
     assert active_session["homework_correct_streak"] == 0
     assert active_session["homework_hard_mode"] == 0
 

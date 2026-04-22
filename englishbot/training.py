@@ -513,12 +513,34 @@ def skip_optional_hard(telegram_user_id: int) -> dict[str, object] | None:
                 (utc_now(), int(session["id"])),
             )
 
-    status, next_index = _update_session_after_answer(
-        session,
-        int(session["correct_answers"]),
-        current_item_order=int(question["current_index"]),
-        item_completed=session["assignment_id"] is None,
-    )
+    if session["assignment_id"] is None:
+        status, next_index = _update_session_after_answer(
+            session,
+            int(session["correct_answers"]),
+            current_item_order=int(question["current_index"]),
+            item_completed=True,
+        )
+    else:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                UPDATE training_sessions
+                SET current_index = ?,
+                    correct_answers = ?,
+                    status = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    int(question["current_index"]),
+                    int(session["correct_answers"]),
+                    ACTIVE_STATUS,
+                    utc_now(),
+                    int(session["id"]),
+                ),
+            )
+        status = ACTIVE_STATUS
+        next_index = int(question["current_index"])
     result: dict[str, object] = {
         "is_correct": True,
         "expected_answer": question["expected_answer"],

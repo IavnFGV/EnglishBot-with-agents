@@ -439,6 +439,19 @@ async def _delete_previous_question_message(anchor_message: Message, session: ob
         return
 
 
+async def _delete_progress_message(anchor_message: Message, session: object) -> None:
+    progress_message_id = session["progress_message_id"]
+    if progress_message_id is None:
+        return
+    try:
+        await anchor_message.bot.delete_message(
+            chat_id=anchor_message.chat.id,
+            message_id=int(progress_message_id),
+        )
+    except Exception:
+        return
+
+
 async def _send_next_question_message(
     anchor_message: Message,
     telegram_user_id: int,
@@ -492,6 +505,7 @@ async def _process_training_answer(
             hard_unlocked=False,
         )
         await _delete_previous_question_message(anchor_message, session)
+        await _delete_progress_message(anchor_message, session)
         set_training_session_current_question_message_id(int(session["id"]), None)
         summary = result["summary"]
         await anchor_message.answer(
@@ -674,6 +688,7 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
             hard_unlocked=False,
         )
         await _delete_previous_question_message(callback.message, session)
+        await _delete_progress_message(callback.message, session)
         set_training_session_current_question_message_id(int(session["id"]), None)
         await callback.message.answer(
             _render_session_summary_text(

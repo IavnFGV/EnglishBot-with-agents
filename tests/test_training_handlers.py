@@ -425,6 +425,10 @@ def test_session_completion_sends_summary_and_stops_question_rendering(tmp_path:
     assert len(start_message.answers) == 3
     assert start_message.answers[-1]["text"] == "Hard skipped.\nResult: 1 questions, 4 correct answers."
     assert start_message.bot.edited_messages[-1]["text"] == "Item 1/1\nDone 1/1\nStage: completed"
+    assert start_message.bot.deleted_messages == [
+        {"chat_id": user.id, "message_id": 2},
+        {"chat_id": user.id, "message_id": 1},
+    ]
 
 
 def test_learn_renders_hint_prompt_from_persisted_hint_language(tmp_path: Path) -> None:
@@ -466,6 +470,10 @@ def test_homework_completion_uses_homework_specific_summary(tmp_path: Path) -> N
     assert answer_message.answers[-1]["text"] == (
         'Correct.\nHomework "Homework set" completed.\nResult: 1 questions, 5 correct answers.'
     )
+    assert start_message.bot.deleted_messages == [
+        {"chat_id": student.id, "message_id": 2},
+        {"chat_id": student.id, "message_id": 1},
+    ]
 
 
 def test_homework_start_renders_one_progress_photo_and_one_question(tmp_path: Path) -> None:
