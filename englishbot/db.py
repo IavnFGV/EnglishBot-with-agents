@@ -937,6 +937,8 @@ def init_db() -> None:
                 assignment_id INTEGER,
                 current_index INTEGER NOT NULL DEFAULT 0,
                 correct_answers INTEGER NOT NULL DEFAULT 0,
+                homework_correct_streak INTEGER NOT NULL DEFAULT 0,
+                homework_hard_mode INTEGER NOT NULL DEFAULT 0,
                 total_questions INTEGER NOT NULL,
                 progress_message_id INTEGER,
                 current_question_message_id INTEGER,
@@ -970,6 +972,27 @@ def init_db() -> None:
                 ADD COLUMN current_question_message_id INTEGER
                 """
             )
+        if "homework_correct_streak" not in training_session_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_sessions
+                ADD COLUMN homework_correct_streak INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        if "homework_hard_mode" not in training_session_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_sessions
+                ADD COLUMN homework_hard_mode INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET homework_correct_streak = COALESCE(homework_correct_streak, 0),
+                homework_hard_mode = COALESCE(homework_hard_mode, 0)
+            """
+        )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS training_session_items (

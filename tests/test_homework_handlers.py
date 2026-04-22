@@ -35,12 +35,19 @@ class FakeMessage:
     def __init__(self, user: User) -> None:
         self.from_user = user
         self.answers: list[dict[str, object]] = []
+        self.photo_answers: list[dict[str, object]] = []
         self.chat = SimpleNamespace(id=user.id)
         self.bot = SimpleNamespace()
         self._next_message_id = 1
 
     async def answer(self, text: str, **kwargs: object) -> SimpleNamespace:
         self.answers.append({"text": text, "kwargs": kwargs})
+        message = SimpleNamespace(message_id=self._next_message_id)
+        self._next_message_id += 1
+        return message
+
+    async def answer_photo(self, photo, **kwargs: object) -> SimpleNamespace:
+        self.photo_answers.append({"photo": photo, "kwargs": kwargs})
         message = SimpleNamespace(message_id=self._next_message_id)
         self._next_message_id += 1
         return message
@@ -168,17 +175,8 @@ def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
     asyncio.run(start_homework(callback))
 
     assert callback.answered is True
+    assert len(callback_message.photo_answers) == 1
     assert callback_message.answers == [
-        {
-            "text": (
-                "Homework: Тестовая домашка\n"
-                "Done 0/1\n"
-                "Current item 1/1\n"
-                "Stage: easy\n"
-                "Items: 1 start"
-            ),
-            "kwargs": {},
-        },
         {
             "text": "Hint: понедельник\nFirst letter: m",
             "kwargs": {"reply_markup": None},
@@ -206,8 +204,8 @@ def test_start_homework_progress_shows_item_statuses_for_multiple_items(tmp_path
 
     asyncio.run(start_homework(callback))
 
-    assert "Homework: Два слова" in callback_message.answers[0]["text"]
-    assert "Items: 1 start | 2 start" in callback_message.answers[0]["text"]
+    assert len(callback_message.photo_answers) == 1
+    assert len(callback_message.answers) == 1
 
 
 def test_build_homework_button_uses_homework_open_callback() -> None:

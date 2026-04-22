@@ -1,6 +1,15 @@
+import logging
+
 from aiogram import F
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    Message,
+)
 
 from .command_registry import LEARN_COMMAND
 from .db import save_user
@@ -9,6 +18,7 @@ from .homework import (
     get_assignment,
 )
 from .i18n import translate_for_user
+from .homework_progress_image import render_homework_progress_image
 from .runtime import router
 from .training import (
     NoLearningItemsError,
@@ -29,6 +39,7 @@ TRAINING_MEDIUM_ADD_CALLBACK_PREFIX = "training:medium:add:"
 TRAINING_MEDIUM_BACKSPACE_CALLBACK = "training:medium:backspace"
 TRAINING_MEDIUM_CHECK_CALLBACK = "training:medium:check"
 TRAINING_HARD_SKIP_CALLBACK = "training:hard:skip"
+logger = logging.getLogger(__name__)
 
 
 def _get_session_assignment_id(session: object) -> int | None:
@@ -294,17 +305,29 @@ async def render_started_training_session(message: Message, telegram_user_id: in
     if session is None or question is None:
         return
 
-    progress_message = await message.answer(
-        _render_session_progress_text(
-            telegram_user_id,
-            session,
-            question_number=int(question["question_number"]),
-            total_questions=int(question["total_questions"]),
-            completed_items=int(question["completed_items"]),
-            stage_key=str(question["current_stage"]),
-            hard_unlocked=bool(question["hard_unlocked"]),
+    assignment_id = _get_session_assignment_id(session)
+    if assignment_id is None:
+        progress_message = await message.answer(
+            _render_session_progress_text(
+                telegram_user_id,
+                session,
+                question_number=int(question["question_number"]),
+                total_questions=int(question["total_questions"]),
+                completed_items=int(question["completed_items"]),
+                stage_key=str(question["current_stage"]),
+                hard_unlocked=bool(question["hard_unlocked"]),
+            )
         )
-    )
+    else:
+        progress_message = await message.answer_photo(
+            FSInputFile(
+                render_homework_progress_image(
+                    telegram_user_id,
+                    assignment_id,
+                    int(session["id"]),
+                )
+            )
+        )
     set_training_session_progress_message_id(
         int(question["session_id"]),
         getattr(progress_message, "message_id", None),
@@ -332,17 +355,30 @@ async def _edit_progress_message(
     hard_unlocked: bool,
 ) -> None:
     progress_message_id = session["progress_message_id"]
-    progress_text = _render_session_progress_text(
-        telegram_user_id,
-        session,
-        question_number=question_number,
-        total_questions=total_questions,
-        completed_items=completed_items,
-        stage_key=stage_key,
-        hard_unlocked=hard_unlocked,
-    )
+    assignment_id = _get_session_assignment_id(session)
+    progress_text = None
+    progress_image_path = None
+    if assignment_id is None:
+        progress_text = _render_session_progress_text(
+            telegram_user_id,
+            session,
+            question_number=question_number,
+            total_questions=total_questions,
+            completed_items=completed_items,
+            stage_key=stage_key,
+            hard_unlocked=hard_unlocked,
+        )
+    else:
+        progress_image_path = render_homework_progress_image(
+            telegram_user_id,
+            assignment_id,
+            int(session["id"]),
+        )
     if progress_message_id is None:
-        progress_message = await anchor_message.answer(progress_text)
+        if progress_image_path is None:
+            progress_message = await anchor_message.answer(str(progress_text))
+        else:
+            progress_message = await anchor_message.answer_photo(FSInputFile(progress_image_path))
         set_training_session_progress_message_id(
             int(session["id"]),
             getattr(progress_message, "message_id", None),
@@ -350,13 +386,40 @@ async def _edit_progress_message(
         return
 
     try:
-        await anchor_message.bot.edit_message_text(
-            chat_id=anchor_message.chat.id,
-            message_id=int(progress_message_id),
-            text=progress_text,
-        )
-    except Exception:
-        progress_message = await anchor_message.answer(progress_text)
+        if progress_image_path is None:
+            await anchor_message.bot.edit_message_text(
+                chat_id=anchor_message.chat.id,
+                message_id=int(progress_message_id),
+                text=str(progress_text),
+            )
+        else:
+            await anchor_message.bot.edit_message_media(
+                chat_id=anchor_message.chat.id,
+                message_id=int(progress_message_id),
+                media=InputMediaPhoto(media=FSInputFile(progress_image_path)),
+            )
+    except Exception as exc:
+        error_text = str(exc).lower()
+        if progress_image_path is not None and "not modified" in error_text:
+            return
+        if progress_image_path is not None:
+            if "message to edit not found" in error_text or "message can't be edited" in error_text:
+                progress_message = await anchor_message.answer_photo(FSInputFile(progress_image_path))
+                set_training_session_progress_message_id(
+                    int(session["id"]),
+                    getattr(progress_message, "message_id", None),
+                )
+                return
+            logger.warning(
+                "Could not edit homework progress image in place for session %s: %s",
+                session["id"],
+                exc,
+            )
+            return
+        if progress_image_path is None:
+            progress_message = await anchor_message.answer(str(progress_text))
+        else:
+            progress_message = await anchor_message.answer_photo(FSInputFile(progress_image_path))
         set_training_session_progress_message_id(
             int(session["id"]),
             getattr(progress_message, "message_id", None),

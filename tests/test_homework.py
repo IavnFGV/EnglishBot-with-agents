@@ -1,6 +1,7 @@
 import sqlite3
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from aiogram.types import User
@@ -22,6 +23,10 @@ from englishbot.homework import (
     list_active_assignments,
     start_assignment_training_session,
     student_has_active_homework,
+)
+from englishbot.homework_progress_image import (
+    build_assignment_progress_image_snapshot,
+    render_homework_progress_image,
 )
 from englishbot.teacher_student import create_invite, join_with_invite
 from englishbot.topics import (
@@ -83,6 +88,32 @@ def seed_teacher_learning_items(teacher_user_id: int, count: int) -> list[int]:
         create_learning_item_translation(learning_item_id, "ru", f"слово-{index + 1}")
         learning_item_ids.append(learning_item_id)
     return learning_item_ids
+
+
+def get_session_item_state(session_id: int, item_order: int) -> sqlite3.Row:
+    with db.get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT
+                learning_item_id,
+                prompt_text,
+                expected_answer,
+                item_order,
+                current_stage,
+                easy_correct_count,
+                medium_correct_count,
+                correct_streak,
+                hard_unlocked,
+                hard_completed,
+                answer_state,
+                is_completed
+            FROM training_session_items
+            WHERE session_id = ? AND item_order = ?
+            """,
+            (session_id, item_order),
+        ).fetchone()
+    assert row is not None
+    return row
 
 
 def test_init_db_creates_assignment_tables_and_training_assignment_column(
@@ -315,7 +346,7 @@ def test_assignment_completion_marks_homework_done(tmp_path: Path) -> None:
     start_assignment_training_session(student.id, int(result["assignment_id"]))
     for _ in range(4):
         answer_result = submit_training_answer(student.id, "lesson-1")
-    answer_result = skip_optional_hard(student.id)
+    answer_result = submit_training_answer(student.id, "lesson-1")
 
     assert answer_result is not None
     assert answer_result["status"] == "completed"
@@ -370,7 +401,7 @@ def test_assignment_progress_snapshot_reports_compact_item_statuses(tmp_path: Pa
 
     training_result = start_assignment_training_session(student.id, int(result["assignment_id"]))
     first_session_id = int(training_result["session_id"])
-    for _ in range(8):
+    for _ in range(4):
         current_question = get_current_question(student.id)
         assert current_question is not None
         answer_result = submit_training_answer(student.id, str(current_question["expected_answer"]))
@@ -380,11 +411,131 @@ def test_assignment_progress_snapshot_reports_compact_item_statuses(tmp_path: Pa
 
     assert answer_result is not None
     assert snapshot["assignment_title"] == "Status test"
-    assert snapshot["completed_items"] == 1
+    assert snapshot["completed_items"] == 0
     assert snapshot["total_items"] == 2
     assert snapshot["current_item_position"] == 2
-    assert snapshot["current_stage"] == "hard"
-    assert snapshot["item_statuses"] == ["done", "almost"]
+    assert snapshot["current_stage"] == "medium"
+    assert snapshot["item_statuses"] == ["warm_up", "almost"]
+
+
+def test_homework_uses_fifth_question_as_hard_after_four_consecutive_correct_answers(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 2)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Hard streak")
+
+    start_assignment_training_session(student.id, int(result["assignment_id"]))
+    for _ in range(4):
+        current_question = get_current_question(student.id)
+        assert current_question is not None
+        answer_result = submit_training_answer(student.id, str(current_question["expected_answer"]))
+        assert answer_result is not None
+
+    hard_question = get_current_question(student.id)
+
+    assert hard_question is not None
+    assert hard_question["current_stage"] == "hard"
+    assert hard_question["can_skip_hard"] is True
+
+
+def test_homework_skip_hard_resets_global_streak_and_returns_to_normal_order(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 2)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Hard streak")
+
+    started = start_assignment_training_session(student.id, int(result["assignment_id"]))
+    session_id = int(started["session_id"])
+    for _ in range(4):
+        current_question = get_current_question(student.id)
+        assert current_question is not None
+        answer_result = submit_training_answer(student.id, str(current_question["expected_answer"]))
+        assert answer_result is not None
+
+    skip_result = skip_optional_hard(student.id)
+    next_question = get_current_question(student.id)
+    first_item = get_session_item_state(session_id, 0)
+
+    assert skip_result is not None
+    assert first_item["is_completed"] == 0
+    assert next_question is not None
+    assert next_question["current_stage"] == "medium"
+    active_session = get_active_training_session(student.id)
+    assert active_session is not None
+    assert active_session["homework_correct_streak"] == 0
+    assert active_session["homework_hard_mode"] == 0
+
+
+def test_homework_hard_mode_persists_across_next_words_until_stop_condition(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 3)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Hard streak")
+
+    start_assignment_training_session(student.id, int(result["assignment_id"]))
+    for _ in range(4):
+        current_question = get_current_question(student.id)
+        assert current_question is not None
+        answer_result = submit_training_answer(student.id, str(current_question["expected_answer"]))
+        assert answer_result is not None
+
+    first_hard_question = get_current_question(student.id)
+    assert first_hard_question is not None
+    assert first_hard_question["current_stage"] == "hard"
+
+    hard_result = submit_training_answer(student.id, str(first_hard_question["expected_answer"]))
+    assert hard_result is not None
+    assert hard_result["is_correct"] is True
+
+    next_question = get_current_question(student.id)
+    active_session = get_active_training_session(student.id)
+
+    assert next_question is not None
+    assert next_question["current_stage"] == "hard"
+    assert next_question["can_skip_hard"] is True
+    assert active_session is not None
+    assert active_session["homework_hard_mode"] == 1
+    assert active_session["homework_correct_streak"] == 4
+
+
+def test_homework_resumes_stuck_legacy_hard_item_as_medium_when_hard_mode_is_off(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 1)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Legacy hard")
+    started = start_assignment_training_session(student.id, int(result["assignment_id"]))
+    session_id = int(started["session_id"])
+
+    with db.get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET homework_hard_mode = 0,
+                homework_correct_streak = 0
+            WHERE id = ?
+            """,
+            (session_id,),
+        )
+        connection.execute(
+            """
+            UPDATE training_session_items
+            SET current_stage = 'hard',
+                easy_correct_count = 2,
+                medium_correct_count = 2,
+                hard_completed = 0,
+                is_completed = 0
+            WHERE session_id = ? AND item_order = 0
+            """,
+            (session_id,),
+        )
+
+    resumed = get_current_question(student.id)
+    snapshot = get_assignment_progress_snapshot(int(result["assignment_id"]), session_id)
+
+    assert resumed is not None
+    assert resumed["current_stage"] == "medium"
+    assert snapshot["current_stage"] == "medium"
+    assert snapshot["items"][0]["current_stage"] == "medium"
 
 
 def test_create_assignment_from_group_uses_explicit_teacher_workspace(tmp_path: Path) -> None:
@@ -448,3 +599,128 @@ def test_create_assignment_from_group_rejects_ambiguous_student_workspace(tmp_pa
             teacher_workspace_id,
             "weekdays",
         )
+
+
+def test_assignment_progress_snapshot_exposes_item_state_for_image_adapter(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 2)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Image homework")
+    training_result = start_assignment_training_session(student.id, int(result["assignment_id"]))
+
+    for _ in range(4):
+        current_question = get_current_question(student.id)
+        assert current_question is not None
+        answer_result = submit_training_answer(student.id, str(current_question["expected_answer"]))
+        assert answer_result is not None
+
+    snapshot = get_assignment_progress_snapshot(
+        int(result["assignment_id"]),
+        int(training_result["session_id"]),
+    )
+
+    assert snapshot["items"][0] == {
+        "item_order": 0,
+        "learning_item_id": snapshot["items"][0]["learning_item_id"],
+        "current_stage": "hard",
+        "easy_correct_count": 2,
+        "medium_correct_count": 0,
+        "correct_streak": 2,
+        "hard_unlocked": True,
+        "hard_completed": False,
+        "is_completed": False,
+    }
+
+
+def test_homework_progress_image_builder_maps_staged_state_into_generator_snapshot(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 1)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Image homework")
+    training_result = start_assignment_training_session(student.id, int(result["assignment_id"]))
+
+    for _ in range(4):
+        current_question = get_current_question(student.id)
+        assert current_question is not None
+        answer_result = submit_training_answer(student.id, str(current_question["expected_answer"]))
+        assert answer_result is not None
+
+    snapshot = build_assignment_progress_image_snapshot(
+        student.id,
+        int(result["assignment_id"]),
+        int(training_result["session_id"]),
+    )
+
+    assert snapshot.completed_word_count == 0
+    assert snapshot.total_word_count == 1
+    assert snapshot.legend_labels == ("start", "warm-up", "almost", "done")
+    assert snapshot.hard_legend_label == "hard clear"
+    assert snapshot.combo_charge_streak == 4
+    assert snapshot.combo_hard_active is True
+    assert snapshot.segments[0].word_id == str(training_result["question"]["learning_item_id"])
+    assert snapshot.segments[0].progress_value == 1.0
+    assert snapshot.segments[0].hard_clear is False
+
+
+def test_homework_progress_image_combo_uses_session_streak_not_item_totals(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 1)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Image homework")
+    training_result = start_assignment_training_session(student.id, int(result["assignment_id"]))
+    session_id = int(training_result["session_id"])
+
+    with db.get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET homework_correct_streak = 3,
+                homework_hard_mode = 0
+            WHERE id = ?
+            """,
+            (session_id,),
+        )
+        connection.execute(
+            """
+            UPDATE training_session_items
+            SET current_stage = 'medium',
+                easy_correct_count = 2,
+                medium_correct_count = 5,
+                hard_unlocked = 0,
+                hard_completed = 0,
+                is_completed = 0
+            WHERE session_id = ? AND item_order = 0
+            """,
+            (session_id,),
+        )
+
+    snapshot = build_assignment_progress_image_snapshot(
+        student.id,
+        int(result["assignment_id"]),
+        session_id,
+    )
+
+    assert snapshot.combo_charge_streak == 3
+    assert snapshot.combo_hard_active is False
+
+
+def test_homework_progress_image_renderer_is_called_with_built_snapshot(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_ids = seed_teacher_learning_items(teacher.id, 1)
+    result = create_assignment(teacher.id, student.id, learning_item_ids, title="Image homework")
+    training_result = start_assignment_training_session(student.id, int(result["assignment_id"]))
+
+    with patch("englishbot.homework_progress_image.render_assignment_progress_image") as render_mock:
+        render_mock.return_value = tmp_path / "progress.png"
+        output_path = render_homework_progress_image(
+            student.id,
+            int(result["assignment_id"]),
+            int(training_result["session_id"]),
+        )
+
+    assert output_path == tmp_path / "progress.png"
+    assert render_mock.call_count == 1
+    render_snapshot = render_mock.call_args.args[0]
+    assert render_snapshot.total_word_count == 1
+    assert render_snapshot.segments[0].word_id == str(training_result["question"]["learning_item_id"])

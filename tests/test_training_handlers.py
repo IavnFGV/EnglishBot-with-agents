@@ -35,8 +35,10 @@ from englishbot.workspaces import add_workspace_member
 class FakeBot:
     def __init__(self) -> None:
         self.edited_messages: list[dict[str, object]] = []
+        self.edited_media: list[dict[str, object]] = []
         self.deleted_messages: list[dict[str, object]] = []
         self.fail_delete = False
+        self.fail_edit_media_message: str | None = None
 
     async def edit_message_text(
         self,
@@ -55,6 +57,23 @@ class FakeBot:
             }
         )
 
+    async def edit_message_media(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        media,
+    ) -> None:
+        if self.fail_edit_media_message is not None:
+            raise RuntimeError(self.fail_edit_media_message)
+        self.edited_media.append(
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "media": media,
+            }
+        )
+
     async def delete_message(self, *, chat_id: int, message_id: int) -> None:
         self.deleted_messages.append({"chat_id": chat_id, "message_id": message_id})
         if self.fail_delete:
@@ -68,6 +87,7 @@ class FakeMessage:
         self.bot = bot or FakeBot()
         self.chat = SimpleNamespace(id=user.id)
         self.answers: list[dict[str, object]] = []
+        self.photo_answers: list[dict[str, object]] = []
         self._next_message_id = 1
         self.message_id = 0
 
@@ -75,6 +95,12 @@ class FakeMessage:
         message = SimpleNamespace(message_id=self._next_message_id)
         self._next_message_id += 1
         self.answers.append({"text": text, "kwargs": kwargs, "message_id": message.message_id})
+        return message
+
+    async def answer_photo(self, photo, **kwargs: object) -> SimpleNamespace:
+        message = SimpleNamespace(message_id=self._next_message_id)
+        self._next_message_id += 1
+        self.photo_answers.append({"photo": photo, "kwargs": kwargs, "message_id": message.message_id})
         return message
 
 
@@ -433,9 +459,91 @@ def test_homework_completion_uses_homework_specific_summary(tmp_path: Path) -> N
     submit_training_answer(student.id, "homework-word")
     session = get_active_training_session(student.id)
     assert session is not None
-    start_message.message_id = int(session["current_question_message_id"])
-    asyncio.run(answer_training_hard_skip(FakeCallback(student, TRAINING_HARD_SKIP_CALLBACK, start_message)))
+    answer_message = FakeMessage(student, text="homework-word", bot=start_message.bot)
+    answer_message.message_id = int(session["current_question_message_id"])
+    asyncio.run(answer_training_question(answer_message))
 
-    assert start_message.answers[-1]["text"] == (
-        'Hard skipped.\nHomework "Homework set" completed.\nResult: 1 questions, 4 correct answers.'
+    assert answer_message.answers[-1]["text"] == (
+        'Correct.\nHomework "Homework set" completed.\nResult: 1 questions, 5 correct answers.'
     )
+
+
+def test_homework_start_renders_one_progress_photo_and_one_question(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
+    lexeme_id = create_lexeme("homework-word")
+    learning_item_id = create_learning_item(lexeme_id, "homework-word")
+    create_learning_item_translation(learning_item_id, "ru", "домашка")
+    assignment = create_assignment(teacher.id, student.id, [learning_item_id], title="Homework set")
+    start_assignment_training_session(student.id, int(assignment["assignment_id"]))
+    start_message = FakeMessage(student)
+
+    asyncio.run(render_started_training_session(start_message, student.id))
+
+    session = get_active_training_session(student.id)
+    assert session is not None
+    assert len(start_message.photo_answers) == 1
+    assert len(start_message.answers) == 1
+    assert session["progress_message_id"] == 1
+    assert session["current_question_message_id"] == 2
+
+
+def test_homework_progress_photo_updates_in_place_after_answer(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
+    learning_item_ids: list[int] = []
+    for index in range(3):
+        lexeme_id = create_lexeme(f"homework-word-{index}")
+        learning_item_id = create_learning_item(lexeme_id, f"homework-word-{index}")
+        create_learning_item_translation(learning_item_id, "ru", f"домашка-{index}")
+        learning_item_ids.append(learning_item_id)
+    assignment = create_assignment(teacher.id, student.id, learning_item_ids, title="Homework set")
+    start_assignment_training_session(student.id, int(assignment["assignment_id"]))
+    start_message = FakeMessage(student)
+
+    asyncio.run(render_started_training_session(start_message, student.id))
+
+    keyboard = start_message.answers[0]["kwargs"]["reply_markup"]
+    correct_answer = str(get_current_question(student.id)["expected_answer"])
+    correct_index = _find_keyboard_index_by_label(keyboard, correct_answer)
+    callback = FakeCallback(student, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", start_message)
+
+    asyncio.run(answer_training_easy(callback))
+
+    session = get_active_training_session(student.id)
+    assert session is not None
+    assert len(start_message.photo_answers) == 1
+    assert len(start_message.bot.edited_media) == 1
+    assert start_message.bot.edited_media[0]["chat_id"] == student.id
+    assert start_message.bot.edited_media[0]["message_id"] == 1
+    assert session["progress_message_id"] == 1
+
+
+def test_homework_progress_photo_not_modified_does_not_send_new_message(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
+    learning_item_ids: list[int] = []
+    for index in range(3):
+        lexeme_id = create_lexeme(f"homework-word-{index}")
+        learning_item_id = create_learning_item(lexeme_id, f"homework-word-{index}")
+        create_learning_item_translation(learning_item_id, "ru", f"домашка-{index}")
+        learning_item_ids.append(learning_item_id)
+    assignment = create_assignment(teacher.id, student.id, learning_item_ids, title="Homework set")
+    start_assignment_training_session(student.id, int(assignment["assignment_id"]))
+    start_message = FakeMessage(student)
+
+    asyncio.run(render_started_training_session(start_message, student.id))
+    start_message.bot.fail_edit_media_message = "Bad Request: message is not modified"
+    keyboard = start_message.answers[0]["kwargs"]["reply_markup"]
+    correct_answer = str(get_current_question(student.id)["expected_answer"])
+    correct_index = _find_keyboard_index_by_label(keyboard, correct_answer)
+
+    asyncio.run(answer_training_easy(FakeCallback(student, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", start_message)))
+
+    session = get_active_training_session(student.id)
+    assert session is not None
+    assert len(start_message.photo_answers) == 1
+    assert session["progress_message_id"] == 1

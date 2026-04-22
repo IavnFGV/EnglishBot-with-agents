@@ -101,6 +101,8 @@ def test_init_db_creates_training_tables_with_staged_columns(tmp_path: Path) -> 
     assert {
         "progress_message_id",
         "current_question_message_id",
+        "homework_correct_streak",
+        "homework_hard_mode",
     }.issubset(training_session_columns)
     assert {
         "prompt_text",

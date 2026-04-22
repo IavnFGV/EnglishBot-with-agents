@@ -4,6 +4,9 @@ from .db import get_connection, utc_now
 from .teacher_student import ROLE_TEACHER
 from .topics import find_topic_by_name_for_teacher_workspace, publish_topic_to_workspace
 from .training import (
+    HARD_STAGE,
+    EASY_STAGE,
+    MEDIUM_STAGE,
     create_training_session_for_learning_items,
     find_latest_incomplete_assignment_training_session,
     get_item_progress_status,
@@ -339,7 +342,7 @@ def get_assignment_progress_snapshot(
     with get_connection() as connection:
         session = connection.execute(
             """
-            SELECT id, current_index, total_questions, status
+            SELECT id, current_index, total_questions, status, homework_correct_streak, homework_hard_mode
             FROM training_sessions
             WHERE id = ? AND assignment_id = ?
             """,
@@ -349,9 +352,11 @@ def get_assignment_progress_snapshot(
             """
             SELECT
                 item_order,
+                learning_item_id,
                 current_stage,
                 easy_correct_count,
                 medium_correct_count,
+                correct_streak,
                 hard_unlocked,
                 hard_completed,
                 is_completed
@@ -369,6 +374,8 @@ def get_assignment_progress_snapshot(
     completed_items = sum(1 for row in item_rows if int(row["is_completed"]) == 1)
     current_index = int(session["current_index"])
     is_session_completed = str(session["status"]) == COMPLETED_STATUS
+    homework_correct_streak = int(session["homework_correct_streak"])
+    homework_hard_mode = bool(session["homework_hard_mode"])
     next_incomplete_row = next(
         (row for row in item_rows if int(row["is_completed"]) == 0),
         None,
@@ -384,7 +391,11 @@ def get_assignment_progress_snapshot(
             current_stage = str(next_incomplete_row["current_stage"])
         elif not is_session_completed:
             current_row = item_rows[min(current_index, total_items - 1)]
-            current_stage = str(current_row["current_stage"])
+            current_stage = (
+                HARD_STAGE
+                if homework_hard_mode
+                else _normalize_assignment_snapshot_stage(current_row)
+            )
 
     item_statuses: list[str] = []
     for row in item_rows:
@@ -399,8 +410,38 @@ def get_assignment_progress_snapshot(
         "total_items": total_items,
         "current_item_position": current_item_position,
         "current_stage": current_stage,
+        "homework_correct_streak": homework_correct_streak,
+        "homework_hard_mode": homework_hard_mode,
         "item_statuses": item_statuses,
+        "items": [
+            {
+                "item_order": int(row["item_order"]),
+                "learning_item_id": int(row["learning_item_id"]),
+                "current_stage": (
+                    HARD_STAGE
+                    if homework_hard_mode and int(row["item_order"]) == min(current_index, total_items - 1)
+                    else _normalize_assignment_snapshot_stage(row)
+                ),
+                "easy_correct_count": int(row["easy_correct_count"]),
+                "medium_correct_count": int(row["medium_correct_count"]),
+                "correct_streak": int(row["correct_streak"]),
+                "hard_unlocked": bool(row["hard_unlocked"])
+                or (homework_hard_mode and int(row["item_order"]) == min(current_index, total_items - 1)),
+                "hard_completed": bool(row["hard_completed"]),
+                "is_completed": bool(row["is_completed"]),
+            }
+            for row in item_rows
+        ],
     }
+
+
+def _normalize_assignment_snapshot_stage(row: sqlite3.Row) -> str:
+    current_stage = str(row["current_stage"])
+    if current_stage != HARD_STAGE or bool(row["hard_completed"]):
+        return current_stage
+    if int(row["easy_correct_count"]) >= 2:
+        return MEDIUM_STAGE
+    return EASY_STAGE
 
 
 def _get_student_workspace(
