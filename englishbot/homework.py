@@ -364,22 +364,33 @@ def get_assignment_progress_snapshot(
     completed_items = sum(1 for row in item_rows if int(row["is_completed"]) == 1)
     current_index = int(session["current_index"])
     is_session_completed = str(session["status"]) == COMPLETED_STATUS
+    next_incomplete_row = next(
+        (row for row in item_rows if int(row["is_completed"]) == 0),
+        None,
+    )
     if total_items == 0:
         current_item_position = 0
         current_stage = COMPLETED_STATUS if is_session_completed else ACTIVE_STATUS
     else:
         current_item_position = total_items if is_session_completed else min(current_index + 1, total_items)
         current_stage = COMPLETED_STATUS
-        if not is_session_completed:
+        if is_session_completed and next_incomplete_row is not None:
+            current_item_position = int(next_incomplete_row["item_order"]) + 1
+            current_stage = str(next_incomplete_row["current_stage"])
+        elif not is_session_completed:
             current_row = item_rows[min(current_index, total_items - 1)]
             current_stage = str(current_row["current_stage"])
 
     item_statuses: list[str] = []
+    current_item_order = None if next_incomplete_row is None else int(next_incomplete_row["item_order"])
     for row in item_rows:
         item_order = int(row["item_order"])
         if int(row["is_completed"]) == 1:
             item_statuses.append(ITEM_STATUS_COMPLETED)
-        elif not is_session_completed and item_order == current_index:
+        elif (
+            (not is_session_completed and item_order == current_index)
+            or (is_session_completed and item_order == current_item_order)
+        ):
             item_statuses.append(ITEM_STATUS_IN_PROGRESS)
         else:
             item_statuses.append(ITEM_STATUS_NOT_STARTED)

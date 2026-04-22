@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from aiogram_dialog import StartMode
 from aiogram.types import User
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -12,6 +13,7 @@ from englishbot.basic_topics_seed import (
     resolve_basic_topic_learning_item_ids,
     seed_basic_topics,
 )
+from englishbot.homework_dialog import HomeworkDialogSG
 from englishbot.homework import create_assignment
 from englishbot.homework_handlers import (
     HOMEWORK_OPEN_CALLBACK,
@@ -53,6 +55,14 @@ class FakeCallback:
 
     async def answer(self) -> None:
         self.answered = True
+
+
+class FakeDialogManager:
+    def __init__(self) -> None:
+        self.start_calls: list[dict[str, object]] = []
+
+    async def start(self, state, mode=None, data=None, **kwargs) -> None:
+        self.start_calls.append({"state": state, "mode": mode, "data": data, "kwargs": kwargs})
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -114,20 +124,27 @@ def test_start_shows_no_homework_message_without_assignments(tmp_path: Path) -> 
     ]
 
 
-def test_open_homework_lists_active_assignments(tmp_path: Path) -> None:
+def test_open_homework_starts_dialog_flow(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher, student = seed_linked_teacher_and_student()
     learning_item_id = seed_learning_item()
-    assignment = create_assignment(teacher.id, student.id, [learning_item_id], title="Фрукты")
+    create_assignment(teacher.id, student.id, [learning_item_id], title="Фрукты")
     callback_message = FakeMessage(student)
     callback = FakeCallback(student, HOMEWORK_OPEN_CALLBACK, callback_message)
+    manager = FakeDialogManager()
 
-    asyncio.run(open_homework(callback))
+    asyncio.run(open_homework(callback, manager))
 
     assert callback.answered is True
-    assert callback_message.answers[0]["text"] == "Your assignments:"
-    keyboard = callback_message.answers[0]["kwargs"]["reply_markup"]
-    assert keyboard.inline_keyboard[0][0].text == assignment["title"]
+    assert callback_message.answers == []
+    assert manager.start_calls == [
+        {
+            "state": HomeworkDialogSG.assignments,
+            "mode": StartMode.RESET_STACK,
+            "data": None,
+            "kwargs": {},
+        }
+    ]
 
 
 def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:

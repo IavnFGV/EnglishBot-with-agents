@@ -1,0 +1,74 @@
+Read these files first and treat them as mandatory constraints:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+You must follow the project rules exactly:
+- Telegram-first product
+- SQLite is the runtime source of truth
+- business logic must stay outside Telegram handlers
+- all bot-facing text must go through centralized i18n
+- all Telegram commands must go through englishbot/command_registry.py
+- non-trivial multi-step Telegram flows must use aiogram-dialog
+- use tests as specification
+- keep changes minimal and local
+- do not overengineer
+- update CHANGELOG.md and context/current_state.md after completion
+
+Task:
+Implement the next learner-side homework UX improvement step.
+
+Important scope rules:
+1. Do NOT redesign teacher assignment creation in this task.
+2. Do NOT implement topic access in this task.
+3. Do NOT implement new assignment kinds or modes in this task.
+4. Reuse the current homework + training domain logic.
+5. The goal is to make homework feel like a coherent learner-facing Telegram flow.
+
+Required learner UX:
+1. Show a homework list screen for the learner
+   - list active assignments
+   - show assignment title
+   - show compact status/progress
+   - allow selecting one assignment
+2. Show a homework overview screen for one selected assignment
+   - title
+   - item count
+   - current progress
+   - whether the learner should Start or Continue
+3. Start or continue the selected homework using the existing homework/training engine
+4. Keep restart/resume behavior for unfinished assignments
+5. Keep the current staged homework runtime behavior intact
+6. Keep chat clutter low and UI consistent
+
+Constraints:
+- Use aiogram-dialog if the flow is non-trivial
+- Keep Telegram handlers thin
+- Keep business logic outside Telegram layer
+- Reuse existing homework/training services where possible
+- Do not introduce new persistence tables unless strictly necessary
+- Do not redesign the training engine
+- Do not introduce unrelated refactoring
+- Keep bot-facing strings in i18n
+- Update command registry only if needed
+- Add focused automated tests
+- Update CHANGELOG.md and context/current_state.md
+
+Implementation expectations:
+- Add the smallest reasonable learner homework dialog/UI layer
+- Reuse existing assignment/homework/training data
+- Show enough progress information to make the list useful
+- Keep behavior safe for legacy/default homework assignments
+- Preserve existing start/resume semantics
+
+Tests should cover:
+- learner homework list rendering logic
+- overview/start/continue behavior
+- reuse of unfinished assignment sessions
+- no regression for existing homework launch behavior
+- command/handler wiring if applicable
+
+At the end:
+- run relevant tests
+- summarize changed files
+- summarize what was intentionally not implemented

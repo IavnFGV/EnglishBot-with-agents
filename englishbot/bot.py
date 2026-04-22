@@ -6,6 +6,7 @@ from aiogram_dialog import setup_dialogs
 
 from .command_registry import BOT_COMMANDS, ME_COMMAND
 from .db import count_text_interactions, get_user
+from .homework_dialog import homework_dialog
 from .i18n import translate_for_user
 from .runtime import dispatcher, router
 from .teacher_assignment_dialog import teacher_assignment_dialog
@@ -25,6 +26,7 @@ from . import workbook_handlers  # noqa: F401
 logger = logging.getLogger(__name__)
 
 dispatcher.include_router(teacher_assignment_dialog)
+dispatcher.include_router(homework_dialog)
 dispatcher.include_router(teacher_content_dialog)
 setup_dialogs(dispatcher)
 
