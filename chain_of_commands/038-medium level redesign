@@ -1,0 +1,51 @@
+Read:
+Grok Code Fast 1 • 1x
+
+
+- context/current_state.md
+- AGENTS.md
+
+Task:
+Fix ONLY the medium-level letter keyboard UX. Do NOT change architecture.
+
+Problems to fix:
+1. Buttons disappear after click → UI jumps
+2. Layout is unstable
+3. No proper backspace
+
+Required behavior:
+
+1. Fixed layout
+- max 4 letters per row
+- layout must NOT change after clicks
+
+2. Do NOT remove buttons
+- when letter is used → replace it with placeholder "·"
+- keep button in place
+
+3. Add Backspace button
+- removes last selected letter
+- restores the corresponding letter button
+
+4. Answer building
+- append letters on click
+- backspace removes last
+- no full reset
+
+5. Do NOT reshuffle letters
+- layout must stay identical during whole exercise
+
+6. Keep everything else unchanged
+- do NOT touch training logic
+- do NOT add new layers
+- do NOT refactor unrelated code
+
+Tests:
+- layout stays stable after clicks
+- letters turn into placeholder instead of disappearing
+- backspace restores letters correctly
+
+Done when:
+- keyboard stops jumping
+- buttons don’t disappear
+- backspace works

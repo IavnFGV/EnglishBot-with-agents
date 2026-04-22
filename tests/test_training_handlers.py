@@ -286,6 +286,7 @@ def test_medium_callbacks_assemble_and_remove_letters(tmp_path: Path) -> None:
     message.message_id = int(session["current_question_message_id"])
     question = get_current_question(user.id)
     assert question is not None
+    jumbled_letters = str(question["jumbled_letters"])
     first_letter_index = 0
     callback = FakeCallback(user, f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{first_letter_index}", message)
 
@@ -293,8 +294,39 @@ def test_medium_callbacks_assemble_and_remove_letters(tmp_path: Path) -> None:
 
     assert callback.answered is True
     assert "Answer: " in message.bot.edited_messages[-1]["text"]
+    
+    # Check keyboard layout stability: selected letter becomes placeholder
+    edited = message.bot.edited_messages[-1]
+    reply_markup = edited["reply_markup"]
+    assert reply_markup is not None
+    keyboard = reply_markup.inline_keyboard
+    letter_buttons = []
+    for row in keyboard[:-1]:  # exclude backspace/check row
+        for btn in row:
+            if (btn.callback_data and btn.callback_data.startswith(TRAINING_MEDIUM_ADD_CALLBACK_PREFIX)) or btn.text == "·":
+                letter_buttons.append(btn)
+    assert len(letter_buttons) == len(jumbled_letters)
+    # First letter should be placeholder
+    assert letter_buttons[0].text == "·"
+    assert letter_buttons[0].callback_data == "placeholder"
+    
     asyncio.run(answer_training_medium_backspace(FakeCallback(user, TRAINING_MEDIUM_BACKSPACE_CALLBACK, message)))
     assert "_ _ _ _ _ _" in message.bot.edited_messages[-1]["text"]
+    
+    # Check keyboard after backspace: letter restored
+    edited2 = message.bot.edited_messages[-1]
+    reply_markup2 = edited2["reply_markup"]
+    assert reply_markup2 is not None
+    keyboard2 = reply_markup2.inline_keyboard
+    letter_buttons2 = []
+    for row in keyboard2[:-1]:
+        for btn in row:
+            if (btn.callback_data and btn.callback_data.startswith(TRAINING_MEDIUM_ADD_CALLBACK_PREFIX)) or btn.text == "·":
+                letter_buttons2.append(btn)
+    assert len(letter_buttons2) == len(jumbled_letters)
+    # First letter should be restored
+    assert letter_buttons2[0].text == jumbled_letters[0]
+    assert letter_buttons2[0].callback_data == f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}0"
 
 
 def test_medium_check_uses_assembled_answer_and_advances(tmp_path: Path) -> None:

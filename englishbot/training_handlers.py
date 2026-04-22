@@ -74,14 +74,14 @@ def _build_medium_keyboard(
     current_row: list[InlineKeyboardButton] = []
     for index, letter in enumerate(jumbled_letters):
         if index in selected_letter_indexes:
-            continue
-        current_row.append(
-            InlineKeyboardButton(
+            button = InlineKeyboardButton(text="·", callback_data="placeholder")
+        else:
+            button = InlineKeyboardButton(
                 text=letter,
                 callback_data=f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{index}",
             )
-        )
-        if len(current_row) == 6:
+        current_row.append(button)
+        if len(current_row) == 4:
             rows.append(current_row)
             current_row = []
     if current_row:
