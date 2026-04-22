@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from . import db
 
 TEACHER_CONTENT_IMAGE_DIR = Path("assets/images/teacher-content")
+WORKBOOK_IMPORT_ASSET_DIR = Path("assets/workbook-import")
 ASSET_TYPE_IMAGE = "image"
 ASSET_TYPE_AUDIO = "audio"
 ASSET_TYPE_VOICE = "voice"
 ASSET_TYPE_VIDEO = "video"
 PRIMARY_IMAGE_ROLE = "primary_image"
 PRIMARY_AUDIO_ROLE = "primary_audio"
+IMAGE_PREVIEW_ROLE = "image_preview"
+AUDIO_VOICE_ROLE = "audio_voice"
 SUPPORTED_ASSET_TYPES = {
     ASSET_TYPE_IMAGE,
     ASSET_TYPE_AUDIO,
@@ -364,6 +368,33 @@ def store_teacher_content_image(
     output_path = asset_dir / filename
     output_path.write_bytes(content)
     return str((TEACHER_CONTENT_IMAGE_DIR / filename).as_posix())
+
+
+def store_workbook_import_asset(
+    asset_type: str,
+    content: bytes,
+    *,
+    source_url: str,
+) -> str:
+    if asset_type not in SUPPORTED_ASSET_TYPES:
+        raise ValueError("unsupported asset_type")
+    if not content:
+        raise ValueError("asset content is required")
+
+    suffix = Path(urlparse(source_url).path).suffix.lower()
+    if not suffix:
+        if asset_type == ASSET_TYPE_IMAGE:
+            suffix = ".bin"
+        elif asset_type == ASSET_TYPE_AUDIO:
+            suffix = ".bin"
+        else:
+            suffix = ".txt"
+    asset_dir = Path(db.DB_PATH).resolve().parent / WORKBOOK_IMPORT_ASSET_DIR / asset_type
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{asset_type}-{uuid4().hex}{suffix}"
+    output_path = asset_dir / filename
+    output_path.write_bytes(content)
+    return str((WORKBOOK_IMPORT_ASSET_DIR / asset_type / filename).as_posix())
 
 
 def _delete_orphaned_assets(connection, asset_ids: list[int]) -> None:

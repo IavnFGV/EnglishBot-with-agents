@@ -56,7 +56,7 @@
 
 ### workbook import
 
-Загрузка teacher workbook из `.xlsx` в один teacher workspace через upsert по `workbook_key`.
+Загрузка teacher workbook из локального `.xlsx` в один teacher workspace через канонический человеко-редактируемый workbook format.
 
 Сейчас:
 - поддерживается только локальный `.xlsx` import;
@@ -335,7 +335,7 @@ Telegram-слой:
 ### Current behavior
 
 - `learning_items` и `topics` уже принадлежат workspace;
-- `learning_items` и `topics` имеют стабильные workspace-scoped `workbook_key`;
+- `learning_items` и `topics` принадлежат workspace и имеют внутренние stable workbook keys для legacy/runtime нужд, но workbook import/export больше не экспонирует их пользователю;
 - `learning_item_translations` принадлежат learning item и не вводят отдельное владение;
 - опубликованные student copies сохраняют собственные локальные id и workbook keys, но могут хранить `source_learning_item_id` или `source_topic_id`.
 
@@ -356,21 +356,19 @@ Workbook — это teacher-side bulk editing format, а не отдельный
 
 ### Current behavior
 
-- workbook identity строится на `workbook_key` для `topics` и `learning_items`;
 - workbook export/import работают только для одного teacher workspace за раз;
-- export создаёт `.xlsx` с явными листами:
-  - `topics`
-  - `topic_items`
+- canonical workbook содержит только листы:
+  - `meta`
   - `learning_items`
-  - `assets`
-  - `learning_item_assets`
-- import выполняет atomic partial upsert по `workbook_key`;
-- delete-on-missing не используется: отсутствие строки в workbook не удаляет сущность;
+- `meta` хранит `version`, `default_workspace`, `default_translation_language`;
+- `learning_items` хранит human-facing flattened rows: `text`, tagged `translations`, `workspace`, `topic`, `image_url`, `image_preview`, `audio_url`, `audio_voice`, `is_archived`;
+- import полностью валидирует workbook до записи и потом выполняет один explicit write transaction;
+- до записи import создаёт SQLite backup и хранит только последние 500 workbook-import backup файлов;
+- import больше не принимает legacy workbook sheets, workbook ids, db ids или workbook-key assumptions как внешнюю contract surface;
 - archive semantics поддерживаются через archive flags, а не physical delete;
-- topic-item linking additive: import добавляет/обновляет связи, но не трактует отсутствие связи как delete sync;
-- переводы импортируются как wide columns для поддерживаемых языков и обновляются без обязательного удаления существующих значений при пустой ячейке;
 - media хранится канонически через `assets` и `learning_item_assets`, а не через direct fields на `learning_items`;
-- workbook хранит asset metadata и item-to-asset links отдельными листами, без binary embed.
+- translations в workbook используют multiline syntax вроде `<ru>: ...`, а строка без тега трактуется как `default_translation_language`;
+- для текущей фазы import валидирует workspace/topic names как globally unique simple keys вместо большого migration проекта.
 
 ### Target behavior
 
@@ -636,11 +634,14 @@ Teacher-student связь используется как onboarding bridge, н
 - topic membership живёт в `topic_learning_items`;
 - current topic ordering остаётся неявным и определяется relation-row insertion order;
 - workbook persistence mappings уже согласованы с текущим кодом:
-  - `topics`: `name`, `title`, `workbook_key`
-  - `learning_items`: `text`, `workbook_key`
-  - `assets`: `asset_type`, `source_url`, `local_path`, `workbook_key`
-  - `learning_item_assets`: `role`, `sort_order`, item workbook key, asset workbook key
-  - translations: wide workbook columns -> `learning_item_translations`
+  - workbook `learning_items.workspace` / `meta.default_workspace` -> `workspaces.name` validation against target teacher workspace
+  - workbook `learning_items.topic` -> `topics.name` / `topics.title`
+  - workbook `learning_items.text` -> `learning_items.text`
+  - workbook multiline `translations` -> `learning_item_translations(language_code, translation_text)`
+  - workbook `image_url` -> linked `image` asset with role `primary_image`
+  - workbook `image_preview` -> linked `image` asset with role `image_preview`
+  - workbook `audio_url` -> linked `audio` asset with role `primary_audio`
+  - workbook `audio_voice` -> linked `voice` asset with role `audio_voice`
 
 ### Target behavior
 
@@ -741,6 +742,7 @@ Teacher-student связь используется как onboarding bridge, н
 - нет back-sync из student workspace в teacher workspace;
 - нет Google Sheets API;
 - workbook support остаётся local-file based;
+- workbook import пока использует simple validation/matching rules вместо полноценного diff/merge identity layer;
 - нет workspace UI;
 - нет полноценного workspace selection flow;
 - нет сложной access-control hierarchy;

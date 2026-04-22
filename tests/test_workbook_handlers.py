@@ -5,36 +5,21 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from aiogram.types import Document, User
+from openpyxl import Workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
 from englishbot.topics import create_topic_for_teacher_workspace
+from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import (
     create_learning_item_for_teacher_workspace,
     create_learning_item_translation,
     create_lexeme,
 )
-from englishbot.workbook_export import (
-    ASSETS_COLUMNS,
-    ASSETS_SHEET_NAME,
-    LEARNING_ITEMS_COLUMNS,
-    LEARNING_ITEMS_SHEET_NAME,
-    LEARNING_ITEM_ASSETS_COLUMNS,
-    LEARNING_ITEM_ASSETS_SHEET_NAME,
-    TOPIC_ITEMS_COLUMNS,
-    TOPIC_ITEMS_SHEET_NAME,
-    TOPICS_COLUMNS,
-    TOPICS_SHEET_NAME,
-)
-from englishbot.workbook_handlers import (
-    workbook_export,
-    workbook_import_document,
-    workbook_import_usage,
-)
+from englishbot.workbook_export import LEARNING_ITEMS_COLUMNS, LEARNING_ITEMS_SHEET_NAME, META_COLUMNS, META_SHEET_NAME
+from englishbot.workbook_handlers import workbook_export, workbook_import_document, workbook_import_usage
 from englishbot.workspaces import add_workspace_member, create_workspace
-from englishbot.user_profiles import set_user_role
-from openpyxl import Workbook
 
 
 class FakeBot:
@@ -113,36 +98,26 @@ def seed_workspace_content(teacher_user_id: int, workspace_id: int) -> None:
 
 def build_workbook_bytes() -> bytes:
     workbook = Workbook()
-    topics_sheet = workbook.active
-    topics_sheet.title = TOPICS_SHEET_NAME
-    topics_sheet.append(TOPICS_COLUMNS)
-    topics_sheet.append(("topic-new", "animals", "Animals", 0, None))
-
-    topic_items_sheet = workbook.create_sheet(TOPIC_ITEMS_SHEET_NAME)
-    topic_items_sheet.append(TOPIC_ITEMS_COLUMNS)
-    topic_items_sheet.append(("topic-new", "item-new", None, None))
+    meta_sheet = workbook.active
+    meta_sheet.title = META_SHEET_NAME
+    meta_sheet.append(META_COLUMNS)
+    meta_sheet.append(("2", "Authoring", "ru"))
 
     learning_items_sheet = workbook.create_sheet(LEARNING_ITEMS_SHEET_NAME)
     learning_items_sheet.append(LEARNING_ITEMS_COLUMNS)
     learning_items_sheet.append(
         (
-            "item-new",
-            "cat",
             "cat",
             "кот",
             None,
+            "animals",
+            None,
+            None,
+            None,
             None,
             0,
-            None,
-            None,
         )
     )
-
-    assets_sheet = workbook.create_sheet(ASSETS_SHEET_NAME)
-    assets_sheet.append(ASSETS_COLUMNS)
-
-    learning_item_assets_sheet = workbook.create_sheet(LEARNING_ITEM_ASSETS_SHEET_NAME)
-    learning_item_assets_sheet.append(LEARNING_ITEM_ASSETS_COLUMNS)
 
     buffer = BytesIO()
     workbook.save(buffer)

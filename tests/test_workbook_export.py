@@ -7,6 +7,7 @@ from openpyxl import load_workbook
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.assets import IMAGE_PREVIEW_ROLE, create_asset, link_asset_to_learning_item
 from englishbot.topics import create_topic_for_teacher_workspace, link_learning_item_to_topic
 from englishbot.vocabulary import (
     create_learning_item_for_teacher_workspace,
@@ -14,17 +15,11 @@ from englishbot.vocabulary import (
     create_lexeme,
 )
 from englishbot.workbook_export import (
-    ASSETS_COLUMNS,
-    ASSETS_SHEET_NAME,
     LEARNING_ITEMS_COLUMNS,
     LEARNING_ITEMS_SHEET_NAME,
-    LEARNING_ITEM_ASSETS_COLUMNS,
-    LEARNING_ITEM_ASSETS_SHEET_NAME,
+    META_COLUMNS,
+    META_SHEET_NAME,
     SHEET_NAMES,
-    TOPIC_ITEMS_COLUMNS,
-    TOPIC_ITEMS_SHEET_NAME,
-    TOPICS_COLUMNS,
-    TOPICS_SHEET_NAME,
     export_teacher_workspace_workbook,
 )
 from englishbot.workspaces import add_workspace_member, create_workspace
@@ -43,18 +38,25 @@ def load_exported_workbook(payload: bytes):
     return load_workbook(filename=BytesIO(payload))
 
 
-def test_export_uses_asset_registry_sheets(tmp_path: Path) -> None:
+def test_export_uses_canonical_two_sheet_workbook(tmp_path: Path) -> None:
     teacher_user_id, workspace_id = setup_db(tmp_path)
-    lexeme_id = create_lexeme("run")
     learning_item_id = create_learning_item_for_teacher_workspace(
         teacher_user_id,
         workspace_id,
-        lexeme_id,
+        create_lexeme("run"),
         "run fast",
-        image_ref="assets/images/run-fast.png",
-        audio_ref="assets/audio/run-fast.mp3",
+        image_ref="https://example.com/run-fast.png",
     )
     create_learning_item_translation(learning_item_id, "ru", "бежать")
+    create_learning_item_translation(learning_item_id, "uk", "бігти")
+    image_preview_asset_id = create_asset("image", local_path="assets/images/run-preview.png")
+    link_asset_to_learning_item(learning_item_id, image_preview_asset_id, IMAGE_PREVIEW_ROLE)
+    audio_asset_id = create_asset(
+        "audio",
+        source_url="https://example.com/run-fast.mp3",
+        local_path="assets/audio/run-fast.mp3",
+    )
+    link_asset_to_learning_item(learning_item_id, audio_asset_id, "alloy")
     topic_id = create_topic_for_teacher_workspace(
         teacher_user_id,
         workspace_id,
@@ -68,68 +70,47 @@ def test_export_uses_asset_registry_sheets(tmp_path: Path) -> None:
     )
 
     assert workbook.sheetnames == SHEET_NAMES
-    assert tuple(next(workbook[TOPICS_SHEET_NAME].iter_rows(values_only=True))) == tuple(TOPICS_COLUMNS)
-    assert tuple(next(workbook[TOPIC_ITEMS_SHEET_NAME].iter_rows(values_only=True))) == tuple(TOPIC_ITEMS_COLUMNS)
-    assert tuple(next(workbook[LEARNING_ITEMS_SHEET_NAME].iter_rows(values_only=True))) == tuple(LEARNING_ITEMS_COLUMNS)
-    assert tuple(next(workbook[ASSETS_SHEET_NAME].iter_rows(values_only=True))) == tuple(ASSETS_COLUMNS)
-    assert tuple(next(workbook[LEARNING_ITEM_ASSETS_SHEET_NAME].iter_rows(values_only=True))) == tuple(
-        LEARNING_ITEM_ASSETS_COLUMNS
+    assert tuple(next(workbook[META_SHEET_NAME].iter_rows(values_only=True))) == tuple(META_COLUMNS)
+    assert tuple(next(workbook[LEARNING_ITEMS_SHEET_NAME].iter_rows(values_only=True))) == tuple(
+        LEARNING_ITEMS_COLUMNS
     )
 
-    learning_item_rows = list(workbook[LEARNING_ITEMS_SHEET_NAME].iter_rows(values_only=True))[1:]
-    asset_rows = list(workbook[ASSETS_SHEET_NAME].iter_rows(values_only=True))[1:]
-    linked_asset_rows = list(workbook[LEARNING_ITEM_ASSETS_SHEET_NAME].iter_rows(values_only=True))[1:]
+    meta_rows = list(workbook[META_SHEET_NAME].iter_rows(values_only=True))[1:]
+    learning_rows = list(workbook[LEARNING_ITEMS_SHEET_NAME].iter_rows(values_only=True))[1:]
 
-    assert len(learning_item_rows) == 1
-    assert learning_item_rows[0][1] == "run fast"
-    assert learning_item_rows[0][2] == "run"
-    assert learning_item_rows[0][3] == "бежать"
-    assert learning_item_rows[0][6] == 0
-    assert [row[1] for row in asset_rows] == ["image", "audio"]
-    assert {row[3] for row in asset_rows} == {
-        "assets/images/run-fast.png",
-        "assets/audio/run-fast.mp3",
-    }
-    assert [row[2] for row in linked_asset_rows] == ["primary_image", "primary_audio"]
+    assert meta_rows == [("2", "Authoring", "ru")]
+    assert learning_rows == [
+        (
+            "run fast",
+            "бежать\n<uk>: бігти",
+            None,
+            "verbs",
+            "https://example.com/run-fast.png",
+            "assets/images/run-preview.png",
+            "https://example.com/run-fast.mp3",
+            "alloy",
+            0,
+        )
+    ]
 
 
-def test_export_scopes_assets_to_one_workspace(tmp_path: Path) -> None:
-    teacher_user_id, first_workspace_id = setup_db(tmp_path)
-    second_workspace = create_workspace("Another", kind="teacher")
-    add_workspace_member(second_workspace["workspace_id"], teacher_user_id, "teacher")
-
-    first_item = create_learning_item_for_teacher_workspace(
+def test_export_duplicates_row_per_topic_and_removes_legacy_sheet_assumptions(tmp_path: Path) -> None:
+    teacher_user_id, workspace_id = setup_db(tmp_path)
+    learning_item_id = create_learning_item_for_teacher_workspace(
         teacher_user_id,
-        first_workspace_id,
+        workspace_id,
         create_lexeme("cat"),
         "cat",
-        image_ref="assets/images/cat.png",
     )
-    second_item = create_learning_item_for_teacher_workspace(
-        teacher_user_id,
-        int(second_workspace["workspace_id"]),
-        create_lexeme("dog"),
-        "dog",
-        image_ref="assets/images/dog.png",
-    )
-    first_topic = create_topic_for_teacher_workspace(teacher_user_id, first_workspace_id, "a", "A")
-    second_topic = create_topic_for_teacher_workspace(
-        teacher_user_id,
-        int(second_workspace["workspace_id"]),
-        "b",
-        "B",
-    )
-    link_learning_item_to_topic(first_topic, first_item)
-    link_learning_item_to_topic(second_topic, second_item)
+    first_topic_id = create_topic_for_teacher_workspace(teacher_user_id, workspace_id, "animals", "Animals")
+    second_topic_id = create_topic_for_teacher_workspace(teacher_user_id, workspace_id, "pets", "Pets")
+    link_learning_item_to_topic(first_topic_id, learning_item_id)
+    link_learning_item_to_topic(second_topic_id, learning_item_id)
 
     workbook = load_exported_workbook(
-        export_teacher_workspace_workbook(teacher_user_id, first_workspace_id)
+        export_teacher_workspace_workbook(teacher_user_id, workspace_id)
     )
 
-    learning_item_rows = list(workbook[LEARNING_ITEMS_SHEET_NAME].iter_rows(values_only=True))[1:]
-    asset_rows = list(workbook[ASSETS_SHEET_NAME].iter_rows(values_only=True))[1:]
-
-    assert len(learning_item_rows) == 1
-    assert learning_item_rows[0][1] == "cat"
-    assert len(asset_rows) == 1
-    assert asset_rows[0][3] == "assets/images/cat.png"
+    assert "topics" not in workbook.sheetnames
+    rows = list(workbook[LEARNING_ITEMS_SHEET_NAME].iter_rows(values_only=True))[1:]
+    assert [row[3] for row in rows] == ["animals", "pets"]

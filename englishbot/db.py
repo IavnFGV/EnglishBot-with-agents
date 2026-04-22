@@ -7,6 +7,8 @@ from aiogram.types import User
 
 
 DB_PATH = Path(os.getenv("ENGLISHBOT_DB_PATH", "englishbot.sqlite3"))
+WORKBOOK_IMPORT_BACKUP_DIRNAME = "workbook_import_backups"
+WORKBOOK_IMPORT_BACKUP_LIMIT = 500
 DEFAULT_USER_ROLE = "student"
 DEFAULT_BOT_LANGUAGE = "en"
 DEFAULT_HINT_LANGUAGE = DEFAULT_BOT_LANGUAGE
@@ -27,6 +29,40 @@ def get_connection() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
+
+
+def get_workbook_import_backup_dir() -> Path:
+    return DB_PATH.parent / WORKBOOK_IMPORT_BACKUP_DIRNAME
+
+
+def create_workbook_import_backup() -> Path:
+    backup_dir = get_workbook_import_backup_dir()
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / (
+        f"{DB_PATH.stem}__workbook_import__"
+        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.sqlite3"
+    )
+    with sqlite3.connect(DB_PATH) as source_connection:
+        with sqlite3.connect(backup_path) as backup_connection:
+            source_connection.backup(backup_connection)
+    prune_workbook_import_backups()
+    return backup_path
+
+
+def prune_workbook_import_backups(limit: int = WORKBOOK_IMPORT_BACKUP_LIMIT) -> list[Path]:
+    backup_dir = get_workbook_import_backup_dir()
+    if not backup_dir.exists():
+        return []
+    backups = sorted(
+        backup_dir.glob("*.sqlite3"),
+        key=lambda path: path.name,
+        reverse=True,
+    )
+    pruned: list[Path] = []
+    for backup_path in backups[limit:]:
+        backup_path.unlink(missing_ok=True)
+        pruned.append(backup_path)
+    return pruned
 
 
 def get_table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:

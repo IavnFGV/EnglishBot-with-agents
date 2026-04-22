@@ -1,4 +1,3 @@
-import sqlite3
 import sys
 from io import BytesIO
 from pathlib import Path
@@ -9,7 +8,8 @@ from openpyxl import Workbook
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.topics import create_topic, get_topic, get_topic_learning_item_ids
+from englishbot.assets import PRIMARY_IMAGE_ROLE, get_learning_item_asset
+from englishbot.topics import create_topic, get_topic
 from englishbot.vocabulary import (
     create_learning_item,
     create_learning_item_translation,
@@ -17,19 +17,12 @@ from englishbot.vocabulary import (
     get_learning_item,
     list_learning_item_translations,
 )
-from englishbot.workbook_export import (
-    ASSETS_COLUMNS,
-    ASSETS_SHEET_NAME,
-    LEARNING_ITEMS_COLUMNS,
-    LEARNING_ITEMS_SHEET_NAME,
-    LEARNING_ITEM_ASSETS_COLUMNS,
-    LEARNING_ITEM_ASSETS_SHEET_NAME,
-    TOPIC_ITEMS_COLUMNS,
-    TOPIC_ITEMS_SHEET_NAME,
-    TOPICS_COLUMNS,
-    TOPICS_SHEET_NAME,
+from englishbot.workbook_export import LEARNING_ITEMS_COLUMNS, LEARNING_ITEMS_SHEET_NAME, META_COLUMNS, META_SHEET_NAME
+from englishbot.workbook_import import (
+    WorkbookImportError,
+    _begin_import_transaction,
+    import_teacher_workspace_workbook,
 )
-from englishbot.workbook_import import WorkbookImportError, import_teacher_workspace_workbook
 from englishbot.workspaces import WorkspaceKindMismatchError, add_workspace_member, create_workspace
 
 
@@ -44,156 +37,269 @@ def setup_db(tmp_path: Path) -> tuple[int, int]:
 
 def build_workbook_bytes(
     *,
-    topics: list[tuple[object, ...]],
-    topic_items: list[tuple[object, ...]],
-    learning_items: list[tuple[object, ...]],
-    assets: list[tuple[object, ...]],
-    learning_item_assets: list[tuple[object, ...]],
+    meta_rows: list[tuple[object, ...]] | None = None,
+    learning_item_rows: list[tuple[object, ...]] | None = None,
+    sheet_names: list[str] | None = None,
 ) -> bytes:
     workbook = Workbook()
-    topics_sheet = workbook.active
-    topics_sheet.title = TOPICS_SHEET_NAME
-    topics_sheet.append(TOPICS_COLUMNS)
-    for row in topics:
-        topics_sheet.append(list(row))
+    desired_sheet_names = sheet_names or [META_SHEET_NAME, LEARNING_ITEMS_SHEET_NAME]
+    first_sheet = workbook.active
+    first_sheet.title = desired_sheet_names[0]
+    first_sheet.append(META_COLUMNS)
+    for row in meta_rows or [("2", "Authoring", "ru")]:
+        first_sheet.append(list(row))
 
-    topic_items_sheet = workbook.create_sheet(TOPIC_ITEMS_SHEET_NAME)
-    topic_items_sheet.append(TOPIC_ITEMS_COLUMNS)
-    for row in topic_items:
-        topic_items_sheet.append(list(row))
-
-    learning_items_sheet = workbook.create_sheet(LEARNING_ITEMS_SHEET_NAME)
-    learning_items_sheet.append(LEARNING_ITEMS_COLUMNS)
-    for row in learning_items:
-        learning_items_sheet.append(list(row))
-
-    assets_sheet = workbook.create_sheet(ASSETS_SHEET_NAME)
-    assets_sheet.append(ASSETS_COLUMNS)
-    for row in assets:
-        assets_sheet.append(list(row))
-
-    links_sheet = workbook.create_sheet(LEARNING_ITEM_ASSETS_SHEET_NAME)
-    links_sheet.append(LEARNING_ITEM_ASSETS_COLUMNS)
-    for row in learning_item_assets:
-        links_sheet.append(list(row))
+    for sheet_name in desired_sheet_names[1:]:
+        sheet = workbook.create_sheet(sheet_name)
+        if sheet_name == LEARNING_ITEMS_SHEET_NAME:
+            sheet.append(LEARNING_ITEMS_COLUMNS)
+            for row in learning_item_rows or []:
+                sheet.append(list(row))
+        else:
+            sheet.append(["legacy"])
 
     buffer = BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
 
 
-def test_import_upserts_learning_items_and_assets(tmp_path: Path) -> None:
-    teacher_user_id, workspace_id = setup_db(tmp_path)
-    original_lexeme_id = create_lexeme("cat")
-    existing_learning_item_id = create_learning_item(
-        original_lexeme_id,
-        "old text",
-        workspace_id=workspace_id,
-        workbook_key="item-existing",
-        image_ref="old-image.png",
-        audio_ref="old-audio.mp3",
-    )
-    create_learning_item_translation(existing_learning_item_id, "ru", "старый")
+class FakeResponse:
+    def __init__(self, content: bytes) -> None:
+        self._content = content
 
-    existing_topic_id = create_topic(
-        "old-topic-name",
-        "Old Topic",
-        workspace_id=workspace_id,
-        workbook_key="topic-existing",
+    def read(self) -> bytes:
+        return self._content
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+def install_media_download_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "englishbot.workbook_import.urlopen",
+        lambda *args, **kwargs: FakeResponse(b"media-bytes"),
     )
-    with db.get_connection() as connection:
-        connection.execute(
-            """
-            INSERT INTO topic_learning_items (topic_id, learning_item_id)
-            VALUES (?, ?)
-            """,
-            (existing_topic_id, existing_learning_item_id),
-        )
+
+
+def test_import_parses_translations_default_language_and_media_mapping(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    teacher_user_id, workspace_id = setup_db(tmp_path)
+    install_media_download_stub(monkeypatch)
 
     workbook_bytes = build_workbook_bytes(
-        topics=[
-            ("topic-existing", "animals", "Animals Updated", 1, existing_topic_id),
-            ("topic-new", "verbs", "Verbs", 0, None),
-        ],
-        topic_items=[
-            ("topic-existing", "item-existing", existing_topic_id, existing_learning_item_id),
-            ("topic-new", "item-new", None, None),
-        ],
-        learning_items=[
-            ("item-existing", "updated text", "kitten", "новый", None, None, 1, existing_learning_item_id, None),
-            ("item-new", "jump", "jump", "прыгать", "стрибати", None, 0, None, None),
-        ],
-        assets=[
-            ("asset-existing-image", "image", None, "new-image.png", None),
-            ("asset-existing-audio", "audio", None, "new-audio.mp3", None),
-            ("asset-new-image", "image", None, "jump.png", None),
-        ],
-        learning_item_assets=[
-            ("item-existing", "asset-existing-image", "primary_image", 0, existing_learning_item_id, None),
-            ("item-existing", "asset-existing-audio", "primary_audio", 1, existing_learning_item_id, None),
-            ("item-new", "asset-new-image", "primary_image", 0, None, None),
-        ],
+        learning_item_rows=[
+            (
+                "run fast",
+                "бежать\n<uk>: бігти",
+                None,
+                "verbs",
+                "https://example.com/run-fast.png",
+                "assets/images/run-preview.png",
+                "https://example.com/run-fast.mp3",
+                "alloy",
+                0,
+            )
+        ]
     )
 
     result = import_teacher_workspace_workbook(teacher_user_id, workspace_id, workbook_bytes)
-    updated_item = get_learning_item(existing_learning_item_id)
+    with db.get_connection() as connection:
+        learning_item_row = connection.execute(
+            """
+            SELECT learning_items.id
+            FROM learning_items
+            JOIN topic_learning_items
+              ON topic_learning_items.learning_item_id = learning_items.id
+            JOIN topics
+              ON topics.id = topic_learning_items.topic_id
+            WHERE learning_items.workspace_id = ?
+              AND topics.name = 'verbs'
+            ORDER BY learning_items.id
+            LIMIT 1
+            """,
+            (workspace_id,),
+        ).fetchone()
+    assert learning_item_row is not None
+    learning_item = get_learning_item(int(learning_item_row["id"]))
 
     assert result == {
         "created_topics": 1,
-        "updated_topics": 1,
+        "updated_topics": 0,
         "created_learning_items": 1,
-        "updated_learning_items": 1,
-        "created_assets": 3,
-        "updated_assets": 0,
+        "updated_learning_items": 0,
         "added_topic_links": 1,
     }
-    assert updated_item is not None
-    assert updated_item["text"] == "updated text"
-    assert updated_item["image_ref"] == "new-image.png"
-    assert updated_item["audio_ref"] == "new-audio.mp3"
-    assert updated_item["is_archived"] == 1
-    assert get_topic(existing_topic_id, include_archived=True)["title"] == "Animals Updated"
-    assert any(row["translation_text"] == "новый" for row in list_learning_item_translations(existing_learning_item_id))
-    assert len(get_topic_learning_item_ids(existing_topic_id, include_archived=True)) == 1
+    assert learning_item is not None
+    assert learning_item["text"] == "run fast"
+    primary_image = get_learning_item_asset(int(learning_item["id"]), role=PRIMARY_IMAGE_ROLE)
+    assert primary_image is not None
+    assert primary_image["source_url"] == "https://example.com/run-fast.png"
+    assert str(primary_image["local_path"]).startswith("assets/workbook-import/image/")
+    audio_asset = get_learning_item_asset(int(learning_item["id"]), role="alloy")
+    assert audio_asset is not None
+    assert audio_asset["source_url"] == "https://example.com/run-fast.mp3"
+    assert str(audio_asset["local_path"]).startswith("assets/workbook-import/audio/")
+    assert get_learning_item_asset(int(learning_item["id"]), role="image_preview") is None
+    assert {
+        (row["language_code"], row["translation_text"])
+        for row in list_learning_item_translations(int(learning_item["id"]))
+    } == {("ru", "бежать"), ("uk", "бігти")}
 
 
-def test_import_rejects_missing_asset_references(tmp_path: Path) -> None:
+def test_import_uses_default_translation_language_for_untagged_text(tmp_path: Path) -> None:
     teacher_user_id, workspace_id = setup_db(tmp_path)
 
     workbook_bytes = build_workbook_bytes(
-        topics=[],
-        topic_items=[],
-        learning_items=[("item-a", "cat", "cat", None, None, None, 0, None, None)],
-        assets=[],
-        learning_item_assets=[("item-a", "asset-missing", "primary_image", 0, None, None)],
+        meta_rows=[("2", None, "bg")],
+        learning_item_rows=[("sun", "слънце", "Authoring", None, None, None, None, None, 0)],
+    )
+
+    import_teacher_workspace_workbook(teacher_user_id, workspace_id, workbook_bytes)
+    with db.get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT learning_item_translations.language_code, learning_item_translations.translation_text
+            FROM learning_items
+            JOIN learning_item_translations
+              ON learning_item_translations.learning_item_id = learning_items.id
+            WHERE learning_items.workspace_id = ?
+            """,
+            (workspace_id,),
+        ).fetchone()
+
+    assert row is not None
+    assert row["language_code"] == "bg"
+    assert row["translation_text"] == "слънце"
+
+
+def test_import_collects_human_readable_validation_errors(tmp_path: Path) -> None:
+    teacher_user_id, workspace_id = setup_db(tmp_path)
+
+    workbook_bytes = build_workbook_bytes(
+        learning_item_rows=[
+            ("cat", "<ru> кот", None, "animals", "ftp://example.com/cat.png", None, None, None, 0),
+            ("cat", "<ru>: кот", "Another", None, None, None, None, "alloy", 0),
+        ]
+    )
+
+    with pytest.raises(WorkbookImportError) as error:
+        import_teacher_workspace_workbook(teacher_user_id, workspace_id, workbook_bytes)
+
+    assert (
+        "Sheet 'learning_items' row 2 has invalid translation syntax '<ru> кот'."
+        in str(error.value)
+    )
+    assert "Sheet 'learning_items' row 2 has unsupported URL in 'image_url'." in str(error.value)
+    assert "Sheet 'learning_items' row 3 targets workspace 'Another'" in str(error.value)
+    assert "Sheet 'learning_items' row 3 has 'audio_voice' without 'audio_url'." in str(error.value)
+
+
+def test_import_uses_one_explicit_write_transaction_and_rolls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    teacher_user_id, workspace_id = setup_db(tmp_path)
+    original_learning_item_id = create_learning_item(create_lexeme("cat"), "cat", workspace_id=workspace_id)
+    seen_calls: list[str] = []
+    install_media_download_stub(monkeypatch)
+
+    def recording_begin(connection) -> None:
+        seen_calls.append("begin")
+        _begin_import_transaction(connection)
+
+    monkeypatch.setattr("englishbot.workbook_import._begin_import_transaction", recording_begin)
+    monkeypatch.setattr(
+        "englishbot.workbook_import._replace_workbook_assets",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    workbook_bytes = build_workbook_bytes(
+        learning_item_rows=[("dog", "<ru>: собака", None, None, None, None, None, None, 0)]
+    )
+
+    with pytest.raises(RuntimeError):
+        import_teacher_workspace_workbook(teacher_user_id, workspace_id, workbook_bytes)
+
+    assert seen_calls == ["begin"]
+    assert get_learning_item(original_learning_item_id)["text"] == "cat"
+    with db.get_connection() as connection:
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM learning_items WHERE workspace_id = ? AND text = 'dog'",
+                (workspace_id,),
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_import_creates_backup_and_prunes_to_latest_500(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    teacher_user_id, workspace_id = setup_db(tmp_path)
+    backup_dir = db.get_workbook_import_backup_dir()
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    for index in range(500):
+        (backup_dir / f"seed-{index:03d}.sqlite3").write_bytes(b"seed")
+    install_media_download_stub(monkeypatch)
+
+    workbook_bytes = build_workbook_bytes(
+        learning_item_rows=[("cat", "<ru>: кот", None, None, None, None, None, None, 0)]
+    )
+
+    import_teacher_workspace_workbook(teacher_user_id, workspace_id, workbook_bytes)
+
+    backups = sorted(backup_dir.glob("*.sqlite3"))
+    assert len(backups) == 500
+    assert any("workbook_import" in path.name for path in backups)
+
+
+def test_import_creates_backup_before_validation_failure(tmp_path: Path) -> None:
+    teacher_user_id, workspace_id = setup_db(tmp_path)
+    backup_dir = db.get_workbook_import_backup_dir()
+
+    workbook_bytes = build_workbook_bytes(
+        learning_item_rows=[("cat", "<ru> broken", None, None, None, None, None, None, 0)]
     )
 
     with pytest.raises(WorkbookImportError):
         import_teacher_workspace_workbook(teacher_user_id, workspace_id, workbook_bytes)
 
+    assert len(list(backup_dir.glob("*.sqlite3"))) == 1
 
-def test_import_rolls_back_on_topic_conflict(tmp_path: Path) -> None:
+
+def test_import_validates_global_workspace_and_topic_uniqueness(tmp_path: Path) -> None:
     teacher_user_id, workspace_id = setup_db(tmp_path)
-    existing_learning_item_id = create_learning_item(
-        create_lexeme("cat"),
-        "before import",
-        workspace_id=workspace_id,
-        workbook_key="item-existing",
-    )
-    create_topic("conflict-name", "Existing", workspace_id=workspace_id, workbook_key="topic-conflict")
+    duplicate_workspace = create_workspace("Authoring", kind="teacher")
+    add_workspace_member(duplicate_workspace["workspace_id"], teacher_user_id, "teacher")
+    other_workspace = create_workspace("Other", kind="teacher")
+    add_workspace_member(other_workspace["workspace_id"], teacher_user_id, "teacher")
+    create_topic("shared-topic", "shared-topic", workspace_id=int(other_workspace["workspace_id"]))
 
     workbook_bytes = build_workbook_bytes(
-        topics=[("topic-new", "conflict-name", "Will Conflict", 0, None)],
-        topic_items=[],
-        learning_items=[("item-existing", "after import", "kitten", "котёнок", None, None, 0, existing_learning_item_id, None)],
-        assets=[],
-        learning_item_assets=[],
+        learning_item_rows=[("cat", "<ru>: кот", None, "shared-topic", None, None, None, None, 0)]
     )
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(WorkbookImportError) as error:
         import_teacher_workspace_workbook(teacher_user_id, workspace_id, workbook_bytes)
 
-    assert get_learning_item(existing_learning_item_id)["text"] == "before import"
+    assert "Workspace name 'Authoring' is not globally unique" in str(error.value)
+    assert "Topic name 'shared-topic' already exists in workspace 'Other'" in str(error.value)
+
+
+def test_import_rejects_legacy_workbook_format(tmp_path: Path) -> None:
+    teacher_user_id, workspace_id = setup_db(tmp_path)
+    workbook_bytes = build_workbook_bytes(sheet_names=["topics", "learning_items"])
+
+    with pytest.raises(WorkbookImportError) as error:
+        import_teacher_workspace_workbook(teacher_user_id, workspace_id, workbook_bytes)
+
+    assert "Legacy workbook sheets are no longer supported." in str(error.value)
 
 
 def test_import_rejects_student_workspace_targets(tmp_path: Path) -> None:
@@ -202,13 +308,23 @@ def test_import_rejects_student_workspace_targets(tmp_path: Path) -> None:
     teacher_user_id = 777
     workspace = create_workspace("Student Runtime", kind="student")
     add_workspace_member(workspace["workspace_id"], teacher_user_id, "teacher")
-    workbook_bytes = build_workbook_bytes(
-        topics=[],
-        topic_items=[],
-        learning_items=[],
-        assets=[],
-        learning_item_assets=[],
-    )
+    workbook_bytes = build_workbook_bytes(learning_item_rows=[])
 
     with pytest.raises(WorkspaceKindMismatchError):
         import_teacher_workspace_workbook(teacher_user_id, int(workspace["workspace_id"]), workbook_bytes)
+
+
+def test_import_archives_unmatched_existing_topic_and_item(tmp_path: Path) -> None:
+    teacher_user_id, workspace_id = setup_db(tmp_path)
+    learning_item_id = create_learning_item(create_lexeme("old"), "old", workspace_id=workspace_id)
+    create_learning_item_translation(learning_item_id, "ru", "старый")
+    topic_id = create_topic("legacy", "legacy", workspace_id=workspace_id)
+
+    workbook_bytes = build_workbook_bytes(
+        learning_item_rows=[("new", "<ru>: новый", None, "fresh", None, None, None, None, 0)]
+    )
+
+    import_teacher_workspace_workbook(teacher_user_id, workspace_id, workbook_bytes)
+
+    assert get_learning_item(learning_item_id)["is_archived"] == 1
+    assert get_topic(topic_id, include_archived=True)["is_archived"] == 1

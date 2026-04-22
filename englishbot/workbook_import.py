@@ -1,29 +1,35 @@
+from __future__ import annotations
+
+import re
+from collections import OrderedDict
 from io import BytesIO
+from urllib.error import URLError
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 from openpyxl import load_workbook
 
-from .assets import replace_learning_item_assets
-from .db import get_connection, utc_now
+from .assets import (
+    ASSET_TYPE_AUDIO,
+    ASSET_TYPE_IMAGE,
+    PRIMARY_AUDIO_ROLE,
+    PRIMARY_IMAGE_ROLE,
+    replace_learning_item_assets,
+    store_workbook_import_asset,
+)
+from .db import create_workbook_import_backup, get_connection, utc_now
 from .workbook_export import (
-    ASSETS_COLUMNS,
-    ASSETS_SHEET_NAME,
     LEARNING_ITEMS_COLUMNS,
     LEARNING_ITEMS_SHEET_NAME,
-    LEARNING_ITEM_ASSETS_COLUMNS,
-    LEARNING_ITEM_ASSETS_SHEET_NAME,
-    TOPIC_ITEMS_COLUMNS,
-    TOPIC_ITEMS_SHEET_NAME,
-    TOPICS_COLUMNS,
-    TOPICS_SHEET_NAME,
+    META_COLUMNS,
+    META_SHEET_NAME,
+    SHEET_NAMES,
+    WORKBOOK_VERSION,
 )
 from .workspaces import ensure_teacher_can_edit_workspace_content
 
 
-TRANSLATION_COLUMNS = {
-    "ru": "translation_ru",
-    "uk": "translation_uk",
-    "bg": "translation_bg",
-}
+TRANSLATION_LINE_RE = re.compile(r"^<([a-z][a-z0-9_-]{1,15})>:\s*(.+)$")
 
 
 class WorkbookImportError(Exception):
@@ -37,207 +43,152 @@ def import_teacher_workspace_workbook(
 ) -> dict[str, int]:
     ensure_teacher_can_edit_workspace_content(workspace_id, teacher_user_id)
     parsed = _parse_workbook(workbook_bytes)
+    create_workbook_import_backup()
 
     with get_connection() as connection:
-        existing_topics = _load_existing_topics(connection, workspace_id)
-        existing_learning_items = _load_existing_learning_items(connection, workspace_id)
-        existing_assets = _load_existing_assets(connection, workspace_id)
-        _validate_db_consistency(parsed, existing_topics, existing_learning_items, existing_assets)
+        plan, errors = _build_import_plan(connection, workspace_id, parsed)
+    staged_media, media_errors = _stage_grouped_item_media(list(plan.get("grouped_items", [])))
+    combined_errors = list(parsed.get("errors", [])) + list(errors) + media_errors
+    if combined_errors:
+        raise WorkbookImportError("\n".join(combined_errors))
 
-        learning_item_ids_by_key, learning_item_stats = _upsert_learning_items(
-            connection,
-            workspace_id,
-            parsed["learning_items"],
-            existing_learning_items,
-        )
-        asset_ids_by_key, asset_stats = _upsert_assets(
-            connection,
-            parsed["assets"],
-            existing_assets,
-        )
-        _replace_learning_item_assets_from_workbook(
-            parsed["learning_item_assets"],
-            learning_item_ids_by_key,
-            asset_ids_by_key,
-            connection,
-        )
-        topic_ids_by_key, topic_stats = _upsert_topics(
-            connection,
-            workspace_id,
-            parsed["topics"],
-            existing_topics,
-        )
-        added_links = _add_topic_links(
-            connection,
-            parsed["topic_items"],
-            topic_ids_by_key,
-            learning_item_ids_by_key,
-        )
-
-    return {
-        "created_topics": topic_stats["created"],
-        "updated_topics": topic_stats["updated"],
-        "created_learning_items": learning_item_stats["created"],
-        "updated_learning_items": learning_item_stats["updated"],
-        "created_assets": asset_stats["created"],
-        "updated_assets": asset_stats["updated"],
-        "added_topic_links": added_links,
-    }
+    with get_connection() as connection:
+        try:
+            _begin_import_transaction(connection)
+            report = _apply_import_plan(connection, workspace_id, plan, staged_media)
+        except Exception:
+            connection.rollback()
+            raise
+        connection.commit()
+    return report
 
 
-def _parse_workbook(workbook_bytes: bytes) -> dict[str, list[dict[str, object]]]:
+def _parse_workbook(workbook_bytes: bytes) -> dict[str, object]:
     try:
         workbook = load_workbook(filename=BytesIO(workbook_bytes))
     except Exception as exc:  # pragma: no cover
         raise WorkbookImportError("Workbook could not be opened.") from exc
 
-    expected_sheet_names = [
-        TOPICS_SHEET_NAME,
-        TOPIC_ITEMS_SHEET_NAME,
-        LEARNING_ITEMS_SHEET_NAME,
-        ASSETS_SHEET_NAME,
-        LEARNING_ITEM_ASSETS_SHEET_NAME,
-    ]
-    if workbook.sheetnames != expected_sheet_names:
+    if workbook.sheetnames != SHEET_NAMES:
         raise WorkbookImportError(
-            "Workbook must contain exactly topics, topic_items, learning_items, assets, and learning_item_assets sheets."
+            "Workbook must contain exactly 'meta' and 'learning_items' sheets. "
+            "Legacy workbook sheets are no longer supported."
         )
 
-    topics = _parse_topics_sheet(workbook[TOPICS_SHEET_NAME])
-    learning_items = _parse_learning_items_sheet(workbook[LEARNING_ITEMS_SHEET_NAME])
-    assets = _parse_assets_sheet(workbook[ASSETS_SHEET_NAME])
-    learning_item_assets = _parse_learning_item_assets_sheet(
-        workbook[LEARNING_ITEM_ASSETS_SHEET_NAME]
+    meta = _parse_meta_sheet(workbook[META_SHEET_NAME])
+    learning_items, errors = _parse_learning_items_sheet(
+        workbook[LEARNING_ITEMS_SHEET_NAME],
+        str(meta["default_translation_language"]),
     )
-    topic_items = _parse_topic_items_sheet(workbook[TOPIC_ITEMS_SHEET_NAME])
-    _validate_workbook_references(topics, learning_items, assets, learning_item_assets, topic_items)
     return {
-        "topics": topics,
+        "meta": meta,
         "learning_items": learning_items,
-        "assets": assets,
-        "learning_item_assets": learning_item_assets,
-        "topic_items": topic_items,
+        "errors": errors,
     }
 
 
-def _parse_topics_sheet(sheet) -> list[dict[str, object]]:
-    rows = _read_sheet_rows(sheet, TOPICS_COLUMNS)
-    seen_keys: set[str] = set()
-    parsed_rows: list[dict[str, object]] = []
-    for row_index, row in rows:
-        workbook_key = _parse_required_text(row, "topic_workbook_key", sheet.title, row_index)
-        _ensure_unique_workbook_key(workbook_key, seen_keys, sheet.title)
-        parsed_rows.append(
-            {
-                "workbook_key": workbook_key,
-                "name": _parse_required_text(row, "topic_name", sheet.title, row_index),
-                "title": _parse_required_text(row, "topic_title", sheet.title, row_index),
-                "is_archived": _parse_archive_value(row["is_archived"], sheet.title, row_index),
-                "db_id": _parse_optional_int(row["topic_db_id"], sheet.title, row_index, "topic_db_id"),
-            }
-        )
-    return parsed_rows
+def _parse_meta_sheet(sheet) -> dict[str, str]:
+    rows = _read_sheet_rows(sheet, META_COLUMNS)
+    if len(rows) != 1:
+        raise WorkbookImportError("Sheet 'meta' must contain exactly one data row.")
+    row_index, row = rows[0]
+    version = _parse_required_text(row, "version", sheet.title, row_index)
+    default_workspace = _parse_optional_text(row.get("default_workspace"))
+    default_translation_language = _parse_required_text(
+        row,
+        "default_translation_language",
+        sheet.title,
+        row_index,
+    ).lower()
+    return {
+        "version": version,
+        "default_workspace": default_workspace,
+        "default_translation_language": default_translation_language,
+    }
 
 
-def _parse_learning_items_sheet(sheet) -> list[dict[str, object]]:
+def _parse_learning_items_sheet(
+    sheet,
+    default_translation_language: str,
+) -> tuple[list[dict[str, object]], list[str]]:
     rows = _read_sheet_rows(sheet, LEARNING_ITEMS_COLUMNS)
-    seen_keys: set[str] = set()
     parsed_rows: list[dict[str, object]] = []
+    errors: list[str] = []
     for row_index, row in rows:
-        workbook_key = _parse_required_text(
-            row,
-            "learning_item_workbook_key",
-            sheet.title,
-            row_index,
+        row_errors: list[str] = []
+        text = _capture_parse_error(
+            row_errors,
+            lambda: _parse_required_text(row, "text", sheet.title, row_index),
         )
-        _ensure_unique_workbook_key(workbook_key, seen_keys, sheet.title)
+        translations = _capture_parse_error(
+            row_errors,
+            lambda: _parse_translation_cell(
+                row.get("translations"),
+                default_translation_language,
+                sheet.title,
+                row_index,
+            ),
+        )
+        image_url = _capture_parse_error(
+            row_errors,
+            lambda: _parse_media_reference(
+                row.get("image_url"),
+                sheet.title,
+                row_index,
+                "image_url",
+                require_url=True,
+            ),
+        )
+        image_preview = _capture_parse_error(
+            row_errors,
+            lambda: _parse_media_reference(
+                row.get("image_preview"),
+                sheet.title,
+                row_index,
+                "image_preview",
+                require_url=False,
+            ),
+        )
+        audio_url = _capture_parse_error(
+            row_errors,
+            lambda: _parse_media_reference(
+                row.get("audio_url"),
+                sheet.title,
+                row_index,
+                "audio_url",
+                require_url=True,
+            ),
+        )
+        is_archived = _capture_parse_error(
+            row_errors,
+            lambda: _parse_archive_value(row.get("is_archived"), sheet.title, row_index),
+        )
+        if row_errors:
+            errors.extend(row_errors)
+            continue
         parsed_rows.append(
             {
-                "workbook_key": workbook_key,
-                "text": _parse_required_text(row, "text", sheet.title, row_index),
-                "lexeme_headword": _parse_required_text(row, "lexeme_headword", sheet.title, row_index),
-                "translation_ru": _parse_optional_text(row["translation_ru"]),
-                "translation_uk": _parse_optional_text(row["translation_uk"]),
-                "translation_bg": _parse_optional_text(row["translation_bg"]),
-                "is_archived": _parse_archive_value(row["is_archived"], sheet.title, row_index),
-                "db_id": _parse_optional_int(
-                    row["learning_item_db_id"],
-                    sheet.title,
-                    row_index,
-                    "learning_item_db_id",
-                ),
+                "row_index": row_index,
+                "text": text,
+                "translations": translations,
+                "workspace": _parse_optional_text(row.get("workspace")),
+                "topic": _parse_optional_text(row.get("topic")),
+                "image_url": image_url,
+                "image_preview": image_preview,
+                "audio_url": audio_url,
+                "audio_voice": _parse_optional_text(row.get("audio_voice")),
+                "is_archived": is_archived,
             }
         )
-    return parsed_rows
+    return parsed_rows, errors
 
 
-def _parse_assets_sheet(sheet) -> list[dict[str, object]]:
-    rows = _read_sheet_rows(sheet, ASSETS_COLUMNS)
-    seen_keys: set[str] = set()
-    parsed_rows: list[dict[str, object]] = []
-    for row_index, row in rows:
-        workbook_key = _parse_required_text(row, "asset_workbook_key", sheet.title, row_index)
-        _ensure_unique_workbook_key(workbook_key, seen_keys, sheet.title)
-        parsed_rows.append(
-            {
-                "workbook_key": workbook_key,
-                "asset_type": _parse_required_text(row, "asset_type", sheet.title, row_index),
-                "source_url": _parse_optional_text(row["source_url"]),
-                "local_path": _parse_optional_text(row["local_path"]),
-                "db_id": _parse_optional_int(row["asset_db_id"], sheet.title, row_index, "asset_db_id"),
-            }
-        )
-    return parsed_rows
-
-
-def _parse_learning_item_assets_sheet(sheet) -> list[dict[str, object]]:
-    rows = _read_sheet_rows(sheet, LEARNING_ITEM_ASSETS_COLUMNS)
-    parsed_rows: list[dict[str, object]] = []
-    for row_index, row in rows:
-        parsed_rows.append(
-            {
-                "learning_item_workbook_key": _parse_required_text(
-                    row,
-                    "learning_item_workbook_key",
-                    sheet.title,
-                    row_index,
-                ),
-                "asset_workbook_key": _parse_required_text(
-                    row,
-                    "asset_workbook_key",
-                    sheet.title,
-                    row_index,
-                ),
-                "role": _parse_required_text(row, "role", sheet.title, row_index),
-                "sort_order": _parse_optional_int(row["sort_order"], sheet.title, row_index, "sort_order") or 0,
-                "learning_item_db_id": _parse_optional_int(
-                    row["learning_item_db_id"],
-                    sheet.title,
-                    row_index,
-                    "learning_item_db_id",
-                ),
-                "asset_db_id": _parse_optional_int(row["asset_db_id"], sheet.title, row_index, "asset_db_id"),
-            }
-        )
-    return parsed_rows
-
-
-def _parse_topic_items_sheet(sheet) -> list[dict[str, str]]:
-    rows = _read_sheet_rows(sheet, TOPIC_ITEMS_COLUMNS)
-    parsed_rows: list[dict[str, str]] = []
-    for row_index, row in rows:
-        parsed_rows.append(
-            {
-                "topic_workbook_key": _parse_required_text(row, "topic_workbook_key", sheet.title, row_index),
-                "learning_item_workbook_key": _parse_required_text(
-                    row,
-                    "learning_item_workbook_key",
-                    sheet.title,
-                    row_index,
-                ),
-            }
-        )
-    return parsed_rows
+def _capture_parse_error(errors: list[str], parser):
+    try:
+        return parser()
+    except WorkbookImportError as exc:
+        errors.append(str(exc))
+        return None
 
 
 def _read_sheet_rows(sheet, required_columns: list[str]) -> list[tuple[int, dict[str, object]]]:
@@ -260,47 +211,6 @@ def _read_sheet_rows(sheet, required_columns: list[str]) -> list[tuple[int, dict
         }
         parsed_rows.append((row_offset, row))
     return parsed_rows
-
-
-def _validate_workbook_references(
-    topics: list[dict[str, object]],
-    learning_items: list[dict[str, object]],
-    assets: list[dict[str, object]],
-    learning_item_assets: list[dict[str, object]],
-    topic_items: list[dict[str, str]],
-) -> None:
-    topic_keys = {str(row["workbook_key"]) for row in topics}
-    learning_item_keys = {str(row["workbook_key"]) for row in learning_items}
-    asset_keys = {str(row["workbook_key"]) for row in assets}
-    for row in topic_items:
-        if row["topic_workbook_key"] not in topic_keys:
-            raise WorkbookImportError(
-                f"topic_items references missing topic workbook_key '{row['topic_workbook_key']}'."
-            )
-        if row["learning_item_workbook_key"] not in learning_item_keys:
-            raise WorkbookImportError(
-                "topic_items references missing learning_item workbook_key "
-                f"'{row['learning_item_workbook_key']}'."
-            )
-    for row in learning_item_assets:
-        if row["learning_item_workbook_key"] not in learning_item_keys:
-            raise WorkbookImportError(
-                "learning_item_assets references missing learning_item workbook_key "
-                f"'{row['learning_item_workbook_key']}'."
-            )
-        if row["asset_workbook_key"] not in asset_keys:
-            raise WorkbookImportError(
-                "learning_item_assets references missing asset workbook_key "
-                f"'{row['asset_workbook_key']}'."
-            )
-
-
-def _ensure_unique_workbook_key(workbook_key: str, seen_keys: set[str], sheet_name: str) -> None:
-    if workbook_key in seen_keys:
-        raise WorkbookImportError(
-            f"Sheet '{sheet_name}' contains duplicate workbook_key '{workbook_key}'."
-        )
-    seen_keys.add(workbook_key)
 
 
 def _parse_required_text(
@@ -326,23 +236,6 @@ def _parse_optional_text(value: object) -> str | None:
     return normalized
 
 
-def _parse_optional_int(
-    value: object,
-    sheet_name: str,
-    row_index: int,
-    column_name: str,
-) -> int | None:
-    normalized = _parse_optional_text(value)
-    if normalized is None:
-        return None
-    try:
-        return int(normalized)
-    except ValueError as exc:
-        raise WorkbookImportError(
-            f"Sheet '{sheet_name}' row {row_index} has invalid '{column_name}'."
-        ) from exc
-
-
 def _parse_archive_value(value: object, sheet_name: str, row_index: int) -> int:
     if isinstance(value, bool):
         return int(value)
@@ -356,95 +249,406 @@ def _parse_archive_value(value: object, sheet_name: str, row_index: int) -> int:
     )
 
 
-def _load_existing_topics(connection, workspace_id: int) -> dict[str, dict[str, object]]:
-    rows = connection.execute(
-        "SELECT id, workbook_key FROM topics WHERE workspace_id = ?",
-        (workspace_id,),
-    ).fetchall()
-    return {str(row["workbook_key"]): {"id": int(row["id"])} for row in rows}
+def _parse_translation_cell(
+    value: object,
+    default_translation_language: str,
+    sheet_name: str,
+    row_index: int,
+) -> dict[str, str]:
+    normalized = _parse_optional_text(value)
+    if normalized is None:
+        return {}
+    translations: dict[str, str] = {}
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = TRANSLATION_LINE_RE.match(line)
+        if match is not None:
+            language_code = match.group(1).lower()
+            translation_text = match.group(2).strip()
+        elif line.startswith("<"):
+            raise WorkbookImportError(
+                f"Sheet '{sheet_name}' row {row_index} has invalid translation syntax '{line}'."
+            )
+        else:
+            language_code = default_translation_language
+            translation_text = line
+        if language_code in translations:
+            raise WorkbookImportError(
+                f"Sheet '{sheet_name}' row {row_index} has duplicate translation language '{language_code}'."
+            )
+        translations[language_code] = translation_text
+    return translations
 
 
-def _load_existing_learning_items(connection, workspace_id: int) -> dict[str, dict[str, object]]:
-    rows = connection.execute(
-        "SELECT id, workbook_key FROM learning_items WHERE workspace_id = ?",
-        (workspace_id,),
-    ).fetchall()
-    return {str(row["workbook_key"]): {"id": int(row["id"])} for row in rows}
+def _parse_media_reference(
+    value: object,
+    sheet_name: str,
+    row_index: int,
+    column_name: str,
+    *,
+    require_url: bool,
+) -> str | None:
+    normalized = _parse_optional_text(value)
+    if normalized is None:
+        return None
+    parsed = urlparse(normalized)
+    if parsed.scheme and parsed.scheme not in {"http", "https"}:
+        raise WorkbookImportError(
+            f"Sheet '{sheet_name}' row {row_index} has unsupported URL in '{column_name}'."
+        )
+    if require_url and parsed.scheme not in {"http", "https"}:
+        raise WorkbookImportError(
+            f"Sheet '{sheet_name}' row {row_index} requires an http(s) URL in '{column_name}'."
+        )
+    return normalized
 
 
-def _load_existing_assets(connection, workspace_id: int) -> dict[str, dict[str, object]]:
-    rows = connection.execute(
+def _build_import_plan(connection, workspace_id: int, parsed: dict[str, object]) -> tuple[dict[str, object], list[str]]:
+    meta = parsed["meta"]
+    workbook_version = str(meta["version"])
+    default_workspace = (
+        str(meta["default_workspace"])
+        if meta["default_workspace"] is not None
+        else None
+    )
+    default_translation_language = str(meta["default_translation_language"])
+    target_workspace = connection.execute(
         """
-        SELECT DISTINCT assets.id, assets.workbook_key
-        FROM assets
-        JOIN learning_item_assets
-          ON learning_item_assets.asset_id = assets.id
-        JOIN learning_items
-          ON learning_items.id = learning_item_assets.learning_item_id
-        WHERE learning_items.workspace_id = ?
+        SELECT id, name
+        FROM workspaces
+        WHERE id = ?
+        """,
+        (workspace_id,),
+    ).fetchone()
+    if target_workspace is None:
+        return {}, ["Workspace not found."]
+
+    target_workspace_name = str(target_workspace["name"])
+    errors: list[str] = []
+    if workbook_version != WORKBOOK_VERSION:
+        errors.append(
+            f"Sheet 'meta' has unsupported version '{workbook_version}'. Expected '{WORKBOOK_VERSION}'."
+        )
+    if default_workspace is not None and default_workspace != target_workspace_name:
+        errors.append(
+            "Sheet 'meta' default_workspace must match the target workspace name "
+            f"'{target_workspace_name}'."
+        )
+    if not TRANSLATION_LINE_RE.match(f"<{default_translation_language}>: ok"):
+        errors.append(
+            "Sheet 'meta' has invalid default_translation_language "
+            f"'{default_translation_language}'."
+        )
+
+    duplicate_workspace = connection.execute(
+        """
+        SELECT id
+        FROM workspaces
+        WHERE name = ?
+          AND id != ?
+        ORDER BY id
+        LIMIT 1
+        """,
+        (target_workspace_name, workspace_id),
+    ).fetchone()
+    if duplicate_workspace is not None:
+        errors.append(
+            f"Workspace name '{target_workspace_name}' is not globally unique, so workbook import is blocked."
+        )
+
+    existing_items = connection.execute(
+        """
+        SELECT id, text
+        FROM learning_items
+        WHERE workspace_id = ?
+        ORDER BY id
         """,
         (workspace_id,),
     ).fetchall()
-    return {str(row["workbook_key"]): {"id": int(row["id"])} for row in rows}
-
-
-def _validate_db_consistency(
-    parsed: dict[str, list[dict[str, object]]],
-    existing_topics: dict[str, dict[str, object]],
-    existing_learning_items: dict[str, dict[str, object]],
-    existing_assets: dict[str, dict[str, object]],
-) -> None:
-    for row in parsed["topics"]:
-        _validate_db_id_match(row, existing_topics, "Topic", "topic_db_id")
-    for row in parsed["learning_items"]:
-        _validate_db_id_match(row, existing_learning_items, "Learning item", "learning_item_db_id")
-    for row in parsed["assets"]:
-        _validate_db_id_match(row, existing_assets, "Asset", "asset_db_id")
-
-
-def _validate_db_id_match(
-    row: dict[str, object],
-    existing_rows: dict[str, dict[str, object]],
-    label: str,
-    db_id_column: str,
-) -> None:
-    existing = existing_rows.get(str(row["workbook_key"]))
-    if existing is None or row["db_id"] is None:
-        return
-    if int(row["db_id"]) != int(existing["id"]):
-        raise WorkbookImportError(
-            f"{label} workbook_key '{row['workbook_key']}' does not match {db_id_column}."
+    existing_item_ids_by_text: dict[str, int] = {}
+    existing_item_duplicates: set[str] = set()
+    for row in existing_items:
+        text = str(row["text"])
+        if text in existing_item_ids_by_text:
+            existing_item_duplicates.add(text)
+            continue
+        existing_item_ids_by_text[text] = int(row["id"])
+    for duplicated_text in sorted(existing_item_duplicates):
+        errors.append(
+            f"Existing learning item text '{duplicated_text}' is duplicated in the target workspace."
         )
+
+    grouped_items: OrderedDict[str, dict[str, object]] = OrderedDict()
+    topic_names_in_order: OrderedDict[str, None] = OrderedDict()
+    topic_titles: dict[str, str] = {}
+    for row in parsed["learning_items"]:
+        row_index = int(row["row_index"])
+        effective_workspace = (
+            str(row["workspace"])
+            if row["workspace"] is not None
+            else default_workspace
+        )
+        if effective_workspace is None:
+            errors.append(
+                f"Sheet '{LEARNING_ITEMS_SHEET_NAME}' row {row_index} requires 'workspace' when meta.default_workspace is empty."
+            )
+            continue
+        if effective_workspace != target_workspace_name:
+            errors.append(
+                f"Sheet '{LEARNING_ITEMS_SHEET_NAME}' row {row_index} targets workspace "
+                f"'{effective_workspace}', but only '{target_workspace_name}' can be imported here."
+            )
+        if row["audio_voice"] is not None and row["audio_url"] is None:
+            errors.append(
+                f"Sheet '{LEARNING_ITEMS_SHEET_NAME}' row {row_index} has 'audio_voice' without 'audio_url'."
+            )
+
+        topic_name = str(row["topic"]) if row["topic"] is not None else None
+        if topic_name is not None:
+            topic_names_in_order.setdefault(topic_name, None)
+            previous_title = topic_titles.setdefault(topic_name, topic_name)
+            if previous_title != topic_name:
+                errors.append(
+                    f"Sheet '{LEARNING_ITEMS_SHEET_NAME}' row {row_index} has inconsistent topic name '{topic_name}'."
+                )
+
+        item_key = str(row["text"])
+        grouped_item = grouped_items.get(item_key)
+        comparable_fields = {
+            "translations": dict(row["translations"]),
+            "image_url": row["image_url"],
+            "image_preview": row["image_preview"],
+            "audio_url": row["audio_url"],
+            "audio_voice": row["audio_voice"],
+            "is_archived": int(row["is_archived"]),
+        }
+        if grouped_item is None:
+            grouped_items[item_key] = {
+                "text": item_key,
+                "translations": comparable_fields["translations"],
+                "image_url": comparable_fields["image_url"],
+                "image_preview": comparable_fields["image_preview"],
+                "audio_url": comparable_fields["audio_url"],
+                "audio_voice": comparable_fields["audio_voice"],
+                "is_archived": comparable_fields["is_archived"],
+                "topics": [] if topic_name is None else [topic_name],
+            }
+            continue
+
+        if (
+            grouped_item["translations"] != comparable_fields["translations"]
+            or grouped_item["image_url"] != comparable_fields["image_url"]
+            or grouped_item["image_preview"] != comparable_fields["image_preview"]
+            or grouped_item["audio_url"] != comparable_fields["audio_url"]
+            or grouped_item["audio_voice"] != comparable_fields["audio_voice"]
+            or grouped_item["is_archived"] != comparable_fields["is_archived"]
+        ):
+            errors.append(
+                f"Sheet '{LEARNING_ITEMS_SHEET_NAME}' row {row_index} duplicates text '{item_key}' "
+                "with conflicting item data."
+            )
+            continue
+        if topic_name is not None and topic_name not in grouped_item["topics"]:
+            grouped_item["topics"].append(topic_name)
+
+    if topic_names_in_order:
+        duplicate_topic_rows = connection.execute(
+            """
+            SELECT topics.name, workspaces.name AS workspace_name
+            FROM topics
+            JOIN workspaces
+              ON workspaces.id = topics.workspace_id
+            WHERE topics.name IN ({placeholders})
+              AND topics.workspace_id != ?
+            ORDER BY topics.name, topics.id
+            """.format(
+                placeholders=", ".join("?" for _ in topic_names_in_order)
+            ),
+            tuple(topic_names_in_order.keys()) + (workspace_id,),
+        ).fetchall()
+        for row in duplicate_topic_rows:
+            errors.append(
+                f"Topic name '{row['name']}' already exists in workspace '{row['workspace_name']}', "
+                "so topic names are treated as globally unique for this import."
+            )
+
+    existing_topics = connection.execute(
+        """
+        SELECT id, name
+        FROM topics
+        WHERE workspace_id = ?
+        ORDER BY id
+        """,
+        (workspace_id,),
+    ).fetchall()
+    existing_topic_ids_by_name = {str(row["name"]): int(row["id"]) for row in existing_topics}
+
+    return {
+        "default_translation_language": default_translation_language,
+        "grouped_items": list(grouped_items.values()),
+        "topic_names": list(topic_names_in_order.keys()),
+        "existing_topic_ids_by_name": existing_topic_ids_by_name,
+        "existing_item_ids_by_text": existing_item_ids_by_text,
+    }, errors
+
+
+def _begin_import_transaction(connection) -> None:
+    connection.execute("BEGIN IMMEDIATE")
+
+
+def _stage_grouped_item_media(
+    grouped_items: list[dict[str, object]],
+) -> tuple[dict[str, dict[str, str]], list[str]]:
+    staged_media: dict[str, dict[str, str]] = {}
+    errors: list[str] = []
+    for grouped_item in grouped_items:
+        text = str(grouped_item["text"])
+        if grouped_item["image_url"] is not None:
+            try:
+                staged_media.setdefault(text, {})["image_local_path"] = _download_media_asset(
+                    str(grouped_item["image_url"]),
+                    ASSET_TYPE_IMAGE,
+                )
+            except WorkbookImportError as exc:
+                errors.append(str(exc))
+        if grouped_item["audio_url"] is not None:
+            try:
+                staged_media.setdefault(text, {})["audio_local_path"] = _download_media_asset(
+                    str(grouped_item["audio_url"]),
+                    ASSET_TYPE_AUDIO,
+                )
+            except WorkbookImportError as exc:
+                errors.append(str(exc))
+    return staged_media, errors
+
+
+def _download_media_asset(reference: str, asset_type: str) -> str:
+    try:
+        with urlopen(reference, timeout=10) as response:
+            content = response.read()
+    except (OSError, URLError) as exc:
+        raise WorkbookImportError(
+            f"Workbook media download failed for '{reference}': {exc}"
+        ) from exc
+    if not content:
+        raise WorkbookImportError(f"Workbook media download failed for '{reference}': empty response.")
+    return store_workbook_import_asset(asset_type, content, source_url=reference)
+
+
+def _apply_import_plan(
+    connection,
+    workspace_id: int,
+    plan: dict[str, object],
+    staged_media: dict[str, dict[str, str]],
+) -> dict[str, int]:
+    topic_ids_by_name, topic_stats = _upsert_topics(
+        connection,
+        workspace_id,
+        list(plan["topic_names"]),
+        dict(plan["existing_topic_ids_by_name"]),
+    )
+    learning_item_ids_by_text, learning_item_stats = _upsert_learning_items(
+        connection,
+        workspace_id,
+        list(plan["grouped_items"]),
+        dict(plan["existing_item_ids_by_text"]),
+        staged_media,
+    )
+    added_topic_links = _replace_topic_links(
+        connection,
+        list(plan["grouped_items"]),
+        topic_ids_by_name,
+        learning_item_ids_by_text,
+    )
+    _archive_unmatched_topics(connection, workspace_id, topic_ids_by_name)
+    _archive_unmatched_learning_items(connection, workspace_id, learning_item_ids_by_text)
+    return {
+        "created_topics": topic_stats["created"],
+        "updated_topics": topic_stats["updated"],
+        "created_learning_items": learning_item_stats["created"],
+        "updated_learning_items": learning_item_stats["updated"],
+        "added_topic_links": added_topic_links,
+    }
+
+
+def _upsert_topics(
+    connection,
+    workspace_id: int,
+    topic_names: list[str],
+    existing_topic_ids_by_name: dict[str, int],
+) -> tuple[dict[str, int], dict[str, int]]:
+    topic_ids_by_name: dict[str, int] = {}
+    created = 0
+    updated = 0
+    for topic_name in topic_names:
+        topic_id = existing_topic_ids_by_name.get(topic_name)
+        timestamp = utc_now()
+        if topic_id is None:
+            cursor = connection.execute(
+                """
+                INSERT INTO topics (
+                    workspace_id,
+                    name,
+                    title,
+                    is_archived,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, 0, ?, ?)
+                """,
+                (workspace_id, topic_name, topic_name, timestamp, timestamp),
+            )
+            topic_id = int(cursor.lastrowid)
+            created += 1
+        else:
+            connection.execute(
+                """
+                UPDATE topics
+                SET title = ?, is_archived = 0, updated_at = ?
+                WHERE id = ?
+                """,
+                (topic_name, timestamp, topic_id),
+            )
+            updated += 1
+        topic_ids_by_name[topic_name] = topic_id
+    return topic_ids_by_name, {"created": created, "updated": updated}
 
 
 def _upsert_learning_items(
     connection,
     workspace_id: int,
-    rows: list[dict[str, object]],
-    existing_learning_items: dict[str, dict[str, object]],
+    grouped_items: list[dict[str, object]],
+    existing_item_ids_by_text: dict[str, int],
+    staged_media: dict[str, dict[str, str]],
 ) -> tuple[dict[str, int], dict[str, int]]:
-    ids_by_key: dict[str, int] = {}
+    item_ids_by_text: dict[str, int] = {}
     created = 0
     updated = 0
-    for row in rows:
-        workbook_key = str(row["workbook_key"])
-        lexeme_id = _resolve_lexeme_id(connection, str(row["lexeme_headword"]))
-        existing = existing_learning_items.get(workbook_key)
+    for grouped_item in grouped_items:
+        text = str(grouped_item["text"])
+        lexeme_id = _resolve_lexeme_id(connection, text)
+        learning_item_id = existing_item_ids_by_text.get(text)
         timestamp = utc_now()
-        if existing is None:
+        if learning_item_id is None:
             cursor = connection.execute(
                 """
                 INSERT INTO learning_items (
-                    workspace_id, workbook_key, lexeme_id, text, is_archived, created_at, updated_at
+                    workspace_id,
+                    lexeme_id,
+                    text,
+                    is_archived,
+                    created_at,
+                    updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     workspace_id,
-                    workbook_key,
                     lexeme_id,
-                    str(row["text"]),
-                    int(row["is_archived"]),
+                    text,
+                    int(grouped_item["is_archived"]),
                     timestamp,
                     timestamp,
                 ),
@@ -452,93 +656,29 @@ def _upsert_learning_items(
             learning_item_id = int(cursor.lastrowid)
             created += 1
         else:
-            learning_item_id = int(existing["id"])
             connection.execute(
                 """
                 UPDATE learning_items
-                SET lexeme_id = ?, text = ?, is_archived = ?, updated_at = ?
+                SET lexeme_id = ?, is_archived = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
                     lexeme_id,
-                    str(row["text"]),
-                    int(row["is_archived"]),
+                    int(grouped_item["is_archived"]),
                     timestamp,
                     learning_item_id,
                 ),
             )
             updated += 1
-        _upsert_wide_translations(connection, learning_item_id, row)
-        ids_by_key[workbook_key] = learning_item_id
-    return ids_by_key, {"created": created, "updated": updated}
-
-
-def _upsert_assets(
-    connection,
-    rows: list[dict[str, object]],
-    existing_assets: dict[str, dict[str, object]],
-) -> tuple[dict[str, int], dict[str, int]]:
-    ids_by_key: dict[str, int] = {}
-    created = 0
-    updated = 0
-    for row in rows:
-        workbook_key = str(row["workbook_key"])
-        existing = existing_assets.get(workbook_key)
-        if existing is None:
-            cursor = connection.execute(
-                """
-                INSERT INTO assets (workbook_key, asset_type, source_url, local_path, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    workbook_key,
-                    str(row["asset_type"]),
-                    row["source_url"],
-                    row["local_path"],
-                    utc_now(),
-                ),
-            )
-            asset_id = int(cursor.lastrowid)
-            created += 1
-        else:
-            asset_id = int(existing["id"])
-            connection.execute(
-                """
-                UPDATE assets
-                SET asset_type = ?, source_url = ?, local_path = ?
-                WHERE id = ?
-                """,
-                (
-                    str(row["asset_type"]),
-                    row["source_url"],
-                    row["local_path"],
-                    asset_id,
-                ),
-            )
-            updated += 1
-        ids_by_key[workbook_key] = asset_id
-    return ids_by_key, {"created": created, "updated": updated}
-
-
-def _replace_learning_item_assets_from_workbook(
-    rows: list[dict[str, object]],
-    learning_item_ids_by_key: dict[str, int],
-    asset_ids_by_key: dict[str, int],
-    connection,
-) -> None:
-    links_by_item: dict[int, list[dict[str, object]]] = {}
-    for row in rows:
-        learning_item_id = learning_item_ids_by_key[str(row["learning_item_workbook_key"])]
-        asset_id = asset_ids_by_key[str(row["asset_workbook_key"])]
-        links_by_item.setdefault(learning_item_id, []).append(
-            {
-                "asset_id": asset_id,
-                "role": str(row["role"]),
-                "sort_order": int(row["sort_order"]),
-            }
+        _replace_translations(connection, learning_item_id, dict(grouped_item["translations"]))
+        _replace_workbook_assets(
+            connection,
+            learning_item_id,
+            grouped_item,
+            staged_media.get(text, {}),
         )
-    for learning_item_id, links in links_by_item.items():
-        replace_learning_item_assets(learning_item_id, links, connection=connection)
+        item_ids_by_text[text] = learning_item_id
+    return item_ids_by_text, {"created": created, "updated": updated}
 
 
 def _resolve_lexeme_id(connection, lemma: str) -> int:
@@ -556,114 +696,142 @@ def _resolve_lexeme_id(connection, lemma: str) -> int:
     return int(cursor.lastrowid)
 
 
-def _upsert_wide_translations(connection, learning_item_id: int, row: dict[str, object]) -> None:
-    for language_code, column_name in TRANSLATION_COLUMNS.items():
-        translation_text = row[column_name]
-        if translation_text is None:
-            continue
-        existing = connection.execute(
-            """
-            SELECT id
-            FROM learning_item_translations
-            WHERE learning_item_id = ? AND language_code = ?
-            ORDER BY id
-            LIMIT 1
-            """,
-            (learning_item_id, language_code),
-        ).fetchone()
-        timestamp = utc_now()
-        if existing is None:
-            connection.execute(
-                """
-                INSERT INTO learning_item_translations (
-                    learning_item_id, language_code, translation_text, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (learning_item_id, language_code, translation_text, timestamp, timestamp),
-            )
-            continue
+def _replace_translations(connection, learning_item_id: int, translations: dict[str, str]) -> None:
+    connection.execute(
+        """
+        DELETE FROM learning_item_translations
+        WHERE learning_item_id = ?
+        """,
+        (learning_item_id,),
+    )
+    timestamp = utc_now()
+    for language_code, translation_text in sorted(translations.items()):
         connection.execute(
             """
-            UPDATE learning_item_translations
-            SET translation_text = ?, updated_at = ?
-            WHERE id = ?
+            INSERT INTO learning_item_translations (
+                learning_item_id,
+                language_code,
+                translation_text,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (translation_text, timestamp, int(existing["id"])),
+            (learning_item_id, language_code, translation_text, timestamp, timestamp),
         )
 
 
-def _upsert_topics(
+def _replace_workbook_assets(
     connection,
-    workspace_id: int,
-    rows: list[dict[str, object]],
-    existing_topics: dict[str, dict[str, object]],
-) -> tuple[dict[str, int], dict[str, int]]:
-    ids_by_key: dict[str, int] = {}
-    created = 0
-    updated = 0
-    for row in rows:
-        workbook_key = str(row["workbook_key"])
-        existing = existing_topics.get(workbook_key)
-        timestamp = utc_now()
-        if existing is None:
+    learning_item_id: int,
+    grouped_item: dict[str, object],
+    staged_media: dict[str, str],
+) -> None:
+    links: list[dict[str, object]] = []
+    if grouped_item["image_url"] is not None:
+        links.append(
+            {
+                "asset_type": ASSET_TYPE_IMAGE,
+                "role": PRIMARY_IMAGE_ROLE,
+                "sort_order": 0,
+                "source_url": str(grouped_item["image_url"]),
+                "local_path": staged_media.get("image_local_path"),
+            }
+        )
+    if grouped_item["audio_url"] is not None:
+        links.append(
+            {
+                "asset_type": ASSET_TYPE_AUDIO,
+                "role": str(grouped_item["audio_voice"] or PRIMARY_AUDIO_ROLE),
+                "sort_order": 1,
+                "source_url": str(grouped_item["audio_url"]),
+                "local_path": staged_media.get("audio_local_path"),
+            }
+        )
+    replace_learning_item_assets(learning_item_id, links, connection=connection)
+
+
+def _replace_topic_links(
+    connection,
+    grouped_items: list[dict[str, object]],
+    topic_ids_by_name: dict[str, int],
+    learning_item_ids_by_text: dict[str, int],
+) -> int:
+    if topic_ids_by_name:
+        connection.execute(
+            """
+            DELETE FROM topic_learning_items
+            WHERE topic_id IN ({placeholders})
+            """.format(
+                placeholders=", ".join("?" for _ in topic_ids_by_name)
+            ),
+            tuple(topic_ids_by_name.values()),
+        )
+
+    added_links = 0
+    for grouped_item in grouped_items:
+        learning_item_id = learning_item_ids_by_text[str(grouped_item["text"])]
+        for topic_name in grouped_item["topics"]:
             cursor = connection.execute(
                 """
-                INSERT INTO topics (
-                    workspace_id, workbook_key, name, title, is_archived, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO topic_learning_items (topic_id, learning_item_id)
+                VALUES (?, ?)
                 """,
-                (
-                    workspace_id,
-                    workbook_key,
-                    str(row["name"]),
-                    str(row["title"]),
-                    int(row["is_archived"]),
-                    timestamp,
-                    timestamp,
-                ),
+                (topic_ids_by_name[str(topic_name)], learning_item_id),
             )
-            topic_id = int(cursor.lastrowid)
-            created += 1
-        else:
-            topic_id = int(existing["id"])
-            connection.execute(
-                """
-                UPDATE topics
-                SET name = ?, title = ?, is_archived = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    str(row["name"]),
-                    str(row["title"]),
-                    int(row["is_archived"]),
-                    timestamp,
-                    topic_id,
-                ),
-            )
-            updated += 1
-        ids_by_key[workbook_key] = topic_id
-    return ids_by_key, {"created": created, "updated": updated}
-
-
-def _add_topic_links(
-    connection,
-    rows: list[dict[str, str]],
-    topic_ids_by_key: dict[str, int],
-    learning_item_ids_by_key: dict[str, int],
-) -> int:
-    added_links = 0
-    for row in rows:
-        cursor = connection.execute(
-            """
-            INSERT OR IGNORE INTO topic_learning_items (topic_id, learning_item_id)
-            VALUES (?, ?)
-            """,
-            (
-                topic_ids_by_key[row["topic_workbook_key"]],
-                learning_item_ids_by_key[row["learning_item_workbook_key"]],
-            ),
-        )
-        added_links += int(cursor.rowcount or 0)
+            added_links += int(cursor.rowcount or 0)
     return added_links
+
+
+def _archive_unmatched_topics(connection, workspace_id: int, topic_ids_by_name: dict[str, int]) -> None:
+    timestamp = utc_now()
+    if not topic_ids_by_name:
+        connection.execute(
+            """
+            UPDATE topics
+            SET is_archived = 1, updated_at = ?
+            WHERE workspace_id = ?
+            """,
+            (timestamp, workspace_id),
+        )
+        return
+    connection.execute(
+        """
+        UPDATE topics
+        SET is_archived = 1, updated_at = ?
+        WHERE workspace_id = ?
+          AND id NOT IN ({placeholders})
+        """.format(
+            placeholders=", ".join("?" for _ in topic_ids_by_name)
+        ),
+        (timestamp, workspace_id, *topic_ids_by_name.values()),
+    )
+
+
+def _archive_unmatched_learning_items(
+    connection,
+    workspace_id: int,
+    learning_item_ids_by_text: dict[str, int],
+) -> None:
+    timestamp = utc_now()
+    if not learning_item_ids_by_text:
+        connection.execute(
+            """
+            UPDATE learning_items
+            SET is_archived = 1, updated_at = ?
+            WHERE workspace_id = ?
+            """,
+            (timestamp, workspace_id),
+        )
+        return
+    connection.execute(
+        """
+        UPDATE learning_items
+        SET is_archived = 1, updated_at = ?
+        WHERE workspace_id = ?
+          AND id NOT IN ({placeholders})
+        """.format(
+            placeholders=", ".join("?" for _ in learning_item_ids_by_text)
+        ),
+        (timestamp, workspace_id, *learning_item_ids_by_text.values()),
+    )

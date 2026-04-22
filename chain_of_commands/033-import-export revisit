@@ -1,0 +1,199 @@
+Use the agent workflow for this task.
+
+Execution order:
+
+1. architect
+2. complexity_guard
+3. coder
+
+Read first:
+
+* context/englishbot_handoff.md
+* context/current_state.md
+* AGENTS.md
+
+Task:
+Completely redesign workbook import/export so it is human-oriented, simple to edit manually, and no longer exposes the internal normalized model through id-heavy sheets.
+
+IMPORTANT:
+
+* This is a single decisive workbook redesign task
+* The new workbook format becomes the canonical workbook format
+* Do NOT keep the old workbook format in parallel
+* Do NOT preserve old id-heavy workbook sheets “for compatibility”
+* Be willing to remove obsolete workbook import/export code without hesitation
+* Keep the internal normalized DB/domain model where useful, but do not force that structure onto the workbook
+
+Goal:
+Make workbook import/export understandable and editable by a human teacher rather than by developers who know the internal DB model.
+
+New workbook design:
+
+1. Sheets
+   Use only these user-facing sheets:
+
+* `meta`
+* `learning_items`
+
+Do NOT keep these old user-facing sheets in the new workbook format:
+
+* `topics`
+* `topic_items`
+* `assets`
+* `learning_item_assets`
+
+Those are internal concepts and must not be forced into the teacher-facing workbook.
+
+2. `meta` sheet
+   Support simple workbook metadata:
+
+* `version`
+* `default_workspace`
+* `default_translation_language`
+
+3. `learning_items` sheet
+   Use one human-friendly row per learning item.
+
+Expected columns:
+
+* `text`
+* `translations`
+* `workspace`
+* `topic`
+* `image_url`
+* `image_preview`
+* `audio_url`
+* `audio_voice`
+* `is_archived`
+
+Rules:
+
+* `workspace` may be empty if `default_workspace` is provided in `meta`
+* `topic` uses human-readable names
+* no raw DB ids in the workbook
+
+4. Translation format
+   The `translations` cell must be easy for humans to edit.
+
+Use tagged multiline format inside one cell, for example:
+
+<ru>: понедельник <uk>: понеділок <bg>: понеделник
+
+If no language tag is present, interpret that value as the workbook’s `default_translation_language`.
+
+Do NOT use packed id-like or comma-separated machine syntax as the main format.
+
+5. Assets in workbook
+   Do not expose internal asset tables directly.
+
+Instead:
+
+* `image_url` is the human-editable source URL
+* `image_preview` is display-only and ignored by import
+* `audio_url` is the human-editable audio source URL
+* `audio_voice` is a human-editable role/variant label such as `female`, `male`, `child`, `slow`
+
+Import must:
+
+* fetch/cache media from URLs into the backend/local asset storage
+* create/update the internal asset records and item links automatically
+* return clear validation/import errors if media fetch or validation fails
+
+6. Human-first identity rules
+   Workbook import/export must stop relying on raw ids.
+
+For this phase, enforce these simplified invariants:
+
+* workspace names are globally unique
+* topic names are globally unique
+
+This is an intentional simplification for usability.
+If future requirements demand scoped uniqueness, that can be introduced later.
+
+7. Validation-first import
+   Before writing anything:
+
+* parse the whole workbook
+* validate all rows
+* validate uniqueness constraints
+* validate translation syntax
+* validate URLs and media references where applicable
+* collect all human-readable errors
+
+If any validation fails:
+
+* do not write partial data
+* return a clear list of issues and what needs to be fixed
+
+8. One-transaction write
+   If validation succeeds:
+
+* write the entire import in one DB transaction
+
+9. Backup-before-import
+   Before each import:
+
+* create a full DB backup
+* keep up to 500 most recent import backups
+* older backups may be deleted
+
+At the current scale, reliability is more important than storage efficiency.
+
+10. Asset integration
+    Workbook should remain simple, but import/export must correctly bridge to the normalized asset model.
+
+That means:
+
+* workbook stays human-oriented
+* DB still uses the normalized asset/link model internally
+* import/export logic performs the mapping
+
+11. Cleanup rules
+
+* remove old workbook sheets and old import/export assumptions tied to raw ids
+* remove obsolete code paths
+* do not keep the old workbook model around “just in case”
+
+12. Architecture rules
+
+* keep workbook as a human-facing projection, not a DB dump
+* keep validation/import logic explicit and testable
+* keep business/domain normalization intact under the hood
+* do not introduce unnecessary abstraction layers
+
+13. Tests
+    Add or update focused tests to cover at least:
+
+* export of the new workbook format
+* import of tagged multiline translations
+* import using `default_translation_language` when no tag is present
+* import validation failures with human-readable errors
+* one-transaction import behavior
+* DB backup creation before import
+* retention of only the latest 500 backups
+* global uniqueness validation for workspace/topic names in this phase
+* image/audio URL mapping into internal asset records
+* removal of old workbook-format assumptions
+
+14. Documentation updates
+    After implementation, update:
+
+* CHANGELOG.md
+* context/current_state.md
+* context/englishbot_handoff.md if needed
+
+Current state must mention:
+
+* workbook import/export is now human-oriented
+* workbook no longer exposes raw DB ids
+* workbook uses only `meta` and `learning_items` sheets
+* translations use tagged multiline cell format
+* assets are represented in workbook through simple URL/role columns
+* import validates everything first and writes in one transaction
+* DB backup is created before import
+
+Output:
+
+* one decisive workbook redesign
+* focused tests
+* short summary of removed old workbook assumptions and the new canonical format
