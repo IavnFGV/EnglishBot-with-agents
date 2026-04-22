@@ -1,0 +1,190 @@
+Read these files first and treat them as mandatory constraints:
+- context/englishbot_handoff.md
+- context/current_state.md
+- AGENTS.md
+
+You must follow the project rules from those files exactly:
+- Telegram-first product
+- SQLite is the runtime source of truth
+- business logic must stay outside Telegram handlers
+- all bot-facing text must go through centralized i18n
+- all Telegram commands must go through englishbot/command_registry.py
+- non-trivial multi-step Telegram flows must use aiogram-dialog
+- use tests as specification
+- keep changes minimal and local
+- do not overengineer
+- update CHANGELOG.md and context/current_state.md after completion
+
+Task:
+Implement a new teacher-side assignment creation flow and the minimal supporting domain changes in one pass.
+
+Important product clarifications:
+1. This task is ONLY about assignment creation.
+2. Topic access / granting access is a separate simpler flow and MUST NOT be mixed into this feature.
+3. Assignment must be modeled as:
+   - assigned content snapshot
+   - execution metadata describing how the assignment should be completed
+4. For now, only homework is implemented, but the model must explicitly support future assignment types and completion modes.
+5. Do NOT implement future types or modes now, only prepare the model minimally.
+
+Required domain model change:
+Extend assignments so they explicitly store:
+- assignment_kind
+- assignment_mode
+
+For now, only supported values are:
+- assignment_kind = homework
+- assignment_mode = staged_default
+
+Behavioral meaning:
+- assignment_kind describes what kind of assignment this is
+- assignment_mode describes how the learner is expected to complete it
+- future examples like revision or medium-only are NOT implemented now
+- current behavior must continue to work as homework + staged_default
+- existing legacy rows must fail closed to current homework behavior instead of crashing
+
+Teacher UX requirements:
+The teacher should primarily build the assignment content first, and choose recipients later.
+
+The new flow must support:
+1. entry via a dedicated command registered through englishbot/command_registry.py
+2. choosing assignment source mode:
+   - Topic
+   - Words
+3. choosing teacher workspace
+4A. topic path:
+   - choose topic from workspace
+   - show read-only selection summary in a top message
+   - then proceed to recipient selection
+4B. words path:
+   - browse/select multiple learning items
+   - DO NOT render large collections as giant inline keyboard lists
+   - reuse the existing mobile-oriented pattern:
+     - top read-only summary message
+     - bottom active current-item message/card
+   - current item screen must support:
+     - add item
+     - remove item
+     - prev
+     - next
+     - done
+   - top summary should show selected item count and a compact preview of selected items
+5. recipient selection near the end
+6. recipient selection may be temporarily skipped
+7. final confirm step before any persistence
+8. no database writes before final confirm
+9. user must be able to go back and choose recipients later before confirm
+10. if multiple recipients are selected, the flow may create one assignment per recipient by reusing existing business logic
+
+Recipient flow requirements:
+- selecting recipients is not mandatory immediately
+- skipping recipients must keep the draft only in dialog state
+- final confirm screen must clearly show:
+  - selected content
+  - assignment_kind
+  - assignment_mode
+  - selected recipients or "not selected yet"
+- no draft persistence is allowed in this task
+
+Telegram UI constraints:
+- use aiogram-dialog
+- keep handlers thin
+- business logic must stay outside Telegram layer
+- reuse messages instead of creating chat clutter
+- top summary + bottom active screen pattern is allowed and encouraged
+- all user-visible strings must use i18n keys
+- command must be added through command registry
+- do not introduce giant inline button walls for long lists
+
+Architecture constraints:
+- keep this flow separate from teacher_content editing responsibility
+- reuse existing homework/workspace/topic/training/business logic where possible
+- avoid introducing new persistence tables unless absolutely necessary
+- avoid future-proof abstractions beyond the minimal fields needed for kind/mode
+- do not mix topic access into this flow
+- do not implement future assignment kinds or modes now
+- do not add persisted draft assignments
+- do not do unrelated refactoring
+
+Implementation expectations:
+You must complete the following within this one task:
+
+PHASE 1. Design check
+- briefly determine the smallest reasonable structure before coding
+- identify the minimum files to add/change
+- avoid dumping this into teacher_content catch-all files
+
+PHASE 2. Complexity guard during implementation
+- actively reject unnecessary abstractions
+- do not add extra services/layers unless they clearly isolate a new responsibility
+- keep rough LOC growth modest and focused
+
+PHASE 3. Domain and persistence update
+- implement the smallest DB migration/schema change needed to support:
+  - assignment_kind
+  - assignment_mode
+- safely backfill legacy rows
+- make existing homework creation/launch behavior continue to work
+- ensure missing/legacy data defaults safely to homework + staged_default
+
+PHASE 4. Teacher assignment dialog
+Implement a new teacher-side aiogram-dialog flow in focused module(s), not inside teacher_content:
+- choose source mode
+- choose workspace
+- topic path or words path
+- show top summary + bottom active screen
+- choose recipients near the end
+- allow temporary skip of recipients
+- final confirm
+- persist assignment(s) only after confirm
+
+PHASE 5. Tests
+Add focused automated tests for:
+- persistence/model migration behavior
+- legacy assignments defaulting to homework/staged_default
+- topic path flow
+- words path flow
+- recipient skip behavior
+- no persistence before confirm
+- confirm creates expected assignments
+- command registration / handler wiring if applicable
+
+PHASE 6. Documentation update
+After implementation:
+- append a concise entry to CHANGELOG.md
+- update context/current_state.md with:
+  - new command
+  - new assignment model semantics
+  - new teacher flow behavior
+  - changed files
+- if any env vars are added or changed, update .env.example in the same task
+
+Expected output from you:
+1. Implement the code
+2. Add tests
+3. Run relevant tests
+4. Update documentation
+5. Summarize:
+   - what changed
+   - what files were added
+   - what files were modified
+   - what was intentionally NOT implemented now
+
+Additional guardrails:
+- Do not mix assignment creation and topic access
+- Do not redesign learner homework UX in this task
+- Do not implement revision/medium-only/hard-only now
+- Only prepare the assignment model so those modes can be added later
+- Keep current homework engine as the runtime behavior for staged_default
+- Reuse current domain logic wherever possible
+- Prefer minimal explicit wiring over broad refactoring
+
+Definition of done:
+- schema/model supports assignment_kind and assignment_mode
+- existing behavior still works as homework + staged_default
+- new teacher-side assignment flow exists and is dialog-driven
+- content is selected before recipients
+- recipients can be skipped temporarily
+- nothing is persisted before confirm
+- tests are added and pass
+- docs are updated

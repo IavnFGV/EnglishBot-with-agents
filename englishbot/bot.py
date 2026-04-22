@@ -8,11 +8,13 @@ from .command_registry import BOT_COMMANDS, ME_COMMAND
 from .db import count_text_interactions, get_user
 from .i18n import translate_for_user
 from .runtime import dispatcher, router
+from .teacher_assignment_dialog import teacher_assignment_dialog
 from .teacher_content_dialog import teacher_content_dialog
 from .user_profiles import get_user_role
 from . import cancel_handlers  # noqa: F401
 from . import homework_handlers  # noqa: F401
 from . import settings_handlers  # noqa: F401
+from . import teacher_assignment_handlers  # noqa: F401
 from . import teacher_content_handlers  # noqa: F401
 from . import teacher_handlers  # noqa: F401
 from . import topic_access_handlers  # noqa: F401
@@ -22,6 +24,7 @@ from . import workbook_handlers  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
+dispatcher.include_router(teacher_assignment_dialog)
 dispatcher.include_router(teacher_content_dialog)
 setup_dialogs(dispatcher)
 

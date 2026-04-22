@@ -26,6 +26,10 @@ COMPLETED_STATUS = "completed"
 ITEM_STATUS_NOT_STARTED = "not_started"
 ITEM_STATUS_IN_PROGRESS = "in_progress"
 ITEM_STATUS_COMPLETED = "completed"
+ASSIGNMENT_KIND_HOMEWORK = "homework"
+ASSIGNMENT_MODE_STAGED_DEFAULT = "staged_default"
+SUPPORTED_ASSIGNMENT_KINDS = {ASSIGNMENT_KIND_HOMEWORK}
+SUPPORTED_ASSIGNMENT_MODES = {ASSIGNMENT_MODE_STAGED_DEFAULT}
 
 
 class HomeworkError(Exception):
@@ -69,6 +73,8 @@ def create_assignment(
     student_user_id: int,
     learning_item_ids: list[int],
     title: str | None = None,
+    assignment_kind: str = ASSIGNMENT_KIND_HOMEWORK,
+    assignment_mode: str = ASSIGNMENT_MODE_STAGED_DEFAULT,
 ) -> dict[str, object]:
     if get_user_role(teacher_user_id) != ROLE_TEACHER:
         raise TeacherRoleRequiredError
@@ -117,6 +123,8 @@ def create_assignment(
         int(target_workspace["id"]),
         published_learning_item_ids,
         stored_title,
+        assignment_kind=assignment_kind,
+        assignment_mode=assignment_mode,
     )
 
 
@@ -125,6 +133,8 @@ def create_assignment_from_group(
     student_user_id: int,
     teacher_workspace_id: int,
     group_name: str,
+    assignment_kind: str = ASSIGNMENT_KIND_HOMEWORK,
+    assignment_mode: str = ASSIGNMENT_MODE_STAGED_DEFAULT,
 ) -> dict[str, object]:
     target_workspace = _get_student_workspace(teacher_user_id, student_user_id)
     try:
@@ -148,6 +158,8 @@ def create_assignment_from_group(
         int(target_workspace["id"]),
         [int(learning_item_id) for learning_item_id in published_topic["learning_item_ids"]],
         str(published_topic["title"]),
+        assignment_kind=assignment_kind,
+        assignment_mode=assignment_mode,
     )
 
 
@@ -161,6 +173,8 @@ def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
                 assignments.teacher_user_id,
                 assignments.student_user_id,
                 assignments.title,
+                assignments.assignment_kind,
+                assignments.assignment_mode,
                 assignments.status,
                 assignments.created_at,
                 assignments.updated_at,
@@ -194,6 +208,8 @@ def get_assignment(assignment_id: int) -> sqlite3.Row | None:
                 teacher_user_id,
                 student_user_id,
                 title,
+                assignment_kind,
+                assignment_mode,
                 status,
                 created_at,
                 updated_at,
@@ -371,6 +387,8 @@ def get_assignment_progress_snapshot(
     return {
         "assignment_id": int(assignment["id"]),
         "assignment_title": assignment["title"],
+        "assignment_kind": normalize_assignment_kind(assignment["assignment_kind"]),
+        "assignment_mode": normalize_assignment_mode(assignment["assignment_mode"]),
         "completed_items": completed_items,
         "total_items": total_items,
         "current_item_position": current_item_position,
@@ -404,8 +422,13 @@ def _store_assignment(
     workspace_id: int,
     learning_item_ids: list[int],
     title: str | None,
+    *,
+    assignment_kind: str = ASSIGNMENT_KIND_HOMEWORK,
+    assignment_mode: str = ASSIGNMENT_MODE_STAGED_DEFAULT,
 ) -> dict[str, object]:
     timestamp = utc_now()
+    normalized_kind = normalize_assignment_kind(assignment_kind)
+    normalized_mode = normalize_assignment_mode(assignment_mode)
     with get_connection() as connection:
         cursor = connection.execute(
             """
@@ -414,17 +437,21 @@ def _store_assignment(
                 teacher_user_id,
                 student_user_id,
                 title,
+                assignment_kind,
+                assignment_mode,
                 status,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 workspace_id,
                 teacher_user_id,
                 student_user_id,
                 title,
+                normalized_kind,
+                normalized_mode,
                 ACTIVE_STATUS,
                 timestamp,
                 timestamp,
@@ -446,5 +473,25 @@ def _store_assignment(
         "assignment_id": assignment_id,
         "student_user_id": student_user_id,
         "title": title,
+        "assignment_kind": normalized_kind,
+        "assignment_mode": normalized_mode,
         "learning_item_ids": learning_item_ids,
     }
+
+
+def normalize_assignment_kind(value: object) -> str:
+    if not isinstance(value, str):
+        return ASSIGNMENT_KIND_HOMEWORK
+    normalized_value = value.strip().lower()
+    if normalized_value not in SUPPORTED_ASSIGNMENT_KINDS:
+        return ASSIGNMENT_KIND_HOMEWORK
+    return normalized_value
+
+
+def normalize_assignment_mode(value: object) -> str:
+    if not isinstance(value, str):
+        return ASSIGNMENT_MODE_STAGED_DEFAULT
+    normalized_value = value.strip().lower()
+    if normalized_value not in SUPPORTED_ASSIGNMENT_MODES:
+        return ASSIGNMENT_MODE_STAGED_DEFAULT
+    return normalized_value

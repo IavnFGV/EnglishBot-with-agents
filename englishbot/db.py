@@ -1080,6 +1080,8 @@ def init_db() -> None:
                 teacher_user_id INTEGER NOT NULL,
                 student_user_id INTEGER NOT NULL,
                 title TEXT,
+                assignment_kind TEXT NOT NULL DEFAULT 'homework',
+                assignment_mode TEXT NOT NULL DEFAULT 'staged_default',
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -1113,6 +1115,20 @@ def init_db() -> None:
                 REFERENCES workspaces (id)
                 """
             )
+        if "assignment_kind" not in assignment_columns:
+            connection.execute(
+                """
+                ALTER TABLE assignments
+                ADD COLUMN assignment_kind TEXT NOT NULL DEFAULT 'homework'
+                """
+            )
+        if "assignment_mode" not in assignment_columns:
+            connection.execute(
+                """
+                ALTER TABLE assignments
+                ADD COLUMN assignment_mode TEXT NOT NULL DEFAULT 'staged_default'
+                """
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS assignment_items (
@@ -1143,6 +1159,24 @@ def init_db() -> None:
             WHERE workspace_id IS NULL
             """,
             (default_content_workspace_id,),
+        )
+        connection.execute(
+            """
+            UPDATE assignments
+            SET assignment_kind = 'homework'
+            WHERE assignment_kind IS NULL
+               OR TRIM(assignment_kind) = ''
+               OR LOWER(TRIM(assignment_kind)) != 'homework'
+            """
+        )
+        connection.execute(
+            """
+            UPDATE assignments
+            SET assignment_mode = 'staged_default'
+            WHERE assignment_mode IS NULL
+               OR TRIM(assignment_mode) = ''
+               OR LOWER(TRIM(assignment_mode)) != 'staged_default'
+            """
         )
         connection.execute(
             """

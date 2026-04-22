@@ -102,6 +102,8 @@ def test_init_db_creates_assignment_tables_and_training_assignment_column(
     assert "assignment_items" in table_names
     assert "assignment_id" in training_session_columns
     assert "workspace_id" in assignment_columns
+    assert "assignment_kind" in assignment_columns
+    assert "assignment_mode" in assignment_columns
 
 
 def test_create_assignment_publishes_teacher_items_into_student_workspace(tmp_path: Path) -> None:
@@ -121,8 +123,36 @@ def test_create_assignment_publishes_teacher_items_into_student_workspace(tmp_pa
     assert stored_assignment["workspace_id"] == student_workspace["id"]
     assert result["title"] is None
     assert stored_assignment["title"] is None
+    assert stored_assignment["assignment_kind"] == "homework"
+    assert stored_assignment["assignment_mode"] == "staged_default"
     assert result["learning_item_ids"] != source_learning_item_ids
     assert len(get_assignment_learning_item_ids(int(result["assignment_id"]))) == 2
+
+
+def test_init_db_backfills_invalid_assignment_kind_and_mode_to_homework_defaults(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    teacher, student = seed_linked_teacher_and_student()
+    learning_item_id = seed_teacher_learning_items(teacher.id, 1)[0]
+    result = create_assignment(teacher.id, student.id, [learning_item_id])
+
+    with db.get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE assignments
+            SET assignment_kind = ?, assignment_mode = ?
+            WHERE id = ?
+            """,
+            ("future_kind", "", int(result["assignment_id"])),
+        )
+
+    db.init_db()
+    assignment = get_assignment(int(result["assignment_id"]))
+
+    assert assignment is not None
+    assert assignment["assignment_kind"] == "homework"
+    assert assignment["assignment_mode"] == "staged_default"
 
 
 def test_create_assignment_rejects_student_without_shared_student_workspace(tmp_path: Path) -> None:

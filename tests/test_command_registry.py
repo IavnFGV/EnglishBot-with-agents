@@ -8,6 +8,7 @@ from englishbot.command_registry import (
     ASSIGN_COMMAND,
     BOT_COMMANDS,
     CANCEL_COMMAND,
+    CREATE_ASSIGNMENT_COMMAND,
     GRANTTOPIC_COMMAND,
     JOIN_COMMAND,
     LEARN_COMMAND,
@@ -42,6 +43,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "invite",
         "join",
         "assign",
+        "create_assignment",
         "granttopic",
         "topics",
         "workbook_export",
@@ -80,6 +82,10 @@ def test_usage_messages_and_caption_parsing_use_canonical_command_names() -> Non
 
 def test_bot_commands_use_centralized_i18n_descriptions() -> None:
     assert BOT_COMMANDS[0].description == translate("command.start", "en")
+    assert CREATE_ASSIGNMENT_COMMAND.to_bot_command("en").description == translate(
+        "command.create_assignment",
+        "en",
+    )
     assert TEACHER_CONTENT_COMMAND.to_bot_command("en").description == translate(
         "command.teacher_content",
         "en",

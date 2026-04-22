@@ -70,6 +70,12 @@ ASSIGN_COMMAND = CommandDefinition(
     scope="teacher",
     register_after_startup=True,
 )
+CREATE_ASSIGNMENT_COMMAND = CommandDefinition(
+    name="create_assignment",
+    description_key="command.create_assignment",
+    scope="teacher",
+    register_after_startup=True,
+)
 GRANTTOPIC_COMMAND = CommandDefinition(
     name="granttopic",
     description_key="command.granttopic",
@@ -110,6 +116,7 @@ ALL_COMMANDS = (
     INVITE_COMMAND,
     JOIN_COMMAND,
     ASSIGN_COMMAND,
+    CREATE_ASSIGNMENT_COMMAND,
     GRANTTOPIC_COMMAND,
     TOPICS_COMMAND,
     WORKBOOK_EXPORT_COMMAND,
