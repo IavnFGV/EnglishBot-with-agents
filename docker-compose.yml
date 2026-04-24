@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        ENGLISHBOT_VERSION: ${ENGLISHBOT_VERSION:-dev}
+        ENGLISHBOT_GIT_COMMIT: ${ENGLISHBOT_GIT_COMMIT:-unknown}
+        ENGLISHBOT_BUILD_TIME_UTC: ${ENGLISHBOT_BUILD_TIME_UTC:-unknown}
+        ENGLISHBOT_BUILD_REF: ${ENGLISHBOT_BUILD_REF:-unknown}
+        ENGLISHBOT_ENV_NAME: ${ENGLISHBOT_ENV_NAME:-production}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENGLISHBOT_VERSION: ${ENGLISHBOT_VERSION:-dev}
+      ENGLISHBOT_GIT_COMMIT: ${ENGLISHBOT_GIT_COMMIT:-unknown}
+      ENGLISHBOT_BUILD_TIME_UTC: ${ENGLISHBOT_BUILD_TIME_UTC:-unknown}
+      ENGLISHBOT_BUILD_REF: ${ENGLISHBOT_BUILD_REF:-unknown}
+      ENGLISHBOT_ENV_NAME: ${ENGLISHBOT_ENV_NAME:-production}
+      ENGLISHBOT_DB_PATH: /app/data/englishbot.sqlite3
+      ENGLISHBOT_LOG_DIR: /app/logs
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    expose:
+      - "8080"
+    networks:
+      edge:
+        aliases:
+          - englishbot-app
+
+networks:
+  edge:
+    external: true
+    name: edge

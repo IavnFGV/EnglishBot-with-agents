@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-04-24
+- Added VPS-oriented container deployment support for `englishbot`: new `Dockerfile`, `.dockerignore`, `docker-compose.yml`, and `.github/workflows/deploy.yml` now support independent deploys into `/opt/services/englishbot`, keep the service on the external `edge` Docker network under alias `englishbot-app`, avoid public `ports`, persist SQLite/log data through local bind mounts, and rebuild/restart over SSH with `docker compose`.
+- Added a minimal internal HTTP status/version server on `0.0.0.0:8080` using Python stdlib so infra nginx can proxy to a real upstream and operators can verify health/build metadata without changing the Telegram polling architecture; added focused tests for status responses and bootstrap startup/teardown wiring.
+- Added `docs/deploy.md` documenting the VPS layout, `edge` network expectations, no-`ports` rule, verification commands, and the matching infra route shape for `englishbot-app:8080`.
+
 ## 2026-04-22
 - Added minimal deployment build metadata support: startup now reads `ENGLISHBOT_VERSION`, `ENGLISHBOT_GIT_COMMIT`, `ENGLISHBOT_BUILD_TIME_UTC`, `ENGLISHBOT_BUILD_REF`, and `ENGLISHBOT_ENV_NAME` through a focused `englishbot/build_info.py` helper, logs one compact startup banner with the active build identity, documents the variables in `.env.example`, and includes focused tests for default env parsing plus banner formatting.
 - Fixed medium-level letter keyboard UX to prevent UI jumping and ensure stable layout: buttons for used letters now show placeholder "·" instead of disappearing, layout is fixed with max 4 letters per row and no reshuffling, backspace properly restores letter buttons, and focused tests now verify layout stability, placeholder behavior, and backspace restoration without changing training logic or architecture.

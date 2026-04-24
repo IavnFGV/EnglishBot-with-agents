@@ -1,0 +1,53 @@
+name: Deploy service to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            SERVICE_NAME="englishbot"
+            SERVICE_DIR="/opt/services/${SERVICE_NAME}"
+            REPO_URL="https://github.com/${{ github.repository }}.git"
+
+            mkdir -p /opt/services
+
+            if [ ! -d "${SERVICE_DIR}/.git" ]; then
+              rm -rf "${SERVICE_DIR}"
+              git clone "${REPO_URL}" "${SERVICE_DIR}"
+            fi
+
+            cd "${SERVICE_DIR}"
+
+            git fetch --all --prune
+            git reset --hard origin/main
+
+            test -f .env
+
+            mkdir -p data logs
+
+            export ENGLISHBOT_VERSION="main-${{ github.run_number }}"
+            export ENGLISHBOT_GIT_COMMIT="${{ github.sha }}"
+            export ENGLISHBOT_BUILD_TIME_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            export ENGLISHBOT_BUILD_REF="${{ github.ref }}"
+            export ENGLISHBOT_ENV_NAME="production"
+
+            docker network inspect edge >/dev/null 2>&1 || docker network create edge
+
+            docker compose up -d --build
+            docker compose ps

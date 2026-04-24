@@ -1,0 +1,109 @@
+You are working in a service (bot) repository that must be deployed to a single VPS.
+
+There is a separate infra repository already running on the server at /opt/infra:
+- nginx reverse proxy is managed there
+- HTTPS (certbot) is managed there
+- shared docker network is called "edge"
+
+This repository MUST:
+- build and run its own container
+- connect to the "edge" network
+- expose an internal port (e.g. 8080)
+- NOT expose ports to host (no "ports", only "expose")
+- NOT manage nginx
+- NOT manage SSL/certificates
+- NOT modify /opt/infra
+
+Goal:
+Set up automatic deployment using GitHub Actions.
+
+Target flow:
+git push → GitHub Actions → SSH → VPS → deploy service
+
+Implement the following:
+
+1. Create or update docker-compose.yml:
+
+- Service name: app
+- Use build: .
+- restart: unless-stopped
+- expose port 8080 (or 80 depending on app)
+- connect to external network "edge"
+- set network alias: <service-name>-app
+- DO NOT use container_name
+- DO NOT publish ports
+
+Example:
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "8080"
+    networks:
+      edge:
+        aliases:
+          - SERVICE_NAME-app
+
+networks:
+  edge:
+    external: true
+    name: edge
+
+2. Add GitHub Actions workflow:
+.github/workflows/deploy.yml
+
+It must:
+- trigger on push to main
+- connect via SSH using secrets:
+  VPS_HOST, VPS_USER, VPS_PORT, VPS_SSH_KEY
+- deploy into /opt/services/<service-name>
+
+Deployment logic:
+
+set -euo pipefail
+
+SERVICE_NAME="REPLACE_SERVICE_NAME"
+SERVICE_DIR="/opt/services/${SERVICE_NAME}"
+REPO_URL="git@github.com:OWNER/REPO.git"
+
+mkdir -p /opt/services
+
+if [ ! -d "${SERVICE_DIR}/.git" ]; then
+  rm -rf "${SERVICE_DIR}"
+  git clone "${REPO_URL}" "${SERVICE_DIR}"
+fi
+
+cd "${SERVICE_DIR}"
+
+git fetch --all --prune
+git reset --hard origin/main
+
+docker network inspect edge >/dev/null 2>&1 || docker network create edge
+
+docker compose up -d --build
+docker compose ps
+
+3. Add docs/deploy.md explaining:
+- service is deployed to /opt/services/<service-name>
+- nginx/HTTPS handled in infra repo
+- service must connect to edge network
+- no ports should be exposed
+- how to debug:
+  docker ps
+  docker compose logs -f
+  docker network inspect edge
+
+4. Important:
+- Do NOT add Kubernetes, Swarm, Traefik, Ansible
+- Do NOT handle SSL here
+- Do NOT modify infra repo
+- Keep setup minimal and production-safe
+
+Replace:
+- SERVICE_NAME
+- OWNER/REPO
+
+Ensure the docker network alias matches infra config:
+UPSTREAM_HOST=<service-name>-app

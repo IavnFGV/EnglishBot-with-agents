@@ -29,6 +29,7 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
+data/
 
 # IDE and OS files
 .idea/
