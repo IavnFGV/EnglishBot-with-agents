@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-04-24
+- Enabled GitHub Actions `pip` caching in `.github/workflows/deploy.yml` so the CI test job can reuse downloaded Python dependencies between runs instead of reinstalling everything from scratch on each runner.
 - Consolidated the teacher-content placeholder asset onto `assets/images/no-image.png`, updated the dialog/browser expectations to that single canonical path, and removed the old duplicate JPEG placeholder.
 - Fixed the test-gating fallout after enabling deploy CI: homework session rendering now falls back to text progress when a minimal test/dummy message lacks `answer_photo`, restoring a fully green `python -m pytest` run.
 - Added VPS-oriented container deployment support for `englishbot`: new `Dockerfile`, `.dockerignore`, `docker-compose.yml`, and `.github/workflows/deploy.yml` now support independent deploys into `/opt/services/englishbot`, keep the service on the external `edge` Docker network under alias `englishbot-app`, avoid public `ports`, persist SQLite/log data through local bind mounts, and rebuild/restart over SSH with `docker compose`.
