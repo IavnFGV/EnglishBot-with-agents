@@ -1,0 +1,78 @@
+You are working in an existing service repository that already has a GitHub Actions deployment workflow.
+
+Task:
+Update the existing GitHub Actions workflow so that tests run before deployment.
+
+Important:
+- Do NOT rewrite the whole deployment setup from scratch.
+- Do NOT guess the project stack blindly.
+- Inspect the repository first and detect how tests should be run.
+- Keep the current deployment logic intact.
+- Only add/adjust the CI test stage and make deploy depend on it.
+
+Required behavior:
+1. On push to any branch:
+   - run tests only.
+
+2. On pull_request targeting main:
+   - run tests only.
+
+3. On push to main:
+   - run tests first.
+   - deploy only if tests pass.
+
+4. Manual workflow_dispatch:
+   - should also run tests before deploy, unless there is an existing reason not to.
+
+Implementation requirements:
+- Use the existing workflow file if present, usually:
+  .github/workflows/deploy.yml
+- If the repo has separate workflows, integrate cleanly without duplicating deployment logic.
+- Add a test job before the deploy job.
+- Make deploy use:
+  needs: test
+- Make deploy run only for:
+  push to main
+  and optionally workflow_dispatch
+- Keep existing SSH deployment steps unchanged unless necessary.
+- Keep existing secrets unchanged:
+  VPS_HOST
+  VPS_USER
+  VPS_PORT
+  VPS_SSH_KEY
+
+Test detection:
+Inspect the repo and choose the correct command:
+- If Gradle wrapper exists:
+  ./gradlew test
+- If Maven wrapper exists:
+  ./mvnw test
+- If package.json exists:
+  inspect scripts and prefer:
+    npm test
+    or npm run test
+    or npm run ci
+- If pytest is configured:
+  python -m pytest
+- If no test command exists:
+  add a clear TODO comment and create a placeholder test step that fails with a useful message, unless the existing project intentionally has no tests.
+
+Do not silently skip tests unless the repository clearly has no test setup yet. If there are no tests, fail fast with a clear message like:
+"No test command was detected. Add tests or define a test command in the workflow."
+
+Workflow rules:
+- Feature branches: tests only.
+- Pull requests to main: tests only.
+- Push to main: tests + deploy.
+- Deployment must never run if tests fail.
+
+Also update docs/deploy.md or create it if missing:
+- explain that tests run on every push and PR
+- explain that deployment happens only from main after tests pass
+- explain where the test command is defined
+- explain how to run tests locally
+
+Do not add Kubernetes, Docker Swarm, Traefik, Ansible, or unrelated infrastructure changes.
+Do not modify the infra repository.
+Do not change docker-compose.yml unless required for tests.
+Keep the change minimal and consistent with the existing repository.

@@ -220,7 +220,7 @@ def test_dialog_navigation_renders_compact_workspace_topic_and_item_screens(tmp_
     assert "audio_ref" not in browser_view["screen_text"]
     assert "image_ref" not in browser_view["screen_text"]
     assert browser_view["has_current_image"] is False
-    assert str(browser_view["current_item_media"].path) == "assets/images/no-image.jpg"
+    assert str(browser_view["current_item_media"].path) == "assets/images/no-image.png"
     assert topic_message.bot.edit_calls[0]["message_id"] == 100
     assert "Topic: Fruits" in topic_message.bot.edit_calls[0]["text"]
     assert "👉 • 1. <b>item-1</b>" in topic_message.bot.edit_calls[0]["text"]
@@ -337,7 +337,7 @@ def test_next_from_item_with_image_to_item_without_image_recreates_browser_messa
     assert may_view["has_current_image"] is True
     assert june_view["has_current_image"] is False
     assert manager.dialog_data["item_id"] == item_ids[5]
-    assert str(june_view["current_item_media"].path) == "assets/images/no-image.jpg"
+    assert str(june_view["current_item_media"].path) == "assets/images/no-image.png"
     assert manager.update_calls[-1]["kwargs"] == {}
     assert "👉 • 6. <b>item-6</b>" in bot.edit_calls[0]["text"]
 

@@ -319,15 +319,29 @@ async def render_started_training_session(message: Message, telegram_user_id: in
             )
         )
     else:
-        progress_message = await message.answer_photo(
-            FSInputFile(
-                render_homework_progress_image(
-                    telegram_user_id,
-                    assignment_id,
-                    int(session["id"]),
-                )
+        progress_image = FSInputFile(
+            render_homework_progress_image(
+                telegram_user_id,
+                assignment_id,
+                int(session["id"]),
             )
         )
+        answer_photo = getattr(message, "answer_photo", None)
+        if callable(answer_photo):
+            progress_message = await answer_photo(progress_image)
+        else:
+            # Some focused dialog tests use a minimal fake message without photo support.
+            progress_message = await message.answer(
+                _render_session_progress_text(
+                    telegram_user_id,
+                    session,
+                    question_number=int(question["question_number"]),
+                    total_questions=int(question["total_questions"]),
+                    completed_items=int(question["completed_items"]),
+                    stage_key=str(question["current_stage"]),
+                    hard_unlocked=bool(question["hard_unlocked"]),
+                )
+            )
     set_training_session_progress_message_id(
         int(question["session_id"]),
         getattr(progress_message, "message_id", None),

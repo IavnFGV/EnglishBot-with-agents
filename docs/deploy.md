@@ -38,11 +38,33 @@ Required GitHub Actions secrets:
 - `VPS_PORT`
 - `VPS_SSH_KEY`
 
-The workflow SSHes to the VPS, updates `/opt/services/englishbot`, rebuilds the image, and runs:
+CI behavior:
+
+- Every `push` to any branch runs tests only.
+- Every `pull_request` targeting `main` runs tests only.
+- A `push` to `main` runs tests first, then deploys only if tests pass.
+- `workflow_dispatch` also runs tests before deploy.
+
+The test command is defined in the workflow as:
+
+```bash
+python -m pytest
+```
+
+The deploy job depends on the test job and SSHes to the VPS only after the test job succeeds. The SSH deployment logic itself stays the same: it updates `/opt/services/englishbot`, rebuilds the image, and runs:
 
 ```bash
 docker compose up -d --build
 docker compose ps
+```
+
+## Run tests locally
+
+From the repository root:
+
+```bash
+pip install -r requirements.txt
+python -m pytest
 ```
 
 ## Verify on VPS

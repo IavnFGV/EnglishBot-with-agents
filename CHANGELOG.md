@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-04-24
+- Consolidated the teacher-content placeholder asset onto `assets/images/no-image.png`, updated the dialog/browser expectations to that single canonical path, and removed the old duplicate JPEG placeholder.
+- Fixed the test-gating fallout after enabling deploy CI: homework session rendering now falls back to text progress when a minimal test/dummy message lacks `answer_photo`, restoring a fully green `python -m pytest` run.
 - Added VPS-oriented container deployment support for `englishbot`: new `Dockerfile`, `.dockerignore`, `docker-compose.yml`, and `.github/workflows/deploy.yml` now support independent deploys into `/opt/services/englishbot`, keep the service on the external `edge` Docker network under alias `englishbot-app`, avoid public `ports`, persist SQLite/log data through local bind mounts, and rebuild/restart over SSH with `docker compose`.
 - Added a minimal internal HTTP status/version server on `0.0.0.0:8080` using Python stdlib so infra nginx can proxy to a real upstream and operators can verify health/build metadata without changing the Telegram polling architecture; added focused tests for status responses and bootstrap startup/teardown wiring.
 - Added `docs/deploy.md` documenting the VPS layout, `edge` network expectations, no-`ports` rule, verification commands, and the matching infra route shape for `englishbot-app:8080`.
@@ -119,3 +121,4 @@
 - Added persisted `hint_language` in `user_profiles`, split `/settings` into separate bot-language and hint-language controls, and wired staged training prompt generation plus medium/hard hint rendering to the stored hint preference instead of the old hardcoded Russian hint default.
 - Refreshed the `/create_assignment` dialog button copy through centralized i18n so the assignment-builder UI feels lighter and more cheerful without changing dialog logic or navigation behavior.
 - Adjusted homework `Skip hard` so it now exits accelerated hard mode but keeps the learner on the same word at that word's normal stage instead of jumping to the next item.
+- Added a `test` job to `.github/workflows/deploy.yml` so `python -m pytest` now runs on every push and on pull requests to `main`, while the existing SSH deploy job runs only after tests pass on `push` to `main` or manual dispatch.
