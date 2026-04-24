@@ -1,0 +1,43 @@
+Read:
+- context/current_state.md
+- AGENTS.md
+
+Task:
+Prepare the bot for deployment by adding build/version metadata.
+
+Required:
+1. Add minimal build info support via env variables:
+- ENGLISHBOT_VERSION
+- ENGLISHBOT_GIT_COMMIT
+- ENGLISHBOT_BUILD_TIME_UTC
+- ENGLISHBOT_BUILD_REF
+- ENGLISHBOT_ENV_NAME
+
+2. Create a small focused module for reading/formatting build info.
+
+3. Log a compact startup banner in bootstrap/startup with:
+- version
+- commit
+- build time
+- build ref
+- env name
+
+4. Update .env.example with the new variables.
+
+5. If Docker/build files exist, wire these values through build args/env and add image labels if appropriate.
+
+6. Keep changes minimal.
+- Do NOT refactor unrelated code
+- Do NOT redesign runtime config
+- Do NOT add large new infrastructure
+
+7. Add focused tests for:
+- env parsing defaults
+- startup banner formatting
+
+8. Update CHANGELOG.md and context/current_state.md
+
+Definition of done:
+- deployed app can report what version it is
+- logs show what commit/build is running
+- env example documents the required metadata

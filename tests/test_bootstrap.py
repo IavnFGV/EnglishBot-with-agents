@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import bootstrap
+from englishbot.build_info import BuildInfo
 
 
 class FakeBot:
@@ -20,6 +21,16 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
 
     def fake_configure_logging() -> None:
         calls.append("configure_logging")
+
+    def fake_load_build_info() -> BuildInfo:
+        calls.append("load_build_info")
+        return BuildInfo(
+            version="1.0.0",
+            git_commit="abc1234",
+            build_time_utc="2026-04-22T00:00:00Z",
+            build_ref="refs/heads/main",
+            env_name="test",
+        )
 
     def fake_init_db() -> None:
         calls.append("init_db")
@@ -41,6 +52,7 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
 
     monkeypatch.setattr(bootstrap, "load_environment", fake_load_environment)
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
+    monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
     monkeypatch.setattr(bootstrap, "seed_basic_topics", fake_seed_basic_topics)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
@@ -52,9 +64,70 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
     assert calls == [
         "load_environment",
         "configure_logging",
+        "load_build_info",
         "init_db",
         "seed_basic_topics",
         "build_bot",
         "configure_bot_commands",
         "start_polling",
     ]
+
+
+def test_bootstrap_run_logs_compact_startup_banner(monkeypatch) -> None:
+    banner_messages: list[str] = []
+    fake_bot = FakeBot()
+    build_info = BuildInfo(
+        version="2.0.0",
+        git_commit="deadbeef",
+        build_time_utc="2026-04-22T12:34:56Z",
+        build_ref="refs/tags/v2.0.0",
+        env_name="staging",
+    )
+
+    def fake_load_environment() -> None:
+        return None
+
+    def fake_configure_logging() -> None:
+        return None
+
+    def fake_load_build_info() -> BuildInfo:
+        return build_info
+
+    def fake_init_db() -> None:
+        return None
+
+    def fake_seed_basic_topics() -> None:
+        return None
+
+    def fake_build_bot() -> FakeBot:
+        return fake_bot
+
+    async def fake_configure_bot_commands(bot) -> None:
+        assert bot is fake_bot
+
+    async def fake_start_polling(bot) -> None:
+        assert bot is fake_bot
+
+    def fake_logger_info(message: str) -> None:
+        banner_messages.append(message)
+
+    monkeypatch.setattr(bootstrap, "load_environment", fake_load_environment)
+    monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
+    monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
+    monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
+    monkeypatch.setattr(bootstrap, "seed_basic_topics", fake_seed_basic_topics)
+    monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
+    monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
+    monkeypatch.setattr(bootstrap.dispatcher, "start_polling", fake_start_polling)
+    monkeypatch.setattr(bootstrap.logger, "info", fake_logger_info)
+
+    asyncio.run(bootstrap.run())
+
+    assert banner_messages[0] == (
+        "EnglishBot startup: "
+        "version=2.0.0 "
+        "commit=deadbeef "
+        "build_time_utc=2026-04-22T12:34:56Z "
+        "build_ref=refs/tags/v2.0.0 "
+        "env=staging"
+    )

@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-04-22
+- Added minimal deployment build metadata support: startup now reads `ENGLISHBOT_VERSION`, `ENGLISHBOT_GIT_COMMIT`, `ENGLISHBOT_BUILD_TIME_UTC`, `ENGLISHBOT_BUILD_REF`, and `ENGLISHBOT_ENV_NAME` through a focused `englishbot/build_info.py` helper, logs one compact startup banner with the active build identity, documents the variables in `.env.example`, and includes focused tests for default env parsing plus banner formatting.
 - Fixed medium-level letter keyboard UX to prevent UI jumping and ensure stable layout: buttons for used letters now show placeholder "·" instead of disappearing, layout is fixed with max 4 letters per row and no reshuffling, backspace properly restores letter buttons, and focused tests now verify layout stability, placeholder behavior, and backspace restoration without changing training logic or architecture.
 - Added emojis to training action buttons: backspace now shows ⌫ and check shows ✅ for better visual clarity across all supported languages.
 - Reworked learner homework/training progression to rotate round-robin across unfinished session items instead of exhausting one item at a time: session-item persistence now also stores restart-safe medium answer assembly plus optional hard completion state, hard unlock follows 4 total correct answers on that item, hard can be skipped without blocking completion, medium now uses an inline letter keyboard with backspace/check, and homework progress now renders clearer per-item statuses (`start`, `warm-up`, `almost`, `hard clear`, `done`).
