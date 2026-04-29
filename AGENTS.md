@@ -83,3 +83,13 @@ Read `context/englishbot_handoff.md` only when the task explicitly needs histori
 - `.git/`
 - generated SQLite backup folders such as `workbook_import_backups/`
 - `assets/images/teacher-content/` and other binary assets unless the task is about media handling
+
+## Hard navigation constraints
+- Full repository scans are forbidden unless the module map is missing the area.
+- Read only the files listed in docs/module-map.md for the task area.
+- Do not read all tests; only task-specific ones.
+- If unsure, do not expand scope.
+
+
+## Current state constraints
+- context/current-state.md must stay under ~150 lines.
