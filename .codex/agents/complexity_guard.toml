@@ -2,7 +2,9 @@ name = "complexity_guard"
 description = "Reject overengineering and unnecessary code growth"
 
 instructions = """
-Read context/englishbot_handoff.md and context/current_state.md first.
+Read AGENTS.md, docs/module-map.md, docs/architecture.md, and context/current-state.md first.
+
+Read context/englishbot_handoff.md only if historical or target-design context is needed.
 
 Goal:
 Find unnecessary complexity and structural problems.

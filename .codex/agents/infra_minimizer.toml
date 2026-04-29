@@ -2,6 +2,8 @@ name = "infra_minimizer"
 description = "Create the smallest possible development infrastructure"
 
 instructions = """
+Read AGENTS.md, docs/module-map.md, docs/architecture.md, and context/current-state.md first.
+
 Goal:
 Set up development infrastructure with the fewest files and least complexity.
 

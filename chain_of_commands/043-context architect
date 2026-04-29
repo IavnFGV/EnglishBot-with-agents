@@ -1,0 +1,116 @@
+You are working as a repository context architect.
+
+Goal:
+Audit the repository documentation and align it with the current codebase so future Codex tasks can navigate the project efficiently without rereading the whole repository.
+
+Do not implement product features in this task.
+
+Primary objectives:
+1. Review existing Markdown documentation files.
+2. Compare them against the current code and tests.
+3. Identify outdated, duplicated, misleading, or overly verbose documentation.
+4. Create or update an efficient module map for future agent navigation.
+5. Update AGENTS.md and any agent instruction files so future agents know what to read first, where to look for each task area, and what not to waste tokens on.
+6. Keep documentation concise, reviewable, and Git-friendly.
+
+Important constraints:
+- Do not delete documentation blindly.
+- If a document is outdated but still historically useful, move or mark it as archived.
+- Do not create many new Markdown files unless there is a clear reason.
+- Prefer updating existing files over creating duplicates.
+- Do not put speculative future plans into current-state docs.
+- Do not claim something is implemented unless the code or tests prove it.
+- Keep all comments, examples, and user-visible strings in code in English.
+- Do not modify application behavior.
+- Do not modify production code unless needed only to verify documentation references, and explain why.
+- Do not use placeholders.
+- Do not use `any`, non-null assertions, or unsafe casts in TypeScript if TypeScript files are touched.
+- Use minimal, local changes.
+
+Files to inspect first:
+- AGENTS.md
+- .codex/agents/*.toml, if present
+- context/current_state.md, if present
+- context/*.md
+- docs/*.md
+- docs/**/*.md
+- README.md
+- CHANGELOG.md
+- test files relevant to documented features
+- main application entry points and module directories
+
+Required output files:
+1. Update `AGENTS.md`
+   It must contain:
+   - short project overview
+   - mandatory workflow for Codex agents
+   - commands for setup, tests, and running the app
+   - architecture boundaries
+   - coding rules
+   - documentation update rules
+   - token-saving navigation rules
+   - list of files/directories that agents should not read unless explicitly relevant
+
+2. Create or update `docs/module-map.md`
+   It must contain:
+   - task area → relevant source files
+   - task area → relevant tests
+   - task area → key invariants
+   - task area → docs to read
+   - task area → docs to avoid unless needed
+
+3. Create or update `docs/architecture.md`
+   It must be concise.
+   It must describe:
+   - runtime entry point
+   - main modules
+   - data ownership boundaries
+   - major flows
+   - where business logic belongs
+   - where transport/Telegram/UI logic belongs
+   - persistence model summary
+   - testing strategy summary
+
+4. Create or update `context/current-state.md`
+   It must be short and current.
+   Maximum target length: about 150 lines.
+   It must include only:
+   - what is currently implemented
+   - known important constraints
+   - immediate next work areas, if clearly supported by repo state
+
+5. Optionally create `docs/decisions/`
+   Only if architectural decisions are currently scattered across many Markdown files.
+   Use short ADR-style files.
+   Each decision must include:
+   - context
+   - decision
+   - consequences
+   - current status
+
+6. Optionally create `docs/archive/`
+   Move or clearly mark obsolete Markdown files only if they are actively misleading.
+   If moving files is risky, add a header:
+   `Archived: this document is historical and may not match the current code.`
+
+Agent navigation requirements:
+- Future agents must be able to start from:
+  1. `AGENTS.md`
+  2. `docs/module-map.md`
+  3. only the task-specific files listed in the module map
+- The docs must reduce repeated full-repository scanning.
+- Prefer references and maps over long explanations.
+- Do not duplicate the same project summary in many files.
+
+Validation:
+- Run the relevant tests if available.
+- Run lightweight static checks if available.
+- If full tests are expensive or unavailable, explain what was and was not run.
+- Verify that all documented commands actually exist or clearly mark them as expected commands.
+
+Final response:
+Provide:
+1. Summary of changed documentation files.
+2. List of obsolete or archived docs.
+3. The new navigation workflow for future Codex tasks.
+4. Any uncertainty where code and docs disagree.

@@ -1,3 +1,13 @@
+# Archived note
+
+This document is historical and mixed-purpose. It contains useful terminology and older target-design notes, but it is no longer the recommended read-first file for routine tasks.
+
+Read order for current work:
+1. `AGENTS.md`
+2. `docs/module-map.md`
+3. `docs/architecture.md`
+4. `context/current-state.md`
+
 # EnglishBot: техническая спецификация
 
 Этот документ описывает две вещи одновременно:
@@ -10,7 +20,7 @@
 - зафиксировать инварианты продукта и архитектуры;
 - явно отметить, что уже внедрено;
 - сохранить будущие design sections как целевое направление;
-- не допускать противоречий с `context/current_state.md`.
+- не допускать противоречий с `context/current-state.md`.
 
 Любая новая функциональность должна:
 - вписываться в эту модель;

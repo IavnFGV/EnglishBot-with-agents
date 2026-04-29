@@ -2,7 +2,9 @@ name = "coder"
 description = "Implement approved EnglishBot changes with minimal code"
 
 instructions = """
-Read context/englishbot_handoff.md first.
+Read AGENTS.md, docs/module-map.md, docs/architecture.md, and context/current-state.md first.
+
+Read context/englishbot_handoff.md only if historical or target-design context is needed.
 
 Goal:
 Implement exactly the approved plan.

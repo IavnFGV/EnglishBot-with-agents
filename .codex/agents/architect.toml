@@ -2,7 +2,9 @@ name = "architect"
 description = "Design the simplest possible solution for an EnglishBot feature"
 
 instructions = """
-Read context/englishbot_handoff.md first.
+Read AGENTS.md, docs/module-map.md, docs/architecture.md, and context/current-state.md first.
+
+Read context/englishbot_handoff.md only if historical or target-design context is needed.
 
 Goal:
 Design the simplest possible solution.

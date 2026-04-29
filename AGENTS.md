@@ -1,149 +1,85 @@
-# EnglishBot project guidance
+# EnglishBot repository guidance
 
-Always read `context/englishbot_handoff.md` and `context/current_state.md` before planning or coding.
+## Project overview
+- `englishbot` is a Telegram-first English learning bot built as a modular monolith on `aiogram`.
+- Runtime source of truth is SQLite.
+- Core learning unit is `learning_item`.
+- Teacher authoring and learner runtime stay separated by workspace boundaries.
 
-## Core rules
-- This is a Telegram-first learning product, not an AI playground.
-- Runtime source of truth is SQLite, not JSON.
-- Core learning unit is `learning_item`, not plain word.
-- Business logic must stay in `application/`.
-- Telegram modules only orchestrate UX.
-- All bot-facing textual interactions must go through the centralized i18n layer; do not add new hardcoded user-visible strings in handlers, menus, buttons, or Telegram replies.
-- Any new Telegram bot command must be added through `englishbot/command_registry.py`; do not introduce ad-hoc command-name literals outside the centralized command registry.
-- Optional AI/TTS/WebApp must not become required for core runtime.
-- Prefer extending existing modules over creating new ones.
-- Keep changes minimal and local.
-- Reject overengineering and future-proofing.
-- Use tests as specification.
+## Read this first
+Before planning or coding, read these files in order:
+1. `AGENTS.md`
+2. `docs/module-map.md`
+3. `docs/architecture.md`
+4. `context/current-state.md`
 
-## Feature workflow
-For implementation tasks:
-1. Propose the smallest possible design.
-2. Run a complexity review before implementation.
-3. Implement only the approved minimal plan.
-4. After implementation, run tests relevant to the change.
-5. Update:
+Read `context/englishbot_handoff.md` only when the task explicitly needs historical context, terminology background, or older target-design notes.
+
+## Mandatory workflow for Codex agents
+1. Confirm the smallest possible change.
+2. Review complexity before implementation.
+3. Read only the task-specific files listed in `docs/module-map.md`.
+4. Keep changes local. Prefer extending an existing focused module over adding a new one.
+5. Run the narrowest relevant automated tests.
+6. After every completed task, update:
    - `CHANGELOG.md`
-   - `context/current_state.md`
+   - `context/current-state.md`
+   - `.env.example` if environment variables changed
 
-## Documentation update rule
-After every completed task:
-- append a short entry to `CHANGELOG.md`
-- update `context/current_state.md` with the new current capabilities, constraints, and changed files
-- if the task adds or changes environment variables, update `.env.example` in the same task
-- keep both files concise and factual
+## Setup, test, and run
+- Install dependencies: `pip install -r requirements.txt`
+- Run all tests: `python -m pytest`
+- Run one test file: `python -m pytest tests/test_training.py`
+- Start the bot locally: `python -m englishbot`
+- Bot token source: `.env` via `TELEGRAM_BOT_TOKEN`
 
-## Development Rules
+## Architecture boundaries
+- Business logic belongs in focused modules under `englishbot/` such as `training.py`, `homework.py`, `topics.py`, `topic_access.py`, `teacher_content.py`, `workbook_import.py`, and `workbook_export.py`.
+- Telegram/UI orchestration belongs in `*_handlers.py` and `*_dialog.py`.
+- `englishbot/bot.py` wires handlers, dialogs, and command registration.
+- `englishbot/bootstrap.py` owns startup order.
+- `englishbot/db.py` owns SQLite bootstrap, migrations, and shared persistence helpers.
+- Do not reintroduce product logic into Telegram handlers.
+- Do not treat JSON, workbook files, or Telegram message state as runtime source of truth over SQLite.
 
-- New non-trivial features must be implemented through the agent workflow.
-- New responsibilities should be introduced in focused modules instead of growing catch-all files.
-- New non-trivial features are considered incomplete without automated tests.
-- When adding or changing Telegram commands, update `englishbot/command_registry.py` first and wire handlers/startup from that registry instead of introducing parallel command definitions.
-- When adding or changing bot-facing text, add or update centralized i18n keys first and resolve them through the i18n layer instead of embedding literal user-visible strings in Telegram modules.
-- Documentation (`CHANGELOG.md` and `context/current_state.md`) must be updated after each completed task.
-Как
+## Coding rules
+- This is a Telegram-first learning product, not an AI playground.
+- All bot-facing text must go through `englishbot/i18n.py`.
+- Any new or changed Telegram command must be defined in `englishbot/command_registry.py` first.
+- Optional AI, TTS, WebApp, or deployment extras must not become required for core runtime.
+- Prefer ASCII unless the file already uses Unicode intentionally.
+- Keep comments short and only where they help.
+- New non-trivial behavior requires focused automated tests.
+- New imports must be reflected in `requirements.txt`.
+- Do not claim a feature is implemented unless code or tests prove it.
 
-## Dependency rules:
-- Any new import MUST be reflected in requirements.txt
-- If a package is used but not listed, add it
-- Never assume dependencies are preinstalled
-- Any new or changed environment variable MUST be added to `.env.example`
+## Telegram UI rules
+- Treat Telegram as a UI, not a message log.
+- One logical screen should reuse one message, or two only when strictly necessary.
+- Prefer `edit_message_text` or `edit_message_reply_markup` over sending new navigation messages.
+- Large collections should use pagination or index-based selection, not giant inline button walls.
+- Non-trivial multi-step flows should use `aiogram-dialog`.
+- Telegram handlers should orchestrate UI only; business rules stay in domain modules.
 
-## File structure rules
+## Documentation update rules
+- `context/current-state.md` is the concise source of truth for current repository state.
+- Keep `docs/architecture.md` stable and structural.
+- Keep `docs/module-map.md` task-oriented and easy to scan.
+- Do not duplicate the same project summary across many files.
+- Historical notes should be marked clearly instead of mixed into current-state docs.
 
-- Do not turn existing files into catch-all files.
-- If a feature introduces a new responsibility, create a separate focused file/module.
-- For small local changes, prefer modifying the existing file(not more thatn 30-50 lines  and NOT adding new responsibility)
-- Avoid both extremes:
-  - dumping everything into one file
-  - splitting simple logic into too many tiny files
-- New files must be connected to existing code with minimal explicit wiring.
+## Token-saving navigation rules
+- Start from `docs/module-map.md` and open only the files listed for the task area.
+- Prefer reading tests for the task area before scanning unrelated modules.
+- Use `context/englishbot_handoff.md` only if current docs do not answer the question.
+- Avoid full-repository scans unless the module map is clearly missing the area.
 
-## Testing rules
-
-- Every non-trivial feature must include automated tests.
-- New persistence logic must be covered by tests.
-- New command flows must be covered by tests.
-- Tests are required as part of feature completion, not as optional follow-up work.
-- Prefer focused tests for the new module(s) instead of broad end-to-end-only coverage.
-- A feature is not complete until:
-  - code is implemented
-  - tests are added
-  - relevant tests pass
-
-  ## Telegram UI / Flow Rules (CRITICAL)
-
-This project uses Telegram as a UI platform, not as a message log.
-
-### Core principle
-
-- One logical screen = one Telegram message (max two if strictly necessary)
-- Navigation MUST reuse the same message via `edit_message_text` / `edit_message_reply_markup`
-
-### Forbidden patterns
-
-DO NOT:
-
-- Send multiple messages to represent a single screen
-- Leave outdated UI messages in chat
-- Render large datasets as inline keyboard button lists
-- Mix UI state with message history
-- Use message spam instead of state transitions
-
-### Required behavior
-
-- Every interactive flow MUST behave like a UI, not a chat log
-- Screen transitions MUST update existing messages
-- Handlers MUST store and reuse message_id for UI updates
-- Old UI messages SHOULD be deleted when no longer relevant
-
-### Navigation consistency
-
-All flows MUST use consistent buttons:
-
-- Back: `⬅ Back`
-- Cancel: `Cancel`
-- Navigation: `⬅ Prev` / `Next ➡`
-- Actions: `✏ Edit`, `🗑 Archive`, `➕ Create`
-
-Do not invent new labels for the same actions.
-
-### Lists and collections
-
-- Large lists MUST NOT be rendered as inline keyboard buttons
-- Use:
-  - pagination
-  - index-based selection
-  - navigation buttons
-
-### Screen design
-
-Each screen MUST:
-
-- have a clear header (Topic, Item, etc.)
-- show position (e.g. `Item 1/6`)
-- be compact and readable
-- not duplicate content across messages
-
-### aiogram-dialog usage
-
-For non-trivial multi-step flows (editing, navigation, creation):
-
-- aiogram-dialog MUST be used
-- FSM or manual state handling MUST NOT replace dialog flows
-- Dialog defines:
-  - current screen
-  - transitions
-  - UI structure
-
-Simple one-step commands MAY avoid dialogs.
-
-### Responsibility split
-
-- Telegram handlers = UI orchestration only
-- Navigation/state = dialog or training domain
-- Business logic MUST stay outside Telegram layer
-
-### Goal
-
-The bot must feel like navigating a UI, not reading a chat log.
+## Do not read unless explicitly relevant
+- `chain_of_commands/`
+- `context/englishbot_handoff.md`
+- `context/current_state.md` except as a compatibility pointer
+- `logs/`
+- `.pytest_cache/`
+- `.git/`
+- generated SQLite backup folders such as `workbook_import_backups/`
+- `assets/images/teacher-content/` and other binary assets unless the task is about media handling
