@@ -72,7 +72,7 @@ The deploy job depends on the test job and SSHes to the VPS only after the test 
 
 ```bash
 docker compose up -d --build
-docker compose ps
+docker compose ps 
 ```
 
 ## Repository clone access
