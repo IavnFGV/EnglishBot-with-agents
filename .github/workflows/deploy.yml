@@ -64,7 +64,10 @@ jobs:
             git fetch --all --prune
             git reset --hard origin/main
 
-            test -f .env
+            if [ ! -f .env ]; then
+              echo "ERROR: .env is missing in ${SERVICE_DIR}. Create it manually on the VPS before deploy."
+              exit 1
+            fi
 
             mkdir -p data logs
 

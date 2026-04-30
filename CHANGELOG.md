@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-04-29
+- Audited the existing VPS deploy path without changing its structure: kept the test/deploy trigger behavior, confirmed the current public-repo HTTPS clone assumption, improved the server-side `.env` failure message in `.github/workflows/deploy.yml`, and expanded `docs/deploy.md` with required GitHub secrets, manual `.env` setup, verification commands, and the clear boundary that nginx/HTTPS stay in `/opt/infra`.
 - Reworked the repository navigation docs for future agent tasks: `AGENTS.md` now points agents to `docs/module-map.md`, `docs/architecture.md`, and the new concise `context/current-state.md` before any broad repository scan, and it now documents the real `englishbot/` module boundaries instead of the stale nonexistent `application/` path.
 - Added `docs/module-map.md` and `docs/architecture.md` as the primary task-routing docs, mapping task areas to source files, tests, invariants, and low-value directories so future work can open only the relevant modules.
 - Replaced the oversized historical `context/current_state.md` snapshot with a compatibility pointer to `context/current-state.md`, marked `context/englishbot_handoff.md` as historical/mixed-purpose, and kept current-state guidance short and code-aligned.

@@ -26,6 +26,7 @@
 - Workbook export/import for teacher workspaces through Telegram `.xlsx` files.
 - Asset registry for linked image/audio metadata.
 - Deployment support with Docker Compose and GitHub Actions.
+- Deploy docs now explicitly require VPS secrets, a manual server-side `.env`, and keep nginx/HTTPS ownership in `/opt/infra` while this repo deploys only `/opt/services/englishbot`.
 
 ## Data and ownership constraints
 - SQLite is the runtime source of truth.

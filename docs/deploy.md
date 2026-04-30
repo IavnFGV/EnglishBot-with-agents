@@ -4,6 +4,8 @@
 
 External access does not come from this repository. The shared nginx reverse proxy in `/opt/infra` handles public traffic and proxies to this service through the external Docker network `edge`.
 
+This repository does not manage nginx, HTTPS, certificates, or anything inside `/opt/infra`.
+
 ## Service shape
 
 - This repo does not publish `80` or `443`.
@@ -12,6 +14,7 @@ External access does not come from this repository. The shared nginx reverse pro
 - The app uses the network alias `englishbot-app`.
 - The container uses `expose: 8080`, which is enough for nginx-to-container traffic on the shared Docker network.
 - The bot keeps SQLite and logs on the VPS through `./data` and `./logs` bind mounts inside `/opt/services/englishbot`.
+- `docker-compose.yml` passes `ENGLISHBOT_VERSION`, `ENGLISHBOT_GIT_COMMIT`, `ENGLISHBOT_BUILD_TIME_UTC`, `ENGLISHBOT_BUILD_REF`, and `ENGLISHBOT_ENV_NAME` into the container so the status server and startup logs expose the deployed build.
 
 ## VPS layout
 
@@ -21,7 +24,19 @@ Expected directory:
 /opt/services/englishbot
 ```
 
-Before the first deploy, place a real `.env` file in that directory with the application secrets such as `TELEGRAM_BOT_TOKEN`. Do not store those secrets in the repository.
+Before the first successful deploy, place a real `.env` file in that directory with the application secrets such as `TELEGRAM_BOT_TOKEN`. Do not store those secrets in the repository.
+
+Example setup on the VPS:
+
+```bash
+mkdir -p /opt/services/englishbot
+cd /opt/services/englishbot
+cat > .env
+```
+
+Paste the required variables, save the file, and then update it later in place when secrets change.
+
+If this is a brand-new VPS and the repository has not been cloned there yet, let the first workflow run create `/opt/services/englishbot` and clone the repo. That first run will stop with a clear `.env` error. After that, you can use `.env.example` in the cloned repo as a reference while creating `/opt/services/englishbot/.env`.
 
 ## GitHub Actions deploy
 
@@ -37,6 +52,8 @@ Required GitHub Actions secrets:
 - `VPS_USER`
 - `VPS_PORT`
 - `VPS_SSH_KEY`
+
+Do not hardcode the VPS IP or hostname in the workflow. Keep those values in GitHub Actions secrets only.
 
 CI behavior:
 
@@ -58,6 +75,23 @@ docker compose up -d --build
 docker compose ps
 ```
 
+## Repository clone access
+
+The workflow currently clones with:
+
+```bash
+https://github.com/IavnFGV/EnglishBot-with-agents.git
+```
+
+That works with the repository's current public visibility.
+
+If the repository is made private later, HTTPS clone from the VPS will fail unless one of these is added first:
+
+- a token-backed Git clone setup on the VPS, or
+- a workflow change to `git@github.com:OWNER/REPO.git` plus an SSH deploy key that is added to this repository
+
+Do not switch the workflow to SSH clone unless the VPS user already has the corresponding repository deploy key configured.
+
 ## Run tests locally
 
 From the repository root:
@@ -72,9 +106,9 @@ python -m pytest
 From `/opt/services/englishbot`:
 
 ```bash
-docker ps
-docker network inspect edge
+docker compose ps
 docker compose logs -f
+docker network inspect edge
 ```
 
 ## Infra route setup
