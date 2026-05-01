@@ -236,6 +236,60 @@ def test_field_editing_updates_text_and_adds_missing_translation(tmp_path: Path)
     assert snapshot["current_item"]["audio_ref"] == "audio://apple.mp3"
 
 
+def test_field_editing_remote_media_keeps_source_url_and_saves_local_ref(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_db(tmp_path)
+    workspace_id, topic_id, item_ids = seed_workspace_with_topic(402)
+    stored_calls: list[tuple[str, str]] = []
+
+    def fake_store_remote_asset(asset_type: str, source_url: str, **kwargs: object) -> str:
+        stored_calls.append((asset_type, source_url))
+        if asset_type == "image":
+            return "assets/images/remote/item-image.jpg"
+        return "assets/audio/remote/item-audio.mp3"
+
+    monkeypatch.setattr(
+        "englishbot.teacher_content.store_remote_asset",
+        fake_store_remote_asset,
+    )
+
+    update_teacher_topic_item_field(
+        402,
+        workspace_id,
+        topic_id,
+        item_ids[0],
+        "image_ref",
+        "https://example.com/apple.jpg",
+    )
+    update_teacher_topic_item_field(
+        402,
+        workspace_id,
+        topic_id,
+        item_ids[0],
+        "audio_ref",
+        "https://example.com/apple.mp3",
+    )
+
+    learning_item = get_learning_item(item_ids[0])
+
+    assert stored_calls == [
+        ("image", "https://example.com/apple.jpg"),
+        ("audio", "https://example.com/apple.mp3"),
+    ]
+    assert learning_item is not None
+    assert learning_item["image_ref"] == "assets/images/remote/item-image.jpg"
+    assert learning_item["audio_ref"] == "assets/audio/remote/item-audio.mp3"
+    assert [
+        (asset["asset_type"], asset["source_url"], asset["local_path"], asset["role"])
+        for asset in learning_item["assets"]
+    ] == [
+        ("image", "https://example.com/apple.jpg", "assets/images/remote/item-image.jpg", "primary_image"),
+        ("audio", "https://example.com/apple.mp3", "assets/audio/remote/item-audio.mp3", "primary_audio"),
+    ]
+
+
 def test_archive_action_hides_item_and_reselects_remaining_item(tmp_path: Path) -> None:
     setup_db(tmp_path)
     workspace_id, topic_id, item_ids = seed_workspace_with_topic(402, item_count=2)

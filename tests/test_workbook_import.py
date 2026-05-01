@@ -63,24 +63,10 @@ def build_workbook_bytes(
     return buffer.getvalue()
 
 
-class FakeResponse:
-    def __init__(self, content: bytes) -> None:
-        self._content = content
-
-    def read(self) -> bytes:
-        return self._content
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        return None
-
-
 def install_media_download_stub(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "englishbot.workbook_import.urlopen",
-        lambda *args, **kwargs: FakeResponse(b"media-bytes"),
+        "englishbot.workbook_import.store_remote_asset",
+        lambda asset_type, source_url, **kwargs: f"assets/workbook-import/{asset_type}/{asset_type}-stub.bin",
     )
 
 

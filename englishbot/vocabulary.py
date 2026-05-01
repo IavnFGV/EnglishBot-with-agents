@@ -9,6 +9,7 @@ from .assets import (
     list_learning_item_assets,
     replace_learning_item_assets_for_role,
     resolve_asset_ref_for_role,
+    store_remote_asset,
 )
 from .db import (
     get_connection,
@@ -406,26 +407,44 @@ def _replace_media_assets(
     audio_ref: str | None = None,
 ) -> None:
     if image_ref is not None:
+        source_url = None
+        if image_ref.startswith(("http://", "https://")):
+            source_url = image_ref
+            image_ref = store_remote_asset(
+                ASSET_TYPE_IMAGE,
+                image_ref,
+                filename_prefix=f"learning-item-{learning_item_id}",
+                default_extension=".jpg",
+            )
         replace_learning_item_assets_for_role(
             learning_item_id,
             PRIMARY_IMAGE_ROLE,
             assets=[
                 {
                     "asset_type": ASSET_TYPE_IMAGE,
-                    "source_url": image_ref if image_ref.startswith(("http://", "https://")) else None,
-                    "local_path": None if image_ref.startswith(("http://", "https://")) else image_ref,
+                    "source_url": source_url,
+                    "local_path": image_ref,
                 }
             ] if image_ref else [],
         )
     if audio_ref is not None:
+        source_url = None
+        if audio_ref.startswith(("http://", "https://")):
+            source_url = audio_ref
+            audio_ref = store_remote_asset(
+                ASSET_TYPE_AUDIO,
+                audio_ref,
+                filename_prefix=f"learning-item-{learning_item_id}",
+                default_extension=".bin",
+            )
         replace_learning_item_assets_for_role(
             learning_item_id,
             PRIMARY_AUDIO_ROLE,
             assets=[
                 {
                     "asset_type": ASSET_TYPE_AUDIO,
-                    "source_url": audio_ref if audio_ref.startswith(("http://", "https://")) else None,
-                    "local_path": None if audio_ref.startswith(("http://", "https://")) else audio_ref,
+                    "source_url": source_url,
+                    "local_path": audio_ref,
                 }
             ] if audio_ref else [],
         )

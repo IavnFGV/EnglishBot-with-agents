@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-01
+- Tightened media persistence so teacher-edited and workbook-imported remote image/audio references are now downloaded into local storage before runtime use, while optionally keeping the original `source_url` in the asset registry for traceability; SQLite-backed asset refs now resolve to local server paths for active content, and focused tests cover vocabulary, teacher-content, handler, and workbook-import paths.
+- Added `chain_of_commands/044-local-media-persistence.md` with the exact one-prompt brief used to recreate the local-media persistence change set for repository history.
+
 ## 2026-04-29
 - Audited the existing VPS deploy path without changing its structure: kept the test/deploy trigger behavior, confirmed the current public-repo HTTPS clone assumption, improved the server-side `.env` failure message in `.github/workflows/deploy.yml`, and expanded `docs/deploy.md` with required GitHub secrets, manual `.env` setup, verification commands, and the clear boundary that nginx/HTTPS stay in `/opt/infra`.
 - Reworked the repository navigation docs for future agent tasks: `AGENTS.md` now points agents to `docs/module-map.md`, `docs/architecture.md`, and the new concise `context/current-state.md` before any broad repository scan, and it now documents the real `englishbot/` module boundaries instead of the stale nonexistent `application/` path.

@@ -24,9 +24,10 @@
 - Training sessions with staged `easy`, `medium`, and optional `hard` exercises.
 - Centralized i18n for bot-facing text with `en`, `ru`, `uk`, and `bg`.
 - Workbook export/import for teacher workspaces through Telegram `.xlsx` files.
-- Asset registry for linked image/audio metadata.
+- Asset registry for linked image/audio metadata, with runtime media stored locally on disk even when entered as remote URLs; the original URL may still be kept in asset metadata for traceability.
 - Deployment support with Docker Compose and GitHub Actions.
 - Deploy docs now explicitly require VPS secrets, a manual server-side `.env`, and keep nginx/HTTPS ownership in `/opt/infra` while this repo deploys only `/opt/services/englishbot`.
+- `chain_of_commands/` now includes a dedicated history prompt for the local-media persistence change so that asset-storage decisions can be replayed from one concise brief.
 
 ## Data and ownership constraints
 - SQLite is the runtime source of truth.

@@ -448,15 +448,15 @@ def test_image_field_url_downloads_local_copy_and_deletes_user_message(tmp_path:
     )
     asyncio.run(get_browser_window_data(manager))
 
-    stored_paths: list[tuple[int, str]] = []
+    stored_paths: list[tuple[str, str]] = []
 
-    def fake_store_from_url(learning_item_id: int, source_url: str) -> str:
-        stored_paths.append((learning_item_id, source_url))
-        return "assets/images/teacher-content/downloaded-image.jpg"
+    def fake_store_remote_asset(asset_type: str, source_url: str, **kwargs: object) -> str:
+        stored_paths.append((asset_type, source_url))
+        return "assets/images/remote/downloaded-image.jpg"
 
     monkeypatch.setattr(
-        "englishbot.teacher_content_dialog.store_teacher_content_image_from_url",
-        fake_store_from_url,
+        "englishbot.teacher_content.store_remote_asset",
+        fake_store_remote_asset,
     )
 
     asyncio.run(open_edit_prompt(None, None, manager))
@@ -470,9 +470,9 @@ def test_image_field_url_downloads_local_copy_and_deletes_user_message(tmp_path:
         {"state": TeacherContentDialogSG.prompt, "show_mode": None},
         {"state": TeacherContentDialogSG.browser, "show_mode": ShowMode.EDIT},
     ]
-    assert stored_paths == [(manager.dialog_data["item_id"], "https://example.com/may.jpg")]
+    assert stored_paths == [("image", "https://example.com/may.jpg")]
     assert browser_view["current_item_media"] is not None
-    assert str(browser_view["current_item_media"].path) == "assets/images/teacher-content/downloaded-image.jpg"
+    assert str(browser_view["current_item_media"].path) == "assets/images/remote/downloaded-image.jpg"
     assert url_message.deleted is True
 
 

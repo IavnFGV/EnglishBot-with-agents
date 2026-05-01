@@ -18,7 +18,7 @@ from aiogram_dialog.widgets.media import DynamicMedia
 from aiogram_dialog.widgets.text import Format
 
 from .command_registry import TEACHER_CONTENT_COMMAND
-from .assets import NO_IMAGE_PLACEHOLDER_PATH, store_teacher_content_image, store_teacher_content_image_from_url
+from .assets import NO_IMAGE_PLACEHOLDER_PATH, store_teacher_content_image
 from .db import save_user
 from .i18n import translate_for_user
 from .runtime import router
@@ -473,11 +473,6 @@ async def _on_prompt_input(
         if prompt_kind == PromptKind.EDIT_FIELD:
             field_name = str(dialog_manager.dialog_data["edit_field"])
             value = message.text
-            if field_name == "image_ref" and value.startswith(("http://", "https://")):
-                value = store_teacher_content_image_from_url(
-                    int(dialog_manager.dialog_data["item_id"]),
-                    value,
-                )
             update_teacher_topic_item_field(
                 user_id,
                 int(dialog_manager.dialog_data["workspace_id"]),

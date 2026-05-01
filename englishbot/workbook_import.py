@@ -5,7 +5,6 @@ from collections import OrderedDict
 from io import BytesIO
 from urllib.error import URLError
 from urllib.parse import urlparse
-from urllib.request import urlopen
 
 from openpyxl import load_workbook
 
@@ -14,8 +13,9 @@ from .assets import (
     ASSET_TYPE_IMAGE,
     PRIMARY_AUDIO_ROLE,
     PRIMARY_IMAGE_ROLE,
+    WORKBOOK_IMPORT_ASSET_DIR,
     replace_learning_item_assets,
-    store_workbook_import_asset,
+    store_remote_asset,
 )
 from .db import create_workbook_import_backup, get_connection, utc_now
 from .workbook_export import (
@@ -526,15 +526,17 @@ def _stage_grouped_item_media(
 
 def _download_media_asset(reference: str, asset_type: str) -> str:
     try:
-        with urlopen(reference, timeout=10) as response:
-            content = response.read()
-    except (OSError, URLError) as exc:
+        return store_remote_asset(
+            asset_type,
+            reference,
+            preferred_dir=WORKBOOK_IMPORT_ASSET_DIR / asset_type,
+            filename_prefix=asset_type,
+            default_extension=".bin",
+        )
+    except (OSError, URLError, ValueError) as exc:
         raise WorkbookImportError(
             f"Workbook media download failed for '{reference}': {exc}"
         ) from exc
-    if not content:
-        raise WorkbookImportError(f"Workbook media download failed for '{reference}': empty response.")
-    return store_workbook_import_asset(asset_type, content, source_url=reference)
 
 
 def _apply_import_plan(

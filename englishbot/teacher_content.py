@@ -1,11 +1,13 @@
 import math
 import re
+from pathlib import Path
 
 from .assets import (
     ASSET_TYPE_AUDIO,
     ASSET_TYPE_IMAGE,
     PRIMARY_AUDIO_ROLE,
     PRIMARY_IMAGE_ROLE,
+    store_remote_asset,
     replace_learning_item_assets_for_role,
     resolve_asset_ref_for_role,
 )
@@ -313,27 +315,47 @@ def update_teacher_topic_item_field(
         )
         return
     if field_name == "image_ref":
+        source_url = None
+        if normalized_value.startswith(("http://", "https://")):
+            source_url = normalized_value
+            normalized_value = store_remote_asset(
+                ASSET_TYPE_IMAGE,
+                normalized_value,
+                preferred_dir=Path("assets/images/remote"),
+                filename_prefix=f"learning-item-{learning_item_id}",
+                default_extension=".jpg",
+            )
         replace_learning_item_assets_for_role(
             learning_item_id,
             PRIMARY_IMAGE_ROLE,
             assets=[
                 {
                     "asset_type": ASSET_TYPE_IMAGE,
-                    "source_url": normalized_value if normalized_value.startswith(("http://", "https://")) else None,
-                    "local_path": None if normalized_value.startswith(("http://", "https://")) else normalized_value,
+                    "source_url": source_url,
+                    "local_path": normalized_value,
                 }
             ] if normalized_value else [],
         )
         return
     if field_name == "audio_ref":
+        source_url = None
+        if normalized_value.startswith(("http://", "https://")):
+            source_url = normalized_value
+            normalized_value = store_remote_asset(
+                ASSET_TYPE_AUDIO,
+                normalized_value,
+                preferred_dir=Path("assets/audio/remote"),
+                filename_prefix=f"learning-item-{learning_item_id}",
+                default_extension=".bin",
+            )
         replace_learning_item_assets_for_role(
             learning_item_id,
             PRIMARY_AUDIO_ROLE,
             assets=[
                 {
                     "asset_type": ASSET_TYPE_AUDIO,
-                    "source_url": normalized_value if normalized_value.startswith(("http://", "https://")) else None,
-                    "local_path": None if normalized_value.startswith(("http://", "https://")) else normalized_value,
+                    "source_url": source_url,
+                    "local_path": normalized_value,
                 }
             ] if normalized_value else [],
         )

@@ -25,6 +25,13 @@ SUPPORTED_ASSET_TYPES = {
     ASSET_TYPE_VIDEO,
 }
 
+REMOTE_ASSET_SUBDIR_BY_TYPE = {
+    ASSET_TYPE_IMAGE: Path("assets/images/remote"),
+    ASSET_TYPE_AUDIO: Path("assets/audio/remote"),
+    ASSET_TYPE_VOICE: Path("assets/voice/remote"),
+    ASSET_TYPE_VIDEO: Path("assets/video/remote"),
+}
+
 
 def create_asset(
     asset_type: str,
@@ -376,19 +383,44 @@ def store_teacher_content_image_from_url(
     learning_item_id: int,
     source_url: str,
 ) -> str:
+    return store_remote_asset(
+        ASSET_TYPE_IMAGE,
+        source_url,
+        preferred_dir=TEACHER_CONTENT_IMAGE_DIR,
+        filename_prefix=f"learning-item-{int(learning_item_id)}",
+        default_extension=".jpg",
+    )
+
+
+def store_remote_asset(
+    asset_type: str,
+    source_url: str,
+    *,
+    preferred_dir: Path | None = None,
+    filename_prefix: str | None = None,
+    default_extension: str = ".bin",
+) -> str:
+    if asset_type not in SUPPORTED_ASSET_TYPES:
+        raise ValueError("unsupported asset_type")
     parsed_url = urlparse(source_url)
     if parsed_url.scheme not in {"http", "https"}:
-        raise ValueError("image url must be http or https")
+        raise ValueError(f"{asset_type} url must be http or https")
 
     with urlopen(source_url, timeout=15) as response:
         content = response.read()
+    if not content:
+        raise ValueError(f"{asset_type} content is required")
 
-    extension = Path(parsed_url.path).suffix.lower() or ".jpg"
-    return store_teacher_content_image(
-        learning_item_id,
-        content,
-        extension=extension,
-    )
+    suffix = Path(parsed_url.path).suffix.lower() or default_extension
+    relative_dir = preferred_dir or REMOTE_ASSET_SUBDIR_BY_TYPE[asset_type]
+    asset_dir = Path(db.DB_PATH).resolve().parent / relative_dir
+    asset_dir.mkdir(parents=True, exist_ok=True)
+
+    base_prefix = (filename_prefix or asset_type).strip() or asset_type
+    filename = f"{base_prefix}-{uuid4().hex}{suffix}"
+    output_path = asset_dir / filename
+    output_path.write_bytes(content)
+    return str((relative_dir / filename).as_posix())
 
 
 def store_workbook_import_asset(

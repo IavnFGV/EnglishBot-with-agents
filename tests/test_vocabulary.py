@@ -234,6 +234,47 @@ def test_get_learning_item_with_translations_returns_assets_slice(tmp_path: Path
     assert [translation["language_code"] for translation in content["translations"]] == ["de", "uk"]
 
 
+def test_create_learning_item_downloads_remote_media_and_keeps_source_urls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_db(tmp_path)
+    lexeme_id = create_lexeme("plane")
+    stored_calls: list[tuple[str, str]] = []
+
+    def fake_store_remote_asset(asset_type: str, source_url: str, **kwargs: object) -> str:
+        stored_calls.append((asset_type, source_url))
+        if asset_type == "image":
+            return "assets/images/remote/plane.jpg"
+        return "assets/audio/remote/plane.mp3"
+
+    monkeypatch.setattr("englishbot.vocabulary.store_remote_asset", fake_store_remote_asset)
+
+    learning_item_id = create_learning_item(
+        lexeme_id,
+        "plane",
+        image_ref="https://example.com/plane.jpg",
+        audio_ref="https://example.com/plane.mp3",
+    )
+
+    learning_item = get_learning_item(learning_item_id)
+
+    assert stored_calls == [
+        ("image", "https://example.com/plane.jpg"),
+        ("audio", "https://example.com/plane.mp3"),
+    ]
+    assert learning_item is not None
+    assert learning_item["image_ref"] == "assets/images/remote/plane.jpg"
+    assert learning_item["audio_ref"] == "assets/audio/remote/plane.mp3"
+    assert [
+        (asset["asset_type"], asset["source_url"], asset["local_path"], asset["role"])
+        for asset in learning_item["assets"]
+    ] == [
+        ("image", "https://example.com/plane.jpg", "assets/images/remote/plane.jpg", "primary_image"),
+        ("audio", "https://example.com/plane.mp3", "assets/audio/remote/plane.mp3", "primary_audio"),
+    ]
+
+
 def test_only_teacher_members_of_teacher_workspaces_can_edit_items(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher_workspace = create_workspace("Authoring", kind="teacher")
