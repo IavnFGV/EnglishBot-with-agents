@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-05-26
+- Simplified teacher-student access modeling before production hardening: removed the separate `teacher_student_links` schema and now treat `student` workspace membership as the only teacher-student grouping source of truth, while keeping invite/join onboarding, topic grants, and homework assignment flows working on top of the shared student workspace model.
+- Updated the focused access, homework, topic-access, teacher-handler, and assignment-dialog tests plus the architecture/module-map/current-state docs so the repository no longer documents or asserts the old one-teacher-per-student link behavior.
+- Added `chain_of_commands/045-student-workspace-access-model.md` with the exact one-prompt brief that reproduces the student-workspace access-model refactor from a clean request.
+
 ## 2026-05-01
 - Tightened media persistence so teacher-edited and workbook-imported remote image/audio references are now downloaded into local storage before runtime use, while optionally keeping the original `source_url` in the asset registry for traceability; SQLite-backed asset refs now resolve to local server paths for active content, and focused tests cover vocabulary, teacher-content, handler, and workbook-import paths.
 - Added `chain_of_commands/044-local-media-persistence.md` with the exact one-prompt brief used to recreate the local-media persistence change set for repository history.

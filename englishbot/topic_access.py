@@ -1,7 +1,6 @@
 import sqlite3
 
 from .db import get_connection, utc_now
-from .teacher_student import ROLE_TEACHER
 from .topics import (
     find_topic_by_name_for_teacher_workspace,
     get_topic,
@@ -11,6 +10,7 @@ from .topics import (
 from .training import create_training_session_for_learning_items
 from .user_profiles import get_user_role
 from .workspaces import (
+    ROLE_TEACHER,
     WORKSPACE_KIND_STUDENT,
     WorkspaceEditPermissionError,
     find_shared_workspace_for_teacher_and_student,

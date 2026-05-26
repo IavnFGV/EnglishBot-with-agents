@@ -25,7 +25,6 @@ from .runtime import router
 from .teacher_student import (
     InviteAlreadyUsedError,
     InviteNotFoundError,
-    StudentAlreadyLinkedError,
     TeacherRoleRequiredError,
     create_invite,
     join_with_invite,
@@ -102,11 +101,6 @@ async def join(message: Message, command: CommandObject | None = None) -> None:
         return
     except InviteAlreadyUsedError:
         await message.answer(translate_for_user(message.from_user.id, "teacher.join.used"))
-        return
-    except StudentAlreadyLinkedError:
-        await message.answer(
-            translate_for_user(message.from_user.id, "teacher.join.already_linked")
-        )
         return
 
     await message.answer(

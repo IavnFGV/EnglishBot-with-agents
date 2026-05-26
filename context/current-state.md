@@ -28,12 +28,14 @@
 - Deployment support with Docker Compose and GitHub Actions.
 - Deploy docs now explicitly require VPS secrets, a manual server-side `.env`, and keep nginx/HTTPS ownership in `/opt/infra` while this repo deploys only `/opt/services/englishbot`.
 - `chain_of_commands/` now includes a dedicated history prompt for the local-media persistence change so that asset-storage decisions can be replayed from one concise brief.
+- `chain_of_commands/` also includes a dedicated history prompt for the student-workspace access-model cleanup so the teacher-student refactor can be replayed from one concise brief.
 
 ## Data and ownership constraints
 - SQLite is the runtime source of truth.
 - Core learning unit is `learning_item`, not plain word.
 - `lexemes` stay global; `learning_items`, `topics`, and assets are workspace-scoped through ownership or links.
 - Teacher content is authored in teacher workspaces and published into student workspaces for runtime learning.
+- Teacher-student grouping now lives in `workspace_members` on `student` workspaces; there is no separate teacher-student link table.
 - Assignments and training sessions are snapshot-oriented; live teacher edits must not rewrite in-flight learner state.
 - `workspace_members` is the access source of truth for runtime visibility.
 

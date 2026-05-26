@@ -3,7 +3,9 @@ import sqlite3
 
 from .db import get_connection, get_default_content_workspace_id, get_user, utc_now
 from .user_profiles import get_user_role
-from .workspaces import ROLE_STUDENT, ROLE_TEACHER, add_workspace_member, get_or_create_student_workspace
+from .workspaces import ROLE_TEACHER, add_workspace_member, get_or_create_student_workspace
+
+
 class TeacherStudentError(Exception):
     pass
 
@@ -17,10 +19,6 @@ class InviteNotFoundError(TeacherStudentError):
 
 
 class InviteAlreadyUsedError(TeacherStudentError):
-    pass
-
-
-class StudentAlreadyLinkedError(TeacherStudentError):
     pass
 
 
@@ -57,29 +55,7 @@ def join_with_invite(student_user_id: int, code: str) -> int:
         if invite["used_at"] is not None:
             raise InviteAlreadyUsedError
 
-        existing_link = connection.execute(
-            """
-            SELECT teacher_user_id
-            FROM teacher_student_links
-            WHERE student_user_id = ?
-            """,
-            (student_user_id,),
-        ).fetchone()
-        if existing_link is not None:
-            raise StudentAlreadyLinkedError
-
         timestamp = utc_now()
-        connection.execute(
-            """
-            INSERT INTO teacher_student_links (
-                teacher_user_id,
-                student_user_id,
-                created_at
-            )
-            VALUES (?, ?, ?)
-            """,
-            (invite["teacher_user_id"], student_user_id, timestamp),
-        )
         connection.execute(
             """
             UPDATE invites
@@ -94,18 +70,6 @@ def join_with_invite(student_user_id: int, code: str) -> int:
     add_workspace_member(default_teacher_workspace_id, teacher_user_id, ROLE_TEACHER)
     get_or_create_student_workspace(teacher_user_id, student_user_id)
     return int(invite["teacher_user_id"])
-
-
-def get_teacher_link(student_user_id: int) -> sqlite3.Row | None:
-    with get_connection() as connection:
-        return connection.execute(
-            """
-            SELECT teacher_user_id, student_user_id, created_at
-            FROM teacher_student_links
-            WHERE student_user_id = ?
-            """,
-            (student_user_id,),
-        ).fetchone()
 
 
 def get_invite(code: str) -> sqlite3.Row | None:

@@ -1,6 +1,6 @@
 import sqlite3
 
-from .db import get_connection, get_user
+from .db import get_user
 from .homework import (
     ASSIGNMENT_KIND_HOMEWORK,
     ASSIGNMENT_MODE_STAGED_DEFAULT,
@@ -22,6 +22,7 @@ from .workspaces import (
     WorkspaceNotFoundError,
     ensure_teacher_can_edit_workspace_content,
     find_shared_workspace_for_teacher_and_student,
+    list_student_workspace_students_for_teacher,
 )
 
 
@@ -134,19 +135,8 @@ def build_word_selection_snapshot(
 
 
 def list_assignment_recipients(teacher_user_id: int) -> list[dict[str, object]]:
-    with get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT student_user_id, created_at
-            FROM teacher_student_links
-            WHERE teacher_user_id = ?
-            ORDER BY student_user_id
-            """,
-            (teacher_user_id,),
-        ).fetchall()
-
     recipients: list[dict[str, object]] = []
-    for row in rows:
+    for row in list_student_workspace_students_for_teacher(teacher_user_id):
         student_user_id = int(row["student_user_id"])
         shared_workspace = find_shared_workspace_for_teacher_and_student(
             teacher_user_id,

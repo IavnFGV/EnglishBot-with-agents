@@ -10,11 +10,9 @@ from englishbot import db
 from englishbot.teacher_student import (
     InviteAlreadyUsedError,
     InviteNotFoundError,
-    StudentAlreadyLinkedError,
     TeacherRoleRequiredError,
     create_invite,
     get_invite,
-    get_teacher_link,
     join_with_invite,
 )
 from englishbot.user_profiles import get_user_role, set_user_role
@@ -71,7 +69,6 @@ def test_join_with_invite_creates_link_and_student_workspace(tmp_path: Path) -> 
     teacher_user_id = join_with_invite(student.id, code.lower())
 
     invite = get_invite(code)
-    link = get_teacher_link(student.id)
     student_role = get_user_role(student.id)
     teacher_workspace_id = db.get_default_content_workspace_id()
     student_workspace = find_shared_workspace_for_teacher_and_student(
@@ -84,8 +81,6 @@ def test_join_with_invite_creates_link_and_student_workspace(tmp_path: Path) -> 
     assert invite is not None
     assert invite["used_by_user_id"] == student.id
     assert invite["used_at"] is not None
-    assert link is not None
-    assert link["teacher_user_id"] == teacher.id
     assert student_role == "student"
     assert get_workspace_member(teacher_workspace_id, teacher.id)["role"] == "teacher"
     assert student_workspace is not None
@@ -115,7 +110,7 @@ def test_join_with_invite_rejects_missing_or_used_codes(tmp_path: Path) -> None:
         join_with_invite(other_student.id, code)
 
 
-def test_join_with_invite_rejects_student_already_linked(tmp_path: Path) -> None:
+def test_join_with_invite_allows_student_to_join_multiple_teachers(tmp_path: Path) -> None:
     setup_db(tmp_path)
     first_teacher = make_user(108, "TeacherA")
     second_teacher = make_user(109, "TeacherB")
@@ -129,9 +124,25 @@ def test_join_with_invite_rejects_student_already_linked(tmp_path: Path) -> None
     first_code = create_invite(first_teacher.id)
     second_code = create_invite(second_teacher.id)
     join_with_invite(student.id, first_code)
+    second_teacher_user_id = join_with_invite(student.id, second_code)
 
-    with pytest.raises(StudentAlreadyLinkedError):
-        join_with_invite(student.id, second_code)
+    first_workspace = find_shared_workspace_for_teacher_and_student(
+        first_teacher.id,
+        student.id,
+        kind=WORKSPACE_KIND_STUDENT,
+    )
+    second_workspace = find_shared_workspace_for_teacher_and_student(
+        second_teacher.id,
+        student.id,
+        kind=WORKSPACE_KIND_STUDENT,
+    )
+
+    assert second_teacher_user_id == second_teacher.id
+    assert first_workspace is not None
+    assert second_workspace is not None
+    assert first_workspace["id"] != second_workspace["id"]
+    assert get_workspace_member(int(second_workspace["id"]), second_teacher.id)["role"] == "teacher"
+    assert get_workspace_member(int(second_workspace["id"]), student.id)["role"] == "student"
 
 
 def test_join_with_invite_allows_teacher_to_join_own_invite_without_losing_role(
@@ -146,7 +157,6 @@ def test_join_with_invite_allows_teacher_to_join_own_invite_without_losing_role(
     teacher_user_id = join_with_invite(teacher.id, code)
 
     invite = get_invite(code)
-    link = get_teacher_link(teacher.id)
     teacher_role = get_user_role(teacher.id)
     teacher_workspace_id = db.get_default_content_workspace_id()
     teacher_workspace = db.get_connection().execute(
@@ -157,9 +167,6 @@ def test_join_with_invite_allows_teacher_to_join_own_invite_without_losing_role(
     assert invite is not None
     assert invite["used_by_user_id"] == teacher.id
     assert invite["used_at"] is not None
-    assert link is not None
-    assert link["teacher_user_id"] == teacher.id
-    assert link["student_user_id"] == teacher.id
     assert teacher_role == "teacher"
     assert get_workspace_member(teacher_workspace_id, teacher.id)["role"] == "teacher"
     assert teacher_workspace is not None

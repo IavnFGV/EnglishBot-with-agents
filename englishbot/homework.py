@@ -1,7 +1,6 @@
 import sqlite3
 
 from .db import get_connection, utc_now
-from .teacher_student import ROLE_TEACHER
 from .topics import find_topic_by_name_for_teacher_workspace, publish_topic_to_workspace
 from .training import (
     HARD_STAGE,
@@ -16,6 +15,7 @@ from .training import (
 from .user_profiles import get_user_role
 from .vocabulary import get_learning_item, publish_learning_item_to_workspace
 from .workspaces import (
+    ROLE_TEACHER,
     WORKSPACE_KIND_STUDENT,
     WORKSPACE_KIND_TEACHER,
     WorkspaceEditPermissionError,

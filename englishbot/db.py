@@ -554,21 +554,7 @@ def init_db() -> None:
         )
         connection.execute(
             """
-            CREATE TABLE IF NOT EXISTS teacher_student_links (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                teacher_user_id INTEGER NOT NULL,
-                student_user_id INTEGER NOT NULL UNIQUE,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (teacher_user_id) REFERENCES users (telegram_user_id),
-                FOREIGN KEY (student_user_id) REFERENCES users (telegram_user_id),
-                UNIQUE (teacher_user_id, student_user_id)
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_teacher_student_links_teacher_user_id
-            ON teacher_student_links (teacher_user_id)
+            DROP TABLE IF EXISTS teacher_student_links
             """
         )
         connection.execute(

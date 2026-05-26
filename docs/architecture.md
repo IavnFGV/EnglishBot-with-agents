@@ -28,11 +28,11 @@
 - `learning_items` are the main learning units and belong to workspaces.
 - `topics` group workspace-owned learning items.
 - `assets` plus `learning_item_assets` store media metadata.
-- `workspaces` and `workspace_members` define ownership and runtime access.
+- `workspaces` and `workspace_members` define ownership, teacher-student grouping, and runtime access.
 - Student-facing runtime content is published into student workspaces rather than read live from teacher workspaces.
 
 ## Major flows
-- Teacher onboarding: `/invite` creates one-time codes; `/join` binds a learner and ensures the shared student workspace exists.
+- Teacher onboarding: `/invite` creates one-time codes; `/join` ensures a shared student workspace exists between the teacher and the joining learner.
 - Teacher authoring: `/teacher_content` edits teacher workspaces, topics, items, translations, and linked assets through aiogram-dialog.
 - Assignment creation: direct `/assign` and dialog-based `/create_assignment` both end in persisted homework assignments.
 - Topic access: `/granttopic` publishes a teacher topic into the shared student workspace and grants access; learners open it with `/topics`.

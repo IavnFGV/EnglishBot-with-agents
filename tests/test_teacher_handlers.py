@@ -14,7 +14,7 @@ from englishbot.teacher_handlers import (
     invite,
     join,
 )
-from englishbot.teacher_student import get_invite, get_teacher_link
+from englishbot.teacher_student import get_invite
 from englishbot.user_profiles import get_user_role, set_user_role
 from englishbot.vocabulary import (
     create_learning_item,
@@ -111,9 +111,6 @@ def test_join_handler_joins_student_to_teacher(tmp_path: Path) -> None:
     asyncio.run(join(student_message, SimpleNamespace(args=code)))
 
     assert student_message.answers == [f"Join completed. teacher_user_id: {teacher.id}"]
-    link = get_teacher_link(student.id)
-    assert link is not None
-    assert link["teacher_user_id"] == teacher.id
 
 
 def test_join_handler_rejects_used_or_invalid_invites(tmp_path: Path) -> None:
@@ -140,7 +137,7 @@ def test_join_handler_rejects_used_or_invalid_invites(tmp_path: Path) -> None:
     assert second_join_message.answers == ["This invite has already been used."]
 
 
-def test_join_handler_rejects_already_linked_student(tmp_path: Path) -> None:
+def test_join_handler_allows_student_to_join_multiple_teachers(tmp_path: Path) -> None:
     setup_db(tmp_path)
     first_teacher = make_user(209, "TeacherA")
     second_teacher = make_user(210, "TeacherB")
@@ -166,7 +163,9 @@ def test_join_handler_rejects_already_linked_student(tmp_path: Path) -> None:
 
     second_join_message = FakeMessage(student)
     asyncio.run(join(second_join_message, SimpleNamespace(args=second_code)))
-    assert second_join_message.answers == ["This student is already linked to a teacher."]
+    assert second_join_message.answers == [
+        f"Join completed. teacher_user_id: {second_teacher.id}"
+    ]
 
 
 def test_join_handler_allows_teacher_to_join_own_invite_for_testing(tmp_path: Path) -> None:
@@ -183,11 +182,7 @@ def test_join_handler_allows_teacher_to_join_own_invite_for_testing(tmp_path: Pa
     asyncio.run(join(join_message, SimpleNamespace(args=code)))
 
     teacher_role = get_user_role(teacher.id)
-    link = get_teacher_link(teacher.id)
     assert join_message.answers == [f"Join completed. teacher_user_id: {teacher.id}"]
-    assert link is not None
-    assert link["teacher_user_id"] == teacher.id
-    assert link["student_user_id"] == teacher.id
     assert teacher_role == "teacher"
 
 

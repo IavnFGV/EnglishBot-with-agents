@@ -200,18 +200,18 @@ def user_is_workspace_member(
     return str(membership["role"]) == _normalize_workspace_role(role)
 
 
-def find_shared_workspace_for_teacher_and_student(
+def list_shared_workspaces_for_teacher_and_student(
     teacher_user_id: int,
     student_user_id: int,
     kind: str | None = None,
-) -> sqlite3.Row | None:
+) -> list[sqlite3.Row]:
     parameters: list[object] = [teacher_user_id, ROLE_TEACHER, student_user_id]
     kind_filter = ""
     if kind is not None:
         kind_filter = "AND workspaces.kind = ?"
         parameters.append(_normalize_workspace_kind(kind))
     with get_connection() as connection:
-        rows = connection.execute(
+        return connection.execute(
             f"""
             SELECT
                 workspaces.id,
@@ -231,22 +231,60 @@ def find_shared_workspace_for_teacher_and_student(
             """,
             tuple(parameters),
         ).fetchall()
+
+
+def find_shared_workspace_for_teacher_and_student(
+    teacher_user_id: int,
+    student_user_id: int,
+    kind: str | None = None,
+) -> sqlite3.Row | None:
+    rows = list_shared_workspaces_for_teacher_and_student(
+        teacher_user_id,
+        student_user_id,
+        kind=kind,
+    )
     if len(rows) != 1:
         return None
     return rows[0]
+
+
+def list_student_workspace_students_for_teacher(teacher_user_id: int) -> list[sqlite3.Row]:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT DISTINCT
+                student_membership.telegram_user_id AS student_user_id
+            FROM workspace_members AS teacher_membership
+            JOIN workspaces
+              ON workspaces.id = teacher_membership.workspace_id
+            JOIN workspace_members AS student_membership
+              ON student_membership.workspace_id = teacher_membership.workspace_id
+            WHERE teacher_membership.telegram_user_id = ?
+              AND teacher_membership.role = ?
+              AND workspaces.kind = ?
+              AND student_membership.role = ?
+            ORDER BY student_membership.telegram_user_id
+            """,
+            (
+                teacher_user_id,
+                ROLE_TEACHER,
+                WORKSPACE_KIND_STUDENT,
+                ROLE_STUDENT,
+            ),
+        ).fetchall()
 
 
 def get_or_create_student_workspace(
     teacher_user_id: int,
     student_user_id: int,
 ) -> sqlite3.Row:
-    workspace = find_shared_workspace_for_teacher_and_student(
+    shared_workspaces = list_shared_workspaces_for_teacher_and_student(
         teacher_user_id,
         student_user_id,
         kind=WORKSPACE_KIND_STUDENT,
     )
-    if workspace is not None:
-        return workspace
+    if len(shared_workspaces) >= 1:
+        return shared_workspaces[0]
 
     created = create_workspace(
         name=f"Student Workspace {teacher_user_id}-{student_user_id}",
