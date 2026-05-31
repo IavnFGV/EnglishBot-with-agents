@@ -140,7 +140,7 @@ def _list_learning_item_rows(
                 translations,
                 "" if default_workspace else default_workspace,
                 None,
-                resolve_asset_ref_for_role(learning_item_id, PRIMARY_IMAGE_ROLE),
+                _get_image_reference(connection, learning_item_id),
                 resolve_asset_ref_for_role(learning_item_id, IMAGE_PREVIEW_ROLE),
                 _get_audio_reference(connection, learning_item_id),
                 _get_audio_voice(connection, learning_item_id),
@@ -198,6 +198,17 @@ def _get_audio_reference(connection, learning_item_id: int) -> str | None:
         PRIMARY_AUDIO_ROLE,
         asset_type=ASSET_TYPE_AUDIO,
     )
+
+
+def _get_image_reference(connection, learning_item_id: int) -> str | None:
+    for asset_row in list_learning_item_assets(learning_item_id, connection=connection):
+        if str(asset_row["role"]) != PRIMARY_IMAGE_ROLE:
+            continue
+        if asset_row["source_url"] is not None:
+            return str(asset_row["source_url"])
+        if asset_row["local_path"] is not None:
+            return str(asset_row["local_path"])
+    return resolve_asset_ref_for_role(learning_item_id, PRIMARY_IMAGE_ROLE)
 
 
 def _get_audio_voice(connection, learning_item_id: int) -> str | None:

@@ -2,6 +2,7 @@ import sys
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from openpyxl import load_workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -38,8 +39,15 @@ def load_exported_workbook(payload: bytes):
     return load_workbook(filename=BytesIO(payload))
 
 
-def test_export_uses_canonical_two_sheet_workbook(tmp_path: Path) -> None:
+def test_export_uses_canonical_two_sheet_workbook(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     teacher_user_id, workspace_id = setup_db(tmp_path)
+    monkeypatch.setattr(
+        "englishbot.vocabulary.store_remote_asset",
+        lambda asset_type, source_url, **kwargs: "assets/images/remote/run-fast.png",
+    )
     learning_item_id = create_learning_item_for_teacher_workspace(
         teacher_user_id,
         workspace_id,

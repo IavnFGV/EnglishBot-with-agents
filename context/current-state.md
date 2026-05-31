@@ -64,6 +64,7 @@
 ## Test and validation shape
 - Main test command is `python -m pytest`.
 - Coverage is focused by module, especially for bootstrap, command registry, i18n, training, homework, topic access, teacher content, workbook flows, logging, and status server behavior.
+- Workbook export preserves canonical remote `image_url` and `audio_url` values even when runtime media has already been downloaded into local storage; export tests now stub remote-media persistence when they only need asset metadata, while dedicated vocabulary/workbook-import tests still cover the actual remote-download path.
 - Tests are the best proof of current behavior when docs and older prompts disagree.
 
 ## Immediate next work areas supported by repo state

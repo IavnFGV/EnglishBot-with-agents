@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-31
+- Fixed workbook export to keep canonical remote media URLs in the `image_url` column when a primary image asset has both `source_url` and downloaded local storage, matching the existing `audio_url` behavior and the workbook import/export contract.
+- Stabilized `tests/test_workbook_export.py` in CI by stubbing the remote image download used during teacher-workspace item creation, so the export workbook assertion no longer depends on `example.com` returning a real file while the production behavior of downloading remote media remains covered in dedicated vocabulary/import tests.
+
 ## 2026-05-26
 - Added a temporary `/admin` bootstrap facade for small family/team setups: one env-configured Telegram admin can now list registered users, grant or revoke the global teacher role, ensure each user's default personal teacher/student workspaces, and link people into a shared family student workspace without removing the existing invite/join flow or changing the underlying workspace/publish/assignment model.
 - Added focused admin-access tests covering hardcoded admin gating, idempotent default-space bootstrap, teacher-role promotion that preserves student runtime membership, and the no-invite path that prepares memberships for assignment and topic-grant flows.
