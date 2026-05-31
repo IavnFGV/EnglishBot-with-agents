@@ -17,6 +17,7 @@
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
 - Teacher/student onboarding with `/invite` and `/join`.
 - Temporary admin bootstrap facade with `/admin` for one env-configured super-admin who can prepare family/team memberships without mandatory invite/join.
+- The `/admin` screen now tolerates repeated button presses that produce the same text and keyboard, instead of surfacing Telegram's `message is not modified` error in logs.
 - Workspace-based content ownership with `teacher` and `student` workspaces.
 - Teacher content editing through `/teacher_content` dialog flows.
 - Homework assignments from explicit item ids or teacher topics.

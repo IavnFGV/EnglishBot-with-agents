@@ -2,6 +2,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import EditMessageText
 from aiogram.types import User
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -40,6 +42,14 @@ class FakeMessage:
     async def answer(self, text: str, **kwargs: object) -> None:
         self.answers.append(text)
         self.answer_kwargs.append(kwargs)
+
+
+class FakeEditableMessage:
+    async def edit_text(self, text: str, **kwargs: object) -> None:
+        raise TelegramBadRequest(
+            method=EditMessageText(text=text, chat_id=1, message_id=1, reply_markup=kwargs.get("reply_markup")),
+            message="Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message",
+        )
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -182,3 +192,19 @@ def test_admin_bootstrap_supports_assign_and_grant_without_invite_join(tmp_path:
     assert shared_workspace is not None
     assert shared_workspace["id"] == family_workspace["workspace_id"]
     assert [topic["name"] for topic in list_accessible_topics(student.id)] == ["family-pack"]
+
+
+def test_admin_screen_edit_ignores_message_not_modified() -> None:
+    from englishbot.admin_handlers import _edit_admin_screen
+
+    class FakeCallback:
+        def __init__(self) -> None:
+            self.message = FakeEditableMessage()
+
+    asyncio.run(
+        _edit_admin_screen(
+            FakeCallback(),
+            "same text",
+            reply_markup=None,
+        )
+    )

@@ -1,4 +1,5 @@
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from .admin_access import (
@@ -219,7 +220,11 @@ async def _edit_admin_screen(
 ) -> None:
     if callback.message is None:
         return
-    await callback.message.edit_text(text, reply_markup=reply_markup)
+    try:
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+    except TelegramBadRequest as error:
+        if "message is not modified" not in str(error):
+            raise
 
 
 @router.message(Command(ADMIN_COMMAND.name))
