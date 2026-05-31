@@ -20,8 +20,8 @@ services:
       ENGLISHBOT_DB_PATH: /app/data/englishbot.sqlite3
       ENGLISHBOT_LOG_DIR: /app/logs
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - /srv/services/englishbot/data:/app/data
+      - /srv/services/englishbot/logs:/app/logs
     expose:
       - "8080"
     networks:

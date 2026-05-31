@@ -49,10 +49,11 @@ jobs:
             set -euo pipefail
 
             SERVICE_NAME="englishbot"
-            SERVICE_DIR="/opt/services/${SERVICE_NAME}"
+            STACKS_DIR="/opt/dockge/stacks"
+            SERVICE_DIR="${STACKS_DIR}/${SERVICE_NAME}"
             REPO_URL="https://github.com/${{ github.repository }}.git"
 
-            mkdir -p /opt/services
+            mkdir -p "${STACKS_DIR}"
 
             if [ ! -d "${SERVICE_DIR}/.git" ]; then
               rm -rf "${SERVICE_DIR}"
@@ -69,7 +70,10 @@ jobs:
               exit 1
             fi
 
-            mkdir -p data logs
+            mkdir -p /srv/services/${SERVICE_NAME}/data
+            mkdir -p /srv/services/${SERVICE_NAME}/logs
+            chown -R "${USER}:${USER}" /srv/services/${SERVICE_NAME} || true
+            chown -R "${USER}:${USER}" "${SERVICE_DIR}" || true
 
             export ENGLISHBOT_VERSION="main-${{ github.run_number }}"
             export ENGLISHBOT_GIT_COMMIT="${{ github.sha }}"
