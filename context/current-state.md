@@ -16,6 +16,7 @@
 ## Implemented product slices
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
 - Teacher/student onboarding with `/invite` and `/join`.
+- Temporary admin bootstrap facade with `/admin` for one env-configured super-admin who can prepare family/team memberships without mandatory invite/join.
 - Workspace-based content ownership with `teacher` and `student` workspaces.
 - Teacher content editing through `/teacher_content` dialog flows.
 - Homework assignments from explicit item ids or teacher topics.
@@ -29,6 +30,7 @@
 - Deploy docs now explicitly require VPS secrets, a manual server-side `.env`, and keep nginx/HTTPS ownership in `/opt/infra` while this repo deploys only `/opt/services/englishbot`.
 - `chain_of_commands/` now includes a dedicated history prompt for the local-media persistence change so that asset-storage decisions can be replayed from one concise brief.
 - `chain_of_commands/` also includes a dedicated history prompt for the student-workspace access-model cleanup so the teacher-student refactor can be replayed from one concise brief.
+- `chain_of_commands/` also includes a dedicated history prompt for building a temporary admin/UI bootstrap facade over the current workspace model, aimed at a small family/team setup without mandatory invite/join onboarding.
 
 ## Data and ownership constraints
 - SQLite is the runtime source of truth.
@@ -36,6 +38,7 @@
 - `lexemes` stay global; `learning_items`, `topics`, and assets are workspace-scoped through ownership or links.
 - Teacher content is authored in teacher workspaces and published into student workspaces for runtime learning.
 - Teacher-student grouping now lives in `workspace_members` on `student` workspaces; there is no separate teacher-student link table.
+- The admin facade is only a bootstrap layer over the same `workspace_members` model: it does not replace invite/join, publish, or assignment rules.
 - Assignments and training sessions are snapshot-oriented; live teacher edits must not rewrite in-flight learner state.
 - `workspace_members` is the access source of truth for runtime visibility.
 
@@ -53,6 +56,7 @@
 - No hard delete lifecycle for learning content.
 - No Google Sheets integration; workbook flow is local `.xlsx` only.
 - No deep-link driven navigation.
+- The admin facade currently trusts one `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID` and is intended only as a temporary small-scale bootstrap path, not a production role system.
 - No advanced learner statistics beyond current session and assignment progress.
 - No dedicated persisted exercise-instance table; exercises are rebuilt from session state.
 - Some learner and topic selection flows still use inline button lists, so treat Telegram UI constraints in `AGENTS.md` as the direction for future cleanup rather than a claim that every legacy screen is already ideal.

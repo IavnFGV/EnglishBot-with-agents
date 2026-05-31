@@ -1,9 +1,12 @@
 # Changelog
 
 ## 2026-05-26
+- Added a temporary `/admin` bootstrap facade for small family/team setups: one env-configured Telegram admin can now list registered users, grant or revoke the global teacher role, ensure each user's default personal teacher/student workspaces, and link people into a shared family student workspace without removing the existing invite/join flow or changing the underlying workspace/publish/assignment model.
+- Added focused admin-access tests covering hardcoded admin gating, idempotent default-space bootstrap, teacher-role promotion that preserves student runtime membership, and the no-invite path that prepares memberships for assignment and topic-grant flows.
 - Simplified teacher-student access modeling before production hardening: removed the separate `teacher_student_links` schema and now treat `student` workspace membership as the only teacher-student grouping source of truth, while keeping invite/join onboarding, topic grants, and homework assignment flows working on top of the shared student workspace model.
 - Updated the focused access, homework, topic-access, teacher-handler, and assignment-dialog tests plus the architecture/module-map/current-state docs so the repository no longer documents or asserts the old one-teacher-per-student link behavior.
 - Added `chain_of_commands/045-student-workspace-access-model.md` with the exact one-prompt brief that reproduces the student-workspace access-model refactor from a clean request.
+- Added `chain_of_commands/046-admin-ui-facade-bootstrap.md` with a one-prompt brief for building a temporary admin/bootstrap UI facade over the current workspace model, optimized for a small family/team setup without mandatory invite/join.
 
 ## 2026-05-01
 - Tightened media persistence so teacher-edited and workbook-imported remote image/audio references are now downloaded into local storage before runtime use, while optionally keeping the original `source_url` in the asset registry for traceability; SQLite-backed asset refs now resolve to local server paths for active content, and focused tests cover vocabulary, teacher-content, handler, and workbook-import paths.

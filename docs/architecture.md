@@ -16,6 +16,7 @@
 - Runtime wiring: `bootstrap.py`, `runtime.py`, `bot.py`, `command_registry.py`
 - Persistence: `db.py`
 - User/i18n: `user_profiles.py`, `i18n.py`, `settings_handlers.py`
+- Admin bootstrap facade: `admin_access.py`, `admin_handlers.py`
 - Learning domain: `vocabulary.py`, `topics.py`, `assets.py`, `exercises.py`, `training.py`
 - Teacher/student workflows: `teacher_student.py`, `workspaces.py`, `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`
 - Telegram orchestration: `*_handlers.py`
@@ -33,6 +34,7 @@
 
 ## Major flows
 - Teacher onboarding: `/invite` creates one-time codes; `/join` ensures a shared student workspace exists between the teacher and the joining learner.
+- Admin bootstrap: `/admin` lets one env-configured super-admin prepare a small family/team setup by granting teacher role, ensuring personal teacher/student workspaces, and linking users into a shared student workspace without requiring invite/join first.
 - Teacher authoring: `/teacher_content` edits teacher workspaces, topics, items, translations, and linked assets through aiogram-dialog.
 - Assignment creation: direct `/assign` and dialog-based `/create_assignment` both end in persisted homework assignments.
 - Topic access: `/granttopic` publishes a teacher topic into the shared student workspace and grants access; learners open it with `/topics`.

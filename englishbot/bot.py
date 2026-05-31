@@ -15,6 +15,7 @@ from .user_profiles import get_user_role
 from . import cancel_handlers  # noqa: F401
 from . import homework_handlers  # noqa: F401
 from . import settings_handlers  # noqa: F401
+from . import admin_handlers  # noqa: F401
 from . import teacher_assignment_handlers  # noqa: F401
 from . import teacher_content_handlers  # noqa: F401
 from . import teacher_handlers  # noqa: F401

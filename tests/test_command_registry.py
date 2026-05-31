@@ -4,6 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot.command_registry import (
+    ADMIN_COMMAND,
     ALL_COMMANDS,
     ASSIGN_COMMAND,
     BOT_COMMANDS,
@@ -49,6 +50,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "workbook_export",
         "workbook_import",
         "teacher_content",
+        "admin",
     ]
     assert len({command.name for command in ALL_COMMANDS}) == len(ALL_COMMANDS)
 
@@ -84,6 +86,10 @@ def test_bot_commands_use_centralized_i18n_descriptions() -> None:
     assert BOT_COMMANDS[0].description == translate("command.start", "en")
     assert CREATE_ASSIGNMENT_COMMAND.to_bot_command("en").description == translate(
         "command.create_assignment",
+        "en",
+    )
+    assert ADMIN_COMMAND.to_bot_command("en").description == translate(
+        "command.admin",
         "en",
     )
     assert TEACHER_CONTENT_COMMAND.to_bot_command("en").description == translate(

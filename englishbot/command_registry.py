@@ -106,6 +106,12 @@ TEACHER_CONTENT_COMMAND = CommandDefinition(
     scope="teacher",
     register_after_startup=True,
 )
+ADMIN_COMMAND = CommandDefinition(
+    name="admin",
+    description_key="command.admin",
+    scope="admin",
+    register_after_startup=True,
+)
 
 ALL_COMMANDS = (
     START_COMMAND,
@@ -122,6 +128,7 @@ ALL_COMMANDS = (
     WORKBOOK_EXPORT_COMMAND,
     WORKBOOK_IMPORT_COMMAND,
     TEACHER_CONTENT_COMMAND,
+    ADMIN_COMMAND,
 )
 
 
