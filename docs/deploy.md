@@ -102,6 +102,7 @@ Deploy behavior:
 - deploy clones or updates the repo in `/opt/dockge/stacks/englishbot`
 - deploy ensures `/srv/services/englishbot/{data,logs,backups}` exists
 - deploy ensures `/srv/drive-sync/services/englishbot/backups` exists
+- deploy bootstraps those host paths with `sudo` before running git operations as the SSH user
 - deploy runs `docker compose up -d --build`
 - deploy calls `/usr/local/bin/infra-vps-register-service-scheduled-tasks`
 

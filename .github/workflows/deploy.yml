@@ -54,7 +54,9 @@ jobs:
             REPO_URL="https://github.com/${{ github.repository }}.git"
             REGISTER_HELPER="/usr/local/bin/infra-vps-register-service-scheduled-tasks"
 
-            mkdir -p "${STACKS_DIR}"
+            sudo mkdir -p "${STACKS_DIR}"
+            sudo mkdir -p "${SERVICE_DIR}"
+            sudo chown -R "${USER}:${USER}" "${SERVICE_DIR}"
 
             if [ ! -d "${SERVICE_DIR}/.git" ]; then
               rm -rf "${SERVICE_DIR}"
@@ -71,13 +73,13 @@ jobs:
               exit 1
             fi
 
-            mkdir -p /srv/services/${SERVICE_NAME}/data
-            mkdir -p /srv/services/${SERVICE_NAME}/logs
-            mkdir -p /srv/services/${SERVICE_NAME}/backups
-            mkdir -p /srv/drive-sync/services/${SERVICE_NAME}/backups
-            chown -R "${USER}:${USER}" /srv/services/${SERVICE_NAME} || true
-            chown -R "${USER}:${USER}" /srv/drive-sync/services/${SERVICE_NAME} || true
-            chown -R "${USER}:${USER}" "${SERVICE_DIR}" || true
+            sudo mkdir -p /srv/services/${SERVICE_NAME}/data
+            sudo mkdir -p /srv/services/${SERVICE_NAME}/logs
+            sudo mkdir -p /srv/services/${SERVICE_NAME}/backups
+            sudo mkdir -p /srv/drive-sync/services/${SERVICE_NAME}/backups
+            sudo chown -R "${USER}:${USER}" /srv/services/${SERVICE_NAME} || true
+            sudo chown -R "${USER}:${USER}" /srv/drive-sync/services/${SERVICE_NAME} || true
+            sudo chown -R "${USER}:${USER}" "${SERVICE_DIR}" || true
 
             export ENGLISHBOT_VERSION="main-${{ github.run_number }}"
             export ENGLISHBOT_GIT_COMMIT="${{ github.sha }}"
