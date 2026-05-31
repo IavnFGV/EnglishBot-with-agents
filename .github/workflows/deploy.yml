@@ -52,6 +52,7 @@ jobs:
             STACKS_DIR="/opt/dockge/stacks"
             SERVICE_DIR="${STACKS_DIR}/${SERVICE_NAME}"
             REPO_URL="https://github.com/${{ github.repository }}.git"
+            REGISTER_HELPER="/usr/local/bin/infra-vps-register-service-scheduled-tasks"
 
             mkdir -p "${STACKS_DIR}"
 
@@ -72,7 +73,10 @@ jobs:
 
             mkdir -p /srv/services/${SERVICE_NAME}/data
             mkdir -p /srv/services/${SERVICE_NAME}/logs
+            mkdir -p /srv/services/${SERVICE_NAME}/backups
+            mkdir -p /srv/drive-sync/services/${SERVICE_NAME}/backups
             chown -R "${USER}:${USER}" /srv/services/${SERVICE_NAME} || true
+            chown -R "${USER}:${USER}" /srv/drive-sync/services/${SERVICE_NAME} || true
             chown -R "${USER}:${USER}" "${SERVICE_DIR}" || true
 
             export ENGLISHBOT_VERSION="main-${{ github.run_number }}"
@@ -85,3 +89,10 @@ jobs:
 
             docker compose up -d --build
             docker compose ps
+
+            if [ ! -x "${REGISTER_HELPER}" ]; then
+              echo "ERROR: ${REGISTER_HELPER} is missing or not executable on the VPS."
+              exit 1
+            fi
+
+            sudo SERVICE_NAME="${SERVICE_NAME}" SERVICE_DIR="${SERVICE_DIR}" "${REGISTER_HELPER}"

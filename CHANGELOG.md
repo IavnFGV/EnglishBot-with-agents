@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-05-31
+- Reworked service deployment for the new VPS architecture: `docker-compose.yml` is now explicitly a Dockge stack named `englishbot`, the image creates `/app/backups`, and deploy docs/workflow now target `/opt/dockge/stacks/englishbot` while keeping persistent `data`, `logs`, and `backups` in `/srv/services/englishbot`.
+- Added service-owned host scheduled task source under `scheduled-tasks/`, including a first `backup-maintenance.sh` task that copies already-created backup files from `/srv/services/englishbot/backups` into `/srv/drive-sync/services/englishbot/backups` and applies a simple keep-latest retention policy instead of creating SQLite backups on the host.
+- Updated the deploy workflow to ensure the host data and sync directories exist, run `docker compose up -d --build`, and require the existing `/usr/local/bin/infra-vps-register-service-scheduled-tasks` helper to register service-owned scheduled tasks on the VPS.
 - Fixed the `/admin` callback flow to treat Telegram's `message is not modified` response as a harmless no-op, so repeating actions like `Make teacher` no longer logs an unhandled exception when the rendered admin screen stays unchanged.
 - Added startup env logging in `englishbot/bootstrap.py`: after `.env` is loaded and logging is configured, the app now writes the full sorted process environment to startup logs, and focused bootstrap tests cover that startup trace.
 - Fixed workbook export to keep canonical remote media URLs in the `image_url` column when a primary image asset has both `source_url` and downloaded local storage, matching the existing `audio_url` behavior and the workbook import/export contract.

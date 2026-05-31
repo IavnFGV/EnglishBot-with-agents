@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/data /app/logs
+RUN mkdir -p /app/data /app/logs /app/backups
 
 EXPOSE 8080
 

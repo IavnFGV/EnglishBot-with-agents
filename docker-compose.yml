@@ -1,3 +1,5 @@
+name: englishbot
+
 services:
   app:
     build:
@@ -19,9 +21,11 @@ services:
       ENGLISHBOT_ENV_NAME: ${ENGLISHBOT_ENV_NAME:-production}
       ENGLISHBOT_DB_PATH: /app/data/englishbot.sqlite3
       ENGLISHBOT_LOG_DIR: /app/logs
+      ENGLISHBOT_BACKUP_DIR: /app/backups
     volumes:
       - /srv/services/englishbot/data:/app/data
       - /srv/services/englishbot/logs:/app/logs
+      - /srv/services/englishbot/backups:/app/backups
     expose:
       - "8080"
     networks:
