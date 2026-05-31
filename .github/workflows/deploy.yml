@@ -55,7 +55,6 @@ jobs:
             REGISTER_HELPER="/usr/local/bin/infra-vps-register-service-scheduled-tasks"
             DATA_ROOT="/srv/services/${SERVICE_NAME}"
             SYNC_ROOT="/srv/drive-sync/services/${SERVICE_NAME}"
-            TASKS_DIR="${SERVICE_DIR}/scheduled-tasks"
 
             log_dir_state() {
               local path="$1"
@@ -146,12 +145,12 @@ jobs:
               exit 1
             fi
 
-            if [ ! -d "${TASKS_DIR}" ]; then
-              echo "ERROR: service-owned scheduled tasks directory is missing: ${TASKS_DIR}"
+            if [ ! -d "${SERVICE_DIR}/scheduled-tasks" ]; then
+              echo "ERROR: service-owned scheduled tasks directory is missing: ${SERVICE_DIR}/scheduled-tasks"
               exit 1
             fi
 
-            echo "[deploy] service-owned scheduled tasks directory: ${TASKS_DIR}"
-            ls -la "${TASKS_DIR}"
+            echo "[deploy] service-owned scheduled tasks directory: ${SERVICE_DIR}/scheduled-tasks"
+            ls -la "${SERVICE_DIR}/scheduled-tasks"
             echo "[deploy] registering service-owned scheduled tasks with ${REGISTER_HELPER}"
-            sudo SERVICE_NAME="${SERVICE_NAME}" SERVICE_DIR="${SERVICE_DIR}" SCHEDULED_TASKS_DIR="${TASKS_DIR}" "${REGISTER_HELPER}"
+            sudo SERVICE_NAME="${SERVICE_NAME}" SERVICE_DIR="${SERVICE_DIR}" "${REGISTER_HELPER}"

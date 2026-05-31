@@ -104,7 +104,7 @@ Deploy behavior:
 - deploy ensures `/srv/drive-sync/services/englishbot/backups` exists
 - deploy bootstraps those host paths with `sudo` before running git operations as the SSH user
 - deploy prints whether each key directory already existed or was created, plus `ls -ld` for the final ownership and mode state
-- deploy passes the service repo task source explicitly as `/opt/dockge/stacks/englishbot/scheduled-tasks` when calling the infra helper
+- deploy verifies that `/opt/dockge/stacks/englishbot/scheduled-tasks` exists before calling the infra helper
 - deploy runs `docker compose up -d --build`
 - deploy calls `/usr/local/bin/infra-vps-register-service-scheduled-tasks`
 
