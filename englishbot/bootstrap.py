@@ -1,4 +1,5 @@
 import logging
+import os
 
 from .basic_topics_seed import seed_basic_topics
 from .bot import configure_bot_commands, dispatcher
@@ -17,9 +18,18 @@ from .status_server import (
 logger = logging.getLogger(__name__)
 
 
+def log_startup_environment() -> None:
+    formatted_items = [
+        f"{name}={value}"
+        for name, value in sorted(os.environ.items())
+    ]
+    logger.info("EnglishBot startup environment: %s", ", ".join(formatted_items))
+
+
 async def run() -> None:
     load_environment()
     configure_logging()
+    log_startup_environment()
     build_info = load_build_info()
     logger.info(format_startup_banner(build_info))
 

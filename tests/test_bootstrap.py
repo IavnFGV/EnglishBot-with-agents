@@ -152,7 +152,7 @@ def test_bootstrap_run_logs_compact_startup_banner(monkeypatch) -> None:
 
     asyncio.run(bootstrap.run())
 
-    assert banner_messages[0] == (
+    assert banner_messages[1] == (
         "EnglishBot startup: "
         "version=2.0.0 "
         "commit=deadbeef "
@@ -225,3 +225,76 @@ def test_bootstrap_run_logs_status_server_startup(monkeypatch) -> None:
     asyncio.run(bootstrap.run())
 
     assert "EnglishBot status server listening on 0.0.0.0:8080" in log_messages
+
+
+def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
+    log_messages: list[str] = []
+    fake_bot = FakeBot()
+
+    def fake_load_environment() -> None:
+        return None
+
+    def fake_configure_logging() -> None:
+        return None
+
+    def fake_load_build_info() -> BuildInfo:
+        return BuildInfo(
+            version="4.0.0",
+            git_commit="facefeed",
+            build_time_utc="2026-05-31T09:00:00Z",
+            build_ref="refs/heads/main",
+            env_name="production",
+        )
+
+    def fake_init_db() -> None:
+        return None
+
+    def fake_seed_basic_topics() -> None:
+        return None
+
+    class FakeStatusServer:
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            return None
+
+    async def fake_start_status_server(_: BuildInfo) -> FakeStatusServer:
+        return FakeStatusServer()
+
+    def fake_build_bot() -> FakeBot:
+        return fake_bot
+
+    async def fake_configure_bot_commands(bot) -> None:
+        assert bot is fake_bot
+
+    async def fake_start_polling(bot) -> None:
+        assert bot is fake_bot
+
+    def fake_logger_info(message: str, *args: object) -> None:
+        if args:
+            message = message % args
+        log_messages.append(message)
+
+    monkeypatch.setenv("ENGLISHBOT_ADMIN_TELEGRAM_USER_ID", "777")
+    monkeypatch.setenv("ENGLISHBOT_ENV_NAME", "production")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "real-secret-token")
+    monkeypatch.setenv("API_KEY", "super-secret-key")
+    monkeypatch.setattr(bootstrap, "load_environment", fake_load_environment)
+    monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
+    monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
+    monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
+    monkeypatch.setattr(bootstrap, "seed_basic_topics", fake_seed_basic_topics)
+    monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
+    monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
+    monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
+    monkeypatch.setattr(bootstrap.dispatcher, "start_polling", fake_start_polling)
+    monkeypatch.setattr(bootstrap.logger, "info", fake_logger_info)
+
+    asyncio.run(bootstrap.run())
+
+    assert log_messages[0].startswith("EnglishBot startup environment: ")
+    assert "ENGLISHBOT_ADMIN_TELEGRAM_USER_ID=777" in log_messages[0]
+    assert "ENGLISHBOT_ENV_NAME=production" in log_messages[0]
+    assert "TELEGRAM_BOT_TOKEN=real-secret-token" in log_messages[0]
+    assert "API_KEY=super-secret-key" in log_messages[0]

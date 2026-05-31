@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-05-31
+- Added startup env logging in `englishbot/bootstrap.py`: after `.env` is loaded and logging is configured, the app now writes the full sorted process environment to startup logs, and focused bootstrap tests cover that startup trace.
 - Fixed workbook export to keep canonical remote media URLs in the `image_url` column when a primary image asset has both `source_url` and downloaded local storage, matching the existing `audio_url` behavior and the workbook import/export contract.
 - Stabilized `tests/test_workbook_export.py` in CI by stubbing the remote image download used during teacher-workspace item creation, so the export workbook assertion no longer depends on `example.com` returning a real file while the production behavior of downloading remote media remains covered in dedicated vocabulary/import tests.
 

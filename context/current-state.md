@@ -9,7 +9,7 @@
 ## Runtime and entrypoints
 - Main entrypoint: `python -m englishbot`.
 - Startup is centralized in `englishbot/bootstrap.py`.
-- The app loads `.env`, configures logging, initializes/migrates SQLite, seeds starter content, starts the status server, registers Telegram commands, and begins long polling.
+- The app loads `.env`, configures logging, writes the startup process environment to logs, initializes/migrates SQLite, seeds starter content, starts the status server, registers Telegram commands, and begins long polling.
 - Telegram runtime uses `aiogram 3.x` and `aiogram-dialog`.
 - A small internal HTTP status server listens on `0.0.0.0:8080`.
 
