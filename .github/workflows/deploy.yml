@@ -53,33 +53,75 @@ jobs:
             SERVICE_DIR="${STACKS_DIR}/${SERVICE_NAME}"
             REPO_URL="https://github.com/${{ github.repository }}.git"
             REGISTER_HELPER="/usr/local/bin/infra-vps-register-service-scheduled-tasks"
+            DATA_ROOT="/srv/services/${SERVICE_NAME}"
+            SYNC_ROOT="/srv/drive-sync/services/${SERVICE_NAME}"
+            TASKS_DIR="${SERVICE_DIR}/scheduled-tasks"
 
+            log_dir_state() {
+              local path="$1"
+              if sudo test -d "${path}"; then
+                echo "[deploy] directory already exists: ${path}"
+              else
+                echo "[deploy] directory will be created: ${path}"
+              fi
+            }
+
+            show_dir_state() {
+              local path="$1"
+              echo "[deploy] ls -ld ${path}"
+              sudo ls -ld "${path}"
+            }
+
+            echo "[deploy] service=${SERVICE_NAME}"
+            echo "[deploy] stacks_dir=${STACKS_DIR}"
+            echo "[deploy] service_dir=${SERVICE_DIR}"
             sudo mkdir -p "${STACKS_DIR}"
+            log_dir_state "${SERVICE_DIR}"
             sudo mkdir -p "${SERVICE_DIR}"
             sudo chown -R "${USER}:${USER}" "${SERVICE_DIR}"
+            show_dir_state "${STACKS_DIR}"
+            show_dir_state "${SERVICE_DIR}"
 
             if [ ! -d "${SERVICE_DIR}/.git" ]; then
+              echo "[deploy] cloning repository into ${SERVICE_DIR}"
               rm -rf "${SERVICE_DIR}"
               git clone "${REPO_URL}" "${SERVICE_DIR}"
+            else
+              echo "[deploy] repository already present in ${SERVICE_DIR}"
             fi
 
             cd "${SERVICE_DIR}"
+            echo "[deploy] current revision before fetch: $(git rev-parse --short HEAD 2>/dev/null || echo missing)"
 
             git fetch --all --prune
             git reset --hard origin/main
+            echo "[deploy] current revision after reset: $(git rev-parse --short HEAD)"
 
             if [ ! -f .env ]; then
               echo "ERROR: .env is missing in ${SERVICE_DIR}. Create it manually on the VPS before deploy."
               exit 1
             fi
+            echo "[deploy] found ${SERVICE_DIR}/.env"
 
-            sudo mkdir -p /srv/services/${SERVICE_NAME}/data
-            sudo mkdir -p /srv/services/${SERVICE_NAME}/logs
-            sudo mkdir -p /srv/services/${SERVICE_NAME}/backups
-            sudo mkdir -p /srv/drive-sync/services/${SERVICE_NAME}/backups
-            sudo chown -R "${USER}:${USER}" /srv/services/${SERVICE_NAME} || true
-            sudo chown -R "${USER}:${USER}" /srv/drive-sync/services/${SERVICE_NAME} || true
+            log_dir_state "${DATA_ROOT}"
+            log_dir_state "${DATA_ROOT}/data"
+            log_dir_state "${DATA_ROOT}/logs"
+            log_dir_state "${DATA_ROOT}/backups"
+            log_dir_state "${SYNC_ROOT}"
+            log_dir_state "${SYNC_ROOT}/backups"
+            sudo mkdir -p "${DATA_ROOT}/data"
+            sudo mkdir -p "${DATA_ROOT}/logs"
+            sudo mkdir -p "${DATA_ROOT}/backups"
+            sudo mkdir -p "${SYNC_ROOT}/backups"
+            sudo chown -R "${USER}:${USER}" "${DATA_ROOT}" || true
+            sudo chown -R "${USER}:${USER}" "${SYNC_ROOT}" || true
             sudo chown -R "${USER}:${USER}" "${SERVICE_DIR}" || true
+            show_dir_state "${DATA_ROOT}"
+            show_dir_state "${DATA_ROOT}/data"
+            show_dir_state "${DATA_ROOT}/logs"
+            show_dir_state "${DATA_ROOT}/backups"
+            show_dir_state "${SYNC_ROOT}"
+            show_dir_state "${SYNC_ROOT}/backups"
 
             export ENGLISHBOT_VERSION="main-${{ github.run_number }}"
             export ENGLISHBOT_GIT_COMMIT="${{ github.sha }}"
@@ -87,9 +129,16 @@ jobs:
             export ENGLISHBOT_BUILD_REF="${{ github.ref }}"
             export ENGLISHBOT_ENV_NAME="production"
 
-            docker network inspect edge >/dev/null 2>&1 || docker network create edge
+            if docker network inspect edge >/dev/null 2>&1; then
+              echo "[deploy] docker network already exists: edge"
+            else
+              echo "[deploy] creating docker network: edge"
+              docker network create edge
+            fi
 
+            echo "[deploy] running docker compose up -d --build"
             docker compose up -d --build
+            echo "[deploy] docker compose ps"
             docker compose ps
 
             if [ ! -x "${REGISTER_HELPER}" ]; then
@@ -97,4 +146,12 @@ jobs:
               exit 1
             fi
 
-            sudo SERVICE_NAME="${SERVICE_NAME}" SERVICE_DIR="${SERVICE_DIR}" "${REGISTER_HELPER}"
+            if [ ! -d "${TASKS_DIR}" ]; then
+              echo "ERROR: service-owned scheduled tasks directory is missing: ${TASKS_DIR}"
+              exit 1
+            fi
+
+            echo "[deploy] service-owned scheduled tasks directory: ${TASKS_DIR}"
+            ls -la "${TASKS_DIR}"
+            echo "[deploy] registering service-owned scheduled tasks with ${REGISTER_HELPER}"
+            sudo SERVICE_NAME="${SERVICE_NAME}" SERVICE_DIR="${SERVICE_DIR}" SCHEDULED_TASKS_DIR="${TASKS_DIR}" "${REGISTER_HELPER}"

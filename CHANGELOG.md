@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-05-31
+- Fixed scheduled-task registration on the VPS after the helper defaulted to an infra-repo path: deploy now verifies `/opt/dockge/stacks/englishbot/scheduled-tasks` exists, logs its contents, and passes that path explicitly as `SCHEDULED_TASKS_DIR` to `/usr/local/bin/infra-vps-register-service-scheduled-tasks`.
+- Added more deploy-time SSH logs around VPS directories and docker bootstrap so GitHub Actions now shows whether the Dockge stack path and `/srv/...` paths already existed or were created, along with final `ls -ld` ownership/mode output before `docker compose` runs.
 - Fixed the new VPS deploy workflow after the first real run exposed insufficient permissions: bootstrap of `/opt/dockge/stacks/englishbot` and `/srv/...` paths now uses `sudo`, while repo clone/update and `docker compose` still run as the regular SSH user.
 - Reworked service deployment for the new VPS architecture: `docker-compose.yml` is now explicitly a Dockge stack named `englishbot`, the image creates `/app/backups`, and deploy docs/workflow now target `/opt/dockge/stacks/englishbot` while keeping persistent `data`, `logs`, and `backups` in `/srv/services/englishbot`.
 - Added service-owned host scheduled task source under `scheduled-tasks/`, including a first `backup-maintenance.sh` task that copies already-created backup files from `/srv/services/englishbot/backups` into `/srv/drive-sync/services/englishbot/backups` and applies a simple keep-latest retention policy instead of creating SQLite backups on the host.
