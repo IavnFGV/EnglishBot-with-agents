@@ -10,6 +10,7 @@ from openpyxl import Workbook
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.families import create_family
 from englishbot.topics import create_topic_for_teacher_workspace
 from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import (
@@ -140,6 +141,28 @@ def test_workbook_export_handler_returns_xlsx_document(tmp_path: Path) -> None:
         message.documents[0]["kwargs"]["caption"]
         == f"Workbook export for workspace {workspace_id}: topics=1, learning_items=1, topic_links=0."
     )
+
+
+def test_workbook_handlers_are_disabled_for_family_users(tmp_path: Path) -> None:
+    teacher, workspace_id = create_teacher_workspace(tmp_path)
+    create_family("Home", teacher.id)
+    export_message = FakeMessage(teacher)
+    import_usage_message = FakeMessage(teacher)
+    import_document_message = FakeMessage(
+        teacher,
+        bot=FakeBot(download_payload=build_workbook_bytes()),
+        caption=f"/workbook_import {workspace_id}",
+        document=make_document("import.xlsx"),
+    )
+
+    asyncio.run(workbook_export(export_message, SimpleNamespace(args=str(workspace_id))))
+    asyncio.run(workbook_import_usage(import_usage_message, SimpleNamespace(args=str(workspace_id))))
+    asyncio.run(workbook_import_document(import_document_message))
+
+    expected = "This command is disabled in the family-first version. Use /teacher_content, /create_assignment, /topics, and /learn instead."
+    assert export_message.answers == [{"text": expected, "kwargs": {}}]
+    assert import_usage_message.answers == [{"text": expected, "kwargs": {}}]
+    assert import_document_message.answers == [{"text": expected, "kwargs": {}}]
 
 
 def test_workbook_export_handler_requires_explicit_workspace_id(tmp_path: Path) -> None:

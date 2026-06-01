@@ -51,6 +51,7 @@
 - Bot-facing text belongs in `i18n.py`.
 - Command definitions belong in `command_registry.py`.
 - The default registered command set is intentionally narrower than the full legacy command constant list during the rebuild, so family-first commands stay primary while older maintenance paths remain callable only when needed.
+- Some legacy handlers are now also runtime-gated for family users, so keeping old modules in the tree does not mean they remain part of the active family-first product path.
 
 ## Persistence summary
 - Schema bootstrap and migrations live in `db.py`.

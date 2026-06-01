@@ -24,6 +24,7 @@
 - `/topics` now prefers family-owned shared topics for family members, so family learners can open shared topics directly without the legacy topic-grant path.
 - `/teacher_content` and `/create_assignment` now also admit family members without the legacy teacher role and can work against family-owned topics/items for authoring and homework creation.
 - The default registered Telegram command list is now reduced toward family-first flows: `/start`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/topics`, and `/teacher_content`.
+- Legacy commands such as `/invite`, `/join`, `/granttopic`, `/admin`, and workbook import/export are now explicitly disabled for family users in runtime, instead of remaining accidental product entry points.
 - The `/admin` screen now tolerates repeated button presses that produce the same text and keyboard, instead of surfacing Telegram's `message is not modified` error in logs.
 - Workspace-based content ownership with `teacher` and `student` workspaces.
 - Teacher content editing through `/teacher_content` dialog flows.
@@ -86,6 +87,6 @@
 
 ## Immediate next work areas supported by repo state
 - Start the family-first rebuild from `docs/family-first-rebuild.md`, beginning with the new minimal SQLite schema and family membership/content tables.
-- Next family-first step is to start deleting legacy invite/join/grant/admin/workbook entry points and remove old workspace-first assumptions from the remaining authoring code.
+- Next family-first step is the final delete wave: remove the now-shadowed legacy invite/join/grant/admin/workbook code paths and keep collapsing the remaining workspace-first assumptions.
 - Tighten older Telegram list screens toward the single-screen UI rules where practical.
 - Keep narrowing documentation and task navigation around the module map instead of large historical notes.

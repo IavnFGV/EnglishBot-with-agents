@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-01
+- Runtime-gated several legacy entry points for family users in `teacher_handlers.py`, `admin_handlers.py`, and `workbook_handlers.py`: `/invite`, `/join`, `/assign`, `/granttopic`, `/admin`, and workbook import/export now respond with a family-first deprecation message instead of opening old flows for family setups.
 - Added a family-first authoring path to `englishbot/teacher_content.py`, `teacher_content_handlers.py`, `teacher_assignments.py`, and `teacher_assignment_handlers.py`: family members can now open `/teacher_content`, browse one shared family content surface, create family topics/items, and create family homework assignments from `/create_assignment` without depending on legacy teacher workspaces or the teacher role.
 - Trimmed the default registered Telegram command list in `englishbot/command_registry.py` down to the family-first core while leaving older legacy commands callable in code during the cleanup phase.
 - Added family-topic learner support across `englishbot/topic_access.py` and the `/topics` handlers: family members now list and start shared family topics directly from family-owned topic data, with focused domain and handler coverage in `tests/test_topic_access.py` and `tests/test_topic_access_handlers.py`.

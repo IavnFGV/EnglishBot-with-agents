@@ -17,6 +17,7 @@ from englishbot.admin_access import (
     ensure_shared_family_workspace,
     grant_teacher_role,
 )
+from englishbot.families import create_family
 from englishbot.admin_handlers import open_admin
 from englishbot.homework import create_assignment
 from englishbot.topic_access import grant_topic_access, list_accessible_topics
@@ -84,6 +85,21 @@ def test_open_admin_handler_rejects_non_admin(tmp_path: Path, monkeypatch) -> No
 
     assert message.answers == [
         "Command /admin is available only to the configured admin user."
+    ]
+
+
+def test_open_admin_handler_is_disabled_for_family_user(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_ADMIN_TELEGRAM_USER_ID", "9101")
+    user = make_user(9101, "Parent")
+    db.save_user(user)
+    create_family("Home", user.id)
+    message = FakeMessage(user)
+
+    asyncio.run(open_admin(message))
+
+    assert message.answers == [
+        "This command is disabled in the family-first version. Use /teacher_content, /create_assignment, /topics, and /learn instead."
     ]
 
 

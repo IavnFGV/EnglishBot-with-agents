@@ -8,6 +8,7 @@ from .command_registry import (
     JOIN_COMMAND,
 )
 from .db import save_user
+from .families import get_user_family
 from .homework import (
     AssignmentGroupNotFoundError,
     EmptyAssignmentError,
@@ -54,12 +55,23 @@ def _build_grant_topic_usage_message(telegram_user_id: int) -> str:
     )
 
 
+async def _reject_family_first_disabled(message: Message) -> bool:
+    if message.from_user is None or get_user_family(message.from_user.id) is None:
+        return False
+    await message.answer(
+        translate_for_user(message.from_user.id, "legacy.family_first_disabled")
+    )
+    return True
+
+
 @router.message(Command(INVITE_COMMAND.name))
 async def invite(message: Message) -> None:
     if message.from_user is None:
         return
 
     save_user(message.from_user)
+    if await _reject_family_first_disabled(message):
+        return
     try:
         code = create_invite(message.from_user.id)
     except TeacherRoleRequiredError:
@@ -83,6 +95,8 @@ async def join(message: Message, command: CommandObject | None = None) -> None:
         return
 
     save_user(message.from_user)
+    if await _reject_family_first_disabled(message):
+        return
     code = (command.args if command is not None and command.args is not None else "").strip()
     if not code:
         await message.answer(
@@ -118,6 +132,8 @@ async def assign(message: Message, command: CommandObject | None = None) -> None
         return
 
     save_user(message.from_user)
+    if await _reject_family_first_disabled(message):
+        return
     raw_args = (command.args if command is not None and command.args is not None else "").strip()
     if not raw_args:
         await message.answer(_build_assign_usage_message(message.from_user.id))
@@ -240,6 +256,8 @@ async def grant_topic(message: Message, command: CommandObject | None = None) ->
         return
 
     save_user(message.from_user)
+    if await _reject_family_first_disabled(message):
+        return
     raw_args = (command.args if command is not None and command.args is not None else "").strip()
     if not raw_args:
         await message.answer(_build_grant_topic_usage_message(message.from_user.id))

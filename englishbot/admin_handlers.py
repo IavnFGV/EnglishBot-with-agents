@@ -16,6 +16,7 @@ from .admin_access import (
 )
 from .command_registry import ADMIN_COMMAND
 from .db import save_user
+from .families import get_user_family
 from .i18n import translate_for_user
 from .runtime import router
 from .workspaces import ROLE_STUDENT, ROLE_TEACHER
@@ -233,6 +234,11 @@ async def open_admin(message: Message) -> None:
         return
 
     save_user(message.from_user)
+    if get_user_family(message.from_user.id) is not None:
+        await message.answer(
+            translate_for_user(message.from_user.id, "legacy.family_first_disabled")
+        )
+        return
     try:
         ensure_admin_access(message.from_user.id)
     except AdminAccessDeniedError:

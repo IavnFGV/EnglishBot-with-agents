@@ -6,6 +6,7 @@ from aiogram.types import BufferedInputFile, Message
 
 from .command_registry import WORKBOOK_EXPORT_COMMAND, WORKBOOK_IMPORT_COMMAND
 from .db import save_user
+from .families import get_user_family
 from .i18n import translate_for_user
 from .runtime import router
 from .user_profiles import get_user_language
@@ -65,6 +66,11 @@ async def workbook_export(message: Message, command: CommandObject | None = None
         return
 
     save_user(message.from_user)
+    if get_user_family(message.from_user.id) is not None:
+        await message.answer(
+            translate_for_user(message.from_user.id, "legacy.family_first_disabled")
+        )
+        return
     raw_args = (command.args if command is not None and command.args is not None else "").strip()
     workspace_id = _parse_workspace_id(raw_args)
     if workspace_id is None:
@@ -109,6 +115,12 @@ async def workbook_import_usage(
 
     if message.document is not None:
         return
+    save_user(message.from_user)
+    if get_user_family(message.from_user.id) is not None:
+        await message.answer(
+            translate_for_user(message.from_user.id, "legacy.family_first_disabled")
+        )
+        return
 
     raw_args = (command.args if command is not None and command.args is not None else "").strip()
     if _parse_workspace_id(raw_args) is None:
@@ -128,6 +140,11 @@ async def workbook_import_document(message: Message) -> None:
         return
 
     save_user(message.from_user)
+    if get_user_family(message.from_user.id) is not None:
+        await message.answer(
+            translate_for_user(message.from_user.id, "legacy.family_first_disabled")
+        )
+        return
     filename = (message.document.file_name or "").lower()
     if not filename.endswith(".xlsx"):
         await message.answer(

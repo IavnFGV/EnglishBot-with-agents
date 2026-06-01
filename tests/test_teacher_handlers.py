@@ -8,6 +8,7 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.families import create_family
 from englishbot.basic_topics_seed import seed_basic_topics
 from englishbot.teacher_handlers import (
     assign,
@@ -69,6 +70,21 @@ def test_invite_handler_rejects_non_teacher(tmp_path: Path) -> None:
     asyncio.run(invite(message))
 
     assert message.answers == ["Command /invite is available only to users with the teacher role."]
+
+
+def test_legacy_teacher_commands_are_disabled_for_family_users(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    parent = make_user(230, "Parent")
+    db.save_user(parent)
+    create_family("Home", parent.id)
+    message = FakeMessage(parent)
+
+    asyncio.run(invite(message))
+    asyncio.run(join(message, SimpleNamespace(args="code")))
+    asyncio.run(assign(message, SimpleNamespace(args="1 2")))
+
+    expected = "This command is disabled in the family-first version. Use /teacher_content, /create_assignment, /topics, and /learn instead."
+    assert message.answers == [expected, expected, expected]
 
 
 def test_invite_handler_returns_code_for_teacher(tmp_path: Path) -> None:
