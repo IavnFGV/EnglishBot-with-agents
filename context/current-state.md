@@ -21,6 +21,7 @@
 - The first family-first rebuild slice is now implemented in persistence: SQLite now has `families`, `family_members`, family-scoped `learning_items`/`topics` support, `topic_items`, `user_progress`, and `homework_assignments` tables, with focused helpers in `englishbot/families.py`.
 - Plain `/learn` now prefers family-owned learning items when the user belongs to a family, instead of falling back to the legacy workspace content source.
 - Learner homework flows now also understand family-first homework assignments: active homework lists, start callbacks, progress snapshots, and training-session completion work for both legacy workspace assignments and new family homework.
+- `/topics` now prefers family-owned shared topics for family members, so family learners can open shared topics directly without the legacy topic-grant path.
 - The `/admin` screen now tolerates repeated button presses that produce the same text and keyboard, instead of surfacing Telegram's `message is not modified` error in logs.
 - Workspace-based content ownership with `teacher` and `student` workspaces.
 - Teacher content editing through `/teacher_content` dialog flows.
@@ -83,6 +84,6 @@
 
 ## Immediate next work areas supported by repo state
 - Start the family-first rebuild from `docs/family-first-rebuild.md`, beginning with the new minimal SQLite schema and family membership/content tables.
-- Next family-first step is to move homework creation and teacher-side assignment UX onto the new family model and then start deleting legacy workspace entry points.
+- Next family-first step is to move homework creation plus teacher-side topic and assignment UX onto the new family model and then start deleting legacy workspace entry points.
 - Tighten older Telegram list screens toward the single-screen UI rules where practical.
 - Keep narrowing documentation and task navigation around the module map instead of large historical notes.

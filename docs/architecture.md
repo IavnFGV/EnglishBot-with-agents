@@ -40,6 +40,7 @@
 - Teacher authoring: `/teacher_content` edits teacher workspaces, topics, items, translations, and linked assets through aiogram-dialog.
 - Assignment creation: direct `/assign` and dialog-based `/create_assignment` both end in persisted homework assignments.
 - Topic access: `/granttopic` publishes a teacher topic into the shared student workspace and grants access; learners open it with `/topics`.
+- During the family-first rebuild, `/topics` can also resolve family-owned shared topics directly from `topics.family_id` plus `topic_items`, without going through the legacy topic-grant table.
 - Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`.
 - During the family-first rebuild, `training_sessions` can point either to legacy workspace homework (`assignment_id`) or to new family homework (`family_homework_assignment_id`), while the staged exercise engine remains shared.
 

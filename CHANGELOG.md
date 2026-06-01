@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-01
+- Added family-topic learner support across `englishbot/topic_access.py` and the `/topics` handlers: family members now list and start shared family topics directly from family-owned topic data, with focused domain and handler coverage in `tests/test_topic_access.py` and `tests/test_topic_access_handlers.py`.
 - Added learner-side family homework support across `englishbot/homework.py`, `training.py`, and the Telegram homework flows: active homework lists now include family assignments, family homework start callbacks create resumable training sessions, completion marks the new `homework_assignments` rows done, and focused homework/training/handler tests cover the mixed legacy-plus-family path.
 - Switched plain `/learn` to the family-first content path for users who belong to a family: training session creation now prefers family-owned `learning_items` and no longer falls back to legacy workspace content for those users, with focused coverage in `tests/test_training.py`.
 - Added the first family-first persistence slice in `englishbot/db.py` and `englishbot/families.py`: SQLite now stores `families`, `family_members`, family-scoped content ownership on `learning_items` and `topics`, `topic_items`, personal `user_progress`, and dedicated `homework_assignments`, with focused tests in `tests/test_families.py`.

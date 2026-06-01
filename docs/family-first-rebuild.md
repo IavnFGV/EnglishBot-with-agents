@@ -74,6 +74,7 @@ Current status:
 - `/learn` is already connected to family-owned learning items when the user belongs to a family.
 - learner homework now supports both legacy and family-first assignments during the rebuild.
 - family homework uses its own `family_homework_assignment_id` in `training_sessions`, instead of pretending to be a legacy workspace assignment.
+- `/topics` now also supports family-owned topics directly for family members, without topic grants.
 
 Wave 3:
 - delete legacy entry points and modules that only exist for workspace and publish flows

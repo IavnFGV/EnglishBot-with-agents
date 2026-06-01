@@ -66,6 +66,7 @@ def get_topic(topic_id: int, include_archived: bool = False) -> sqlite3.Row | No
         SELECT
             id,
             workspace_id,
+            family_id,
             workbook_key,
             source_topic_id,
             name,
@@ -94,6 +95,7 @@ def get_topic_by_name(
         SELECT
             id,
             workspace_id,
+            family_id,
             workbook_key,
             source_topic_id,
             name,
@@ -156,6 +158,7 @@ def list_topics(
         SELECT
             topics.id,
             topics.workspace_id,
+            topics.family_id,
             topics.workbook_key,
             topics.source_topic_id,
             topics.name,

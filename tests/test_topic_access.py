@@ -8,6 +8,13 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.families import (
+    add_family_member,
+    create_family,
+    create_family_learning_item,
+    create_family_topic,
+    replace_topic_items as replace_family_topic_items,
+)
 from englishbot.teacher_student import create_invite, join_with_invite
 from englishbot.topic_access import (
     StudentWorkspaceMembershipRequiredError,
@@ -72,6 +79,22 @@ def seed_teacher_topic(teacher_user_id: int) -> int:
     return topic_id
 
 
+def seed_family_topic() -> tuple[sqlite3.Row, User, User, int]:
+    parent = make_user(721, "Parent")
+    child = make_user(722, "Child")
+    db.save_user(parent)
+    db.save_user(child)
+    family = create_family("Home", parent.id)
+    add_family_member(int(family["id"]), child.id)
+    first_item_id = create_family_learning_item(int(family["id"]), create_lexeme("cat-family"), "cat")
+    second_item_id = create_family_learning_item(int(family["id"]), create_lexeme("dog-family"), "dog")
+    create_learning_item_translation(first_item_id, "ru", "кот")
+    create_learning_item_translation(second_item_id, "ru", "собака")
+    topic_id = create_family_topic(int(family["id"]), "pets", "Pets")
+    replace_family_topic_items(topic_id, [first_item_id, second_item_id])
+    return family, parent, child, topic_id
+
+
 def test_init_db_creates_student_topic_access_table(tmp_path: Path) -> None:
     setup_db(tmp_path)
 
@@ -127,6 +150,17 @@ def test_list_accessible_topics_returns_granted_topics(tmp_path: Path) -> None:
     assert [topic["item_count"] for topic in topics] == [2]
 
 
+def test_list_accessible_topics_returns_family_topics_without_grants(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    _, _, child, _ = seed_family_topic()
+
+    topics = list_accessible_topics(child.id)
+
+    assert [topic["name"] for topic in topics] == ["pets"]
+    assert [topic["title"] for topic in topics] == ["Pets"]
+    assert [int(topic["item_count"]) for topic in topics] == [2]
+
+
 def test_grant_topic_access_rejects_student_without_shared_workspace(tmp_path: Path) -> None:
     setup_db(tmp_path)
     teacher = make_user(703, "Teacher")
@@ -167,6 +201,18 @@ def test_start_topic_training_session_uses_published_topic_items(tmp_path: Path)
     assert question["prompt"] == "день-1"
     assert active_session is not None
     assert active_session["assignment_id"] is None
+
+
+def test_start_topic_training_session_supports_family_topic_items(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    _, _, child, topic_id = seed_family_topic()
+
+    result = start_topic_training_session(child.id, topic_id)
+    question = result["question"]
+
+    assert question is not None
+    assert result["topic_title"] == "Pets"
+    assert question["prompt"] == "кот"
 
 
 def test_active_topic_session_stays_stable_after_source_topic_change(tmp_path: Path) -> None:

@@ -9,6 +9,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
 from englishbot.basic_topics_seed import seed_basic_topics
+from englishbot.families import (
+    add_family_member,
+    create_family,
+    create_family_learning_item,
+    create_family_topic,
+    replace_topic_items as replace_family_topic_items,
+)
 from englishbot.teacher_handlers import grant_topic
 from englishbot.teacher_student import create_invite, join_with_invite
 from englishbot.topic_access import grant_topic_access, list_accessible_topics
@@ -19,6 +26,7 @@ from englishbot.topic_access_handlers import (
     topics,
 )
 from englishbot.user_profiles import set_user_role
+from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
 
 class FakeMessage:
@@ -65,6 +73,20 @@ def seed_linked_teacher_and_student() -> tuple[User, User]:
     invite_code = create_invite(teacher.id)
     join_with_invite(student.id, invite_code)
     return teacher, student
+
+
+def seed_family_topic() -> tuple[User, User, int]:
+    parent = make_user(821, "Parent")
+    child = make_user(822, "Child")
+    db.save_user(parent)
+    db.save_user(child)
+    family = create_family("Home", parent.id)
+    add_family_member(int(family["id"]), child.id)
+    item_id = create_family_learning_item(int(family["id"]), create_lexeme("cat-topic"), "cat")
+    create_learning_item_translation(item_id, "ru", "кот")
+    topic_id = create_family_topic(int(family["id"]), "pets", "Pets")
+    replace_family_topic_items(topic_id, [item_id])
+    return parent, child, topic_id
 
 
 def test_grant_topic_handler_grants_named_topic_to_linked_student(tmp_path: Path) -> None:
@@ -145,6 +167,19 @@ def test_build_accessible_topics_keyboard_uses_topic_start_callback() -> None:
 
     assert keyboard.inline_keyboard[0][0].text == "Фрукты"
     assert keyboard.inline_keyboard[0][0].callback_data == f"{TOPICS_START_PREFIX}9"
+
+
+def test_topics_handler_lists_family_topics_without_grants(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    _, child, topic_id = seed_family_topic()
+    message = FakeMessage(child)
+
+    asyncio.run(topics(message))
+
+    assert message.answers[0]["text"] == "Available topics:"
+    keyboard = message.answers[0]["kwargs"]["reply_markup"]
+    assert keyboard.inline_keyboard[0][0].text == "Pets"
+    assert keyboard.inline_keyboard[0][0].callback_data == f"{TOPICS_START_PREFIX}{topic_id}"
 
 
 def test_grant_topic_handler_requires_explicit_workspace_id(tmp_path: Path) -> None:
