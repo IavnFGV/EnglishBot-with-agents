@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-06-01
+- Added a family-first authoring path to `englishbot/teacher_content.py`, `teacher_content_handlers.py`, `teacher_assignments.py`, and `teacher_assignment_handlers.py`: family members can now open `/teacher_content`, browse one shared family content surface, create family topics/items, and create family homework assignments from `/create_assignment` without depending on legacy teacher workspaces or the teacher role.
+- Trimmed the default registered Telegram command list in `englishbot/command_registry.py` down to the family-first core while leaving older legacy commands callable in code during the cleanup phase.
 - Added family-topic learner support across `englishbot/topic_access.py` and the `/topics` handlers: family members now list and start shared family topics directly from family-owned topic data, with focused domain and handler coverage in `tests/test_topic_access.py` and `tests/test_topic_access_handlers.py`.
 - Added learner-side family homework support across `englishbot/homework.py`, `training.py`, and the Telegram homework flows: active homework lists now include family assignments, family homework start callbacks create resumable training sessions, completion marks the new `homework_assignments` rows done, and focused homework/training/handler tests cover the mixed legacy-plus-family path.
 - Switched plain `/learn` to the family-first content path for users who belong to a family: training session creation now prefers family-owned `learning_items` and no longer falls back to legacy workspace content for those users, with focused coverage in `tests/test_training.py`.

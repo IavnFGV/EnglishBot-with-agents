@@ -75,6 +75,8 @@ Current status:
 - learner homework now supports both legacy and family-first assignments during the rebuild.
 - family homework uses its own `family_homework_assignment_id` in `training_sessions`, instead of pretending to be a legacy workspace assignment.
 - `/topics` now also supports family-owned topics directly for family members, without topic grants.
+- `/teacher_content` and `/create_assignment` now have a family-first authoring path: family members can work against one shared family content surface instead of teacher workspaces.
+- the main bot command list is now trimmed toward family-first commands; legacy commands still exist in code but are no longer part of the default registered command set.
 
 Wave 3:
 - delete legacy entry points and modules that only exist for workspace and publish flows

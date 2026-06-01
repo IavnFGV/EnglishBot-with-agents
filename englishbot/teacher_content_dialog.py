@@ -20,6 +20,7 @@ from aiogram_dialog.widgets.text import Format
 from .command_registry import TEACHER_CONTENT_COMMAND
 from .assets import NO_IMAGE_PLACEHOLDER_PATH, store_teacher_content_image
 from .db import save_user
+from .families import get_user_family
 from .i18n import translate_for_user
 from .runtime import router
 from .teacher_content import (
@@ -76,7 +77,7 @@ async def teacher_content_command(message: Message, dialog_manager: DialogManage
     save_user(message.from_user)
     from .user_profiles import get_user_role
 
-    if get_user_role(message.from_user.id) != "teacher":
+    if get_user_role(message.from_user.id) != "teacher" and get_user_family(message.from_user.id) is None:
         await message.answer(
             translate_for_user(
                 message.from_user.id,

@@ -4,6 +4,7 @@ from aiogram_dialog import DialogManager, StartMode
 
 from .command_registry import TEACHER_CONTENT_COMMAND
 from .db import save_user
+from .families import get_user_family
 from .i18n import translate_for_user
 from .runtime import router
 from .teacher_content_dialog import TeacherContentDialogSG
@@ -16,7 +17,7 @@ async def teacher_content(message: Message, dialog_manager: DialogManager) -> No
         return
 
     save_user(message.from_user)
-    if get_user_role(message.from_user.id) != "teacher":
+    if get_user_role(message.from_user.id) != "teacher" and get_user_family(message.from_user.id) is None:
         await message.answer(
             translate_for_user(
                 message.from_user.id,

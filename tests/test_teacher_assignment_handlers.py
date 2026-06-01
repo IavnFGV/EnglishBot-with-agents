@@ -10,6 +10,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
 from englishbot.teacher_assignments import list_assignment_recipients
+from englishbot.families import (
+    add_family_member,
+    create_family,
+    create_family_learning_item,
+    create_family_topic,
+    replace_topic_items as replace_family_topic_items,
+)
 from englishbot.teacher_assignment_dialog import (
     TeacherAssignmentDialogSG,
     confirm_assignment,
@@ -131,6 +138,24 @@ def seed_teacher_workspace_items(teacher_user_id: int, *, count: int = 3) -> tup
     return workspace_id, learning_item_ids
 
 
+def seed_family_content(parent: User, *members: User) -> tuple[int, list[int], int]:
+    db.save_user(parent)
+    for member in members:
+        db.save_user(member)
+    family = create_family("Home", parent.id)
+    for member in members:
+        add_family_member(int(family["id"]), member.id)
+    learning_item_ids: list[int] = []
+    for index in range(2):
+        lexeme_id = create_lexeme(f"family-assign-{index + 1}")
+        learning_item_id = create_family_learning_item(int(family["id"]), lexeme_id, f"family-assign-{index + 1}")
+        create_learning_item_translation(learning_item_id, "ru", f"семья-{index + 1}")
+        learning_item_ids.append(learning_item_id)
+    topic_id = create_family_topic(int(family["id"]), "family-topic", "Family Topic")
+    replace_family_topic_items(topic_id, learning_item_ids)
+    return int(family["id"]), learning_item_ids, topic_id
+
+
 def seed_teacher_topic(teacher_user_id: int) -> tuple[int, int]:
     workspace_id, learning_item_ids = seed_teacher_workspace_items(teacher_user_id, count=2)
     topic_id = create_topic_for_teacher_workspace(
@@ -146,6 +171,12 @@ def seed_teacher_topic(teacher_user_id: int) -> tuple[int, int]:
 def count_assignments() -> int:
     with db.get_connection() as connection:
         row = connection.execute("SELECT COUNT(*) AS count FROM assignments").fetchone()
+    return int(row["count"])
+
+
+def count_family_assignments() -> int:
+    with db.get_connection() as connection:
+        row = connection.execute("SELECT COUNT(*) AS count FROM homework_assignments").fetchone()
     return int(row["count"])
 
 
@@ -185,6 +216,27 @@ def test_create_assignment_command_rejects_non_teacher(tmp_path: Path) -> None:
     ]
 
 
+def test_create_assignment_command_allows_family_member_without_teacher_role(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    parent = make_user(814, "Parent")
+    child = make_user(815, "Child")
+    seed_family_content(parent, child)
+    manager = FakeDialogManager(parent)
+    message = FakeMessage(parent)
+
+    asyncio.run(create_assignment_flow(message, manager))
+
+    assert message.answers == []
+    assert manager.start_calls == [
+        {
+            "state": TeacherAssignmentDialogSG.source_mode,
+            "mode": StartMode.RESET_STACK,
+            "data": None,
+            "kwargs": {},
+        }
+    ]
+
+
 def test_simple_mode_recipient_list_includes_self_and_other_family_members(
     tmp_path: Path,
     monkeypatch,
@@ -199,6 +251,17 @@ def test_simple_mode_recipient_list_includes_self_and_other_family_members(
     recipients = list_assignment_recipients(teacher.id)
 
     assert [recipient["student_user_id"] for recipient in recipients] == [teacher.id, student.id]
+
+
+def test_family_recipient_list_uses_family_members_without_workspace_model(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    parent = make_user(816, "Parent")
+    child = make_user(817, "Child")
+    seed_family_content(parent, child)
+
+    recipients = list_assignment_recipients(parent.id)
+
+    assert [recipient["student_user_id"] for recipient in recipients] == [child.id, parent.id]
 
 
 def test_topic_path_shows_summary_then_confirm_without_persisting_before_confirm(tmp_path: Path) -> None:
@@ -310,3 +373,28 @@ def test_confirm_creates_expected_assignments_after_recipient_selection(tmp_path
     assert manager.done_calls == [{"result": {"assignment_count": 2}, "show_mode": ShowMode.SEND}]
     assert len(bot.sent_messages) == 2
     assert message.answers == ["Assignments created: 2."]
+
+
+def test_family_confirm_creates_family_homework_assignments(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    parent = make_user(818, "Parent")
+    child = make_user(819, "Child")
+    _, _, topic_id = seed_family_content(parent, child)
+    manager = FakeDialogManager(parent)
+    bot = FakeBot()
+    message = FakeMessage(parent, bot=bot, message_id=111)
+    manager.dialog_data.update(
+        {
+            "source_mode": "topic",
+            "workspace_id": 1_000_000_001,
+            "topic_id": topic_id,
+            "selected_recipient_user_ids": [child.id],
+        }
+    )
+
+    asyncio.run(confirm_assignment(SimpleNamespace(message=message), None, manager))
+
+    assert count_assignments() == 0
+    assert count_family_assignments() == 1
+    assert manager.done_calls == [{"result": {"assignment_count": 1}, "show_mode": ShowMode.SEND}]
+    assert len(bot.sent_messages) == 1

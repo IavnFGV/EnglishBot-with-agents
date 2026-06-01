@@ -133,10 +133,15 @@ ALL_COMMANDS = (
 
 
 def get_registered_commands() -> tuple[CommandDefinition, ...]:
-    return tuple(
-        command
-        for command in ALL_COMMANDS
-        if command.register_after_startup
+    return (
+        START_COMMAND,
+        LEARN_COMMAND,
+        ME_COMMAND,
+        SETTINGS_COMMAND,
+        CANCEL_COMMAND,
+        CREATE_ASSIGNMENT_COMMAND,
+        TOPICS_COMMAND,
+        TEACHER_CONTENT_COMMAND,
     )
 
 

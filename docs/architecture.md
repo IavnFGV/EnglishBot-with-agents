@@ -39,6 +39,7 @@
 - Admin bootstrap: `/admin` lets one env-configured super-admin prepare a small family/team setup by granting teacher role, ensuring personal teacher/student workspaces, and linking users into a shared student workspace without requiring invite/join first.
 - Teacher authoring: `/teacher_content` edits teacher workspaces, topics, items, translations, and linked assets through aiogram-dialog.
 - Assignment creation: direct `/assign` and dialog-based `/create_assignment` both end in persisted homework assignments.
+- During the family-first rebuild, the same dialogs can also target family-owned topics and family homework assignments without routing through teacher/student workspace publish flows.
 - Topic access: `/granttopic` publishes a teacher topic into the shared student workspace and grants access; learners open it with `/topics`.
 - During the family-first rebuild, `/topics` can also resolve family-owned shared topics directly from `topics.family_id` plus `topic_items`, without going through the legacy topic-grant table.
 - Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`.
@@ -49,6 +50,7 @@
 - Telegram handlers and dialogs should only validate transport input, call domain functions, and render UI.
 - Bot-facing text belongs in `i18n.py`.
 - Command definitions belong in `command_registry.py`.
+- The default registered command set is intentionally narrower than the full legacy command constant list during the rebuild, so family-first commands stay primary while older maintenance paths remain callable only when needed.
 
 ## Persistence summary
 - Schema bootstrap and migrations live in `db.py`.

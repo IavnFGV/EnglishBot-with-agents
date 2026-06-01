@@ -6,6 +6,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.families import add_family_member, create_family
 from englishbot.teacher_content import (
     TeacherContentAccessError,
     build_teacher_topic_editor_snapshot,
@@ -88,6 +89,54 @@ def test_teacher_content_simple_mode_uses_single_family_workspaces(
     assert created["name"] == "Family Teacher Workspace"
     assert workspaces == [{"id": created["id"], "name": "Family Teacher Workspace"}]
     assert targets == [{"id": targets[0]["id"], "name": "Family Student Workspace"}]
+
+
+def test_teacher_content_family_mode_uses_family_workspace_and_topics(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = type("User", (), {
+        "id": 161,
+        "username": "family",
+        "first_name": "Family",
+        "last_name": None,
+    })()
+    db.save_user(user)
+    family = create_family("Home", 161)
+    add_family_member(int(family["id"]), 161)
+
+    created = create_teacher_workspace_for_user(161, "Ignored")
+    topic = create_teacher_topic(161, int(created["id"]), "Pets")
+    topics = list_teacher_workspace_topics(161, int(created["id"]))
+
+    assert created["name"] == "Home"
+    assert topics == [
+        {
+            "id": topic["id"],
+            "name": "pets",
+            "title": "Pets",
+            "item_count": 0,
+        }
+    ]
+
+
+def test_teacher_content_family_topic_item_creation_updates_family_editor_snapshot(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = type("User", (), {
+        "id": 162,
+        "username": "family",
+        "first_name": "Family",
+        "last_name": None,
+    })()
+    db.save_user(user)
+    family = create_family("Home", 162)
+    workspace_id = 1_000_000_000 + int(family["id"])
+    topic = create_teacher_topic(162, workspace_id, "Pets")
+
+    item = create_teacher_topic_item(162, workspace_id, int(topic["id"]), "cat")
+    snapshot = build_teacher_topic_editor_snapshot(162, workspace_id, int(topic["id"]))
+
+    assert item["learning_item_id"] > 0
+    assert snapshot["item_count"] == 1
+    assert snapshot["current_item"]["headword"] == "cat"
 
 
 def test_teacher_can_browse_and_create_topics(tmp_path: Path) -> None:

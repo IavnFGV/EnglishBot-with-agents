@@ -10,6 +10,7 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.families import create_family
 from englishbot.teacher_content_dialog import (
     TeacherContentDialogSG,
     choose_field,
@@ -190,6 +191,27 @@ def test_teacher_content_command_rejects_non_teacher(tmp_path: Path) -> None:
     assert manager.start_calls == []
     assert message.answers == [
         "Command /teacher_content is available only to users with the teacher role."
+    ]
+
+
+def test_teacher_content_command_allows_family_member_without_teacher_role(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(108, "Family")
+    db.save_user(user)
+    create_family("Home", user.id)
+    manager = FakeDialogManager(user)
+    message = FakeMessage(user)
+
+    asyncio.run(teacher_content(message, manager))
+
+    assert message.answers == []
+    assert manager.start_calls == [
+        {
+            "state": TeacherContentDialogSG.workspaces,
+            "mode": StartMode.RESET_STACK,
+            "data": None,
+            "kwargs": {},
+        }
     ]
 
 

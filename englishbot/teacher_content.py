@@ -13,6 +13,14 @@ from .assets import (
 )
 from .db import get_connection, utc_now
 from .config import is_simple_mode_enabled
+from .families import (
+    create_family_learning_item,
+    create_family_topic,
+    get_user_family,
+    list_family_learning_items,
+    list_family_topics,
+    replace_topic_items as replace_family_topic_items,
+)
 from .simple_mode import (
     get_simple_mode_student_workspace,
     get_simple_mode_teacher_workspace,
@@ -53,6 +61,7 @@ EDITOR_PAGE_SIZE = 25
 VISIBLE_ITEM_WINDOW_SIZE = 10
 SHOW_ALL_THRESHOLD = 10
 TRANSLATION_LANGUAGE_CODES = ("ru", "uk", "bg")
+FAMILY_WORKSPACE_ID_OFFSET = 1_000_000_000
 
 
 class TeacherContentAccessError(Exception):
@@ -64,6 +73,15 @@ class TeacherContentPublishTargetError(Exception):
 
 
 def list_teacher_browsable_workspaces(teacher_user_id: int) -> list[dict[str, object]]:
+    family = get_user_family(teacher_user_id)
+    if family is not None:
+        family_id = int(family["id"])
+        return [
+            {
+                "id": _family_workspace_id(family_id),
+                "name": str(family["name"] or "Family"),
+            }
+        ]
     if is_simple_mode_enabled():
         workspace = get_simple_mode_teacher_workspace()
         return [
@@ -87,6 +105,12 @@ def create_teacher_workspace_for_user(
     teacher_user_id: int,
     name: str,
 ) -> dict[str, object]:
+    family = get_user_family(teacher_user_id)
+    if family is not None:
+        return {
+            "id": _family_workspace_id(int(family["id"])),
+            "name": str(family["name"] or "Family"),
+        }
     if is_simple_mode_enabled():
         workspace = get_simple_mode_teacher_workspace()
         return {
@@ -108,6 +132,17 @@ def list_teacher_workspace_topics(
     teacher_user_id: int,
     workspace_id: int,
 ) -> list[dict[str, object]]:
+    family_id = _workspace_family_id(workspace_id)
+    if family_id is not None:
+        return [
+            {
+                "id": int(topic["id"]),
+                "name": str(topic["name"]),
+                "title": str(topic["title"]),
+                "item_count": len(_get_family_topic_learning_items(int(topic["id"]))),
+            }
+            for topic in list_family_topics(family_id)
+        ]
     _ensure_teacher_workspace_access(teacher_user_id, workspace_id)
     return [
         {
@@ -125,6 +160,23 @@ def create_teacher_topic(
     workspace_id: int,
     title: str,
 ) -> dict[str, object]:
+    family_id = _workspace_family_id(workspace_id)
+    if family_id is not None:
+        family = get_user_family(teacher_user_id)
+        if family is None or int(family["id"]) != family_id:
+            raise TeacherContentAccessError
+        normalized_title = title.strip()
+        if not normalized_title:
+            raise ValueError("topic title is required")
+        topic_name = _build_unique_family_topic_name(family_id, normalized_title)
+        topic_id = create_family_topic(family_id, topic_name, normalized_title)
+        return {
+            "id": topic_id,
+            "name": topic_name,
+            "title": normalized_title,
+            "workspace_id": workspace_id,
+            "workspace_name": str(family["name"] or "Family"),
+        }
     workspace = _ensure_teacher_workspace_access(teacher_user_id, workspace_id)
     normalized_title = title.strip()
     if not normalized_title:
@@ -154,8 +206,13 @@ def build_teacher_topic_editor_snapshot(
     page: int = 0,
 ) -> dict[str, object]:
     workspace, topic = _ensure_teacher_topic_access(teacher_user_id, workspace_id, topic_id)
-    all_learning_items = get_learning_items_for_topic(topic_id, include_archived=True)
-    learning_items = get_learning_items_for_topic(topic_id)
+    family_id = _workspace_family_id(workspace_id)
+    if family_id is not None:
+        all_learning_items = _get_family_topic_learning_items(topic_id)
+        learning_items = all_learning_items
+    else:
+        all_learning_items = get_learning_items_for_topic(topic_id, include_archived=True)
+        learning_items = get_learning_items_for_topic(topic_id)
     item_ids = [int(learning_item["id"]) for learning_item in learning_items]
     item_count = len(learning_items)
 
@@ -250,7 +307,12 @@ def build_teacher_topic_full_list_overview(
     topic_id: int,
 ) -> dict[str, object]:
     _, topic = _ensure_teacher_topic_access(teacher_user_id, workspace_id, topic_id)
-    learning_items = get_learning_items_for_topic(topic_id)
+    family_id = _workspace_family_id(workspace_id)
+    learning_items = (
+        _get_family_topic_learning_items(topic_id)
+        if family_id is not None
+        else get_learning_items_for_topic(topic_id)
+    )
     rows = []
     for learning_item in learning_items:
         current_item = _build_editor_current_item(learning_item)
@@ -278,6 +340,13 @@ def create_teacher_topic_item(
     if not normalized_text:
         raise ValueError("item text is required")
     lexeme_id = create_lexeme(normalized_text)
+    family_id = _workspace_family_id(workspace_id)
+    if family_id is not None:
+        learning_item_id = create_family_learning_item(family_id, lexeme_id, normalized_text)
+        learning_item_ids = _get_family_topic_learning_item_ids(topic_id)
+        learning_item_ids.append(learning_item_id)
+        replace_family_topic_items(topic_id, learning_item_ids)
+        return {"learning_item_id": learning_item_id}
     learning_item_id = create_learning_item_for_teacher_workspace(
         teacher_user_id,
         int(topic["workspace_id"]),
@@ -415,6 +484,8 @@ def archive_teacher_topic_item(
 
 
 def list_teacher_publish_targets(teacher_user_id: int) -> list[dict[str, object]]:
+    if get_user_family(teacher_user_id) is not None:
+        return []
     if is_simple_mode_enabled():
         workspace = get_simple_mode_student_workspace()
         return [
@@ -440,6 +511,8 @@ def publish_teacher_topic_to_workspace(
     topic_id: int,
     target_workspace_id: int,
 ) -> dict[str, object]:
+    if _workspace_family_id(workspace_id) is not None:
+        raise TeacherContentPublishTargetError
     _, topic = _ensure_teacher_topic_access(teacher_user_id, workspace_id, topic_id)
     target_workspace = get_workspace(target_workspace_id)
     if target_workspace is None or str(target_workspace["kind"]) != WORKSPACE_KIND_STUDENT:
@@ -497,6 +570,12 @@ def get_teacher_topic_preview(
 
 
 def _ensure_teacher_workspace_access(teacher_user_id: int, workspace_id: int):
+    family_id = _workspace_family_id(workspace_id)
+    if family_id is not None:
+        family = get_user_family(teacher_user_id)
+        if family is None or int(family["id"]) != family_id:
+            raise TeacherContentAccessError
+        return {"id": workspace_id, "name": str(family["name"] or "Family")}
     try:
         return ensure_teacher_can_edit_workspace_content(workspace_id, teacher_user_id)
     except (
@@ -514,6 +593,11 @@ def _ensure_teacher_topic_access(
 ):
     workspace = _ensure_teacher_workspace_access(teacher_user_id, workspace_id)
     topic = get_topic(topic_id)
+    family_id = _workspace_family_id(workspace_id)
+    if family_id is not None:
+        if topic is None or topic["family_id"] is None or int(topic["family_id"]) != family_id:
+            raise TeacherContentAccessError
+        return workspace, topic
     if topic is None or int(topic["workspace_id"]) != workspace_id:
         raise TeacherContentAccessError
     return workspace, topic
@@ -527,12 +611,18 @@ def _ensure_teacher_topic_item_access(
 ):
     _, topic = _ensure_teacher_topic_access(teacher_user_id, workspace_id, topic_id)
     learning_item = get_learning_item(learning_item_id)
-    if learning_item is None or int(learning_item["workspace_id"]) != workspace_id:
-        raise TeacherContentAccessError
-    topic_item_ids = {
-        int(item["id"])
-        for item in get_learning_items_for_topic(int(topic["id"]))
-    }
+    family_id = _workspace_family_id(workspace_id)
+    if family_id is not None:
+        if learning_item is None or learning_item["family_id"] is None or int(learning_item["family_id"]) != family_id:
+            raise TeacherContentAccessError
+        topic_item_ids = {int(item["id"]) for item in _get_family_topic_learning_items(int(topic["id"]))}
+    else:
+        if learning_item is None or int(learning_item["workspace_id"]) != workspace_id:
+            raise TeacherContentAccessError
+        topic_item_ids = {
+            int(item["id"])
+            for item in get_learning_items_for_topic(int(topic["id"]))
+        }
     if learning_item_id not in topic_item_ids:
         raise TeacherContentAccessError
     return learning_item
@@ -548,6 +638,52 @@ def _build_unique_topic_name(workspace_id: int, title: str) -> str:
         candidate = f"{base_name}-{suffix}"
         suffix += 1
     return candidate
+
+
+def _build_unique_family_topic_name(family_id: int, title: str) -> str:
+    base_name = re.sub(r"[^a-z0-9]+", "-", title.strip().lower()).strip("-")
+    if not base_name:
+        base_name = "topic"
+    candidate = base_name
+    suffix = 2
+    existing_names = {str(topic["name"]) for topic in list_family_topics(family_id)}
+    while candidate in existing_names:
+        candidate = f"{base_name}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _family_workspace_id(family_id: int) -> int:
+    return FAMILY_WORKSPACE_ID_OFFSET + family_id
+
+
+def _workspace_family_id(workspace_id: int) -> int | None:
+    if workspace_id >= FAMILY_WORKSPACE_ID_OFFSET:
+        return workspace_id - FAMILY_WORKSPACE_ID_OFFSET
+    return None
+
+
+def _get_family_topic_learning_item_ids(topic_id: int) -> list[int]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT learning_item_id
+            FROM topic_items
+            WHERE topic_id = ?
+            ORDER BY id
+            """,
+            (topic_id,),
+        ).fetchall()
+    return [int(row["learning_item_id"]) for row in rows]
+
+
+def _get_family_topic_learning_items(topic_id: int) -> list[dict[str, object]]:
+    learning_items: list[dict[str, object]] = []
+    for learning_item_id in _get_family_topic_learning_item_ids(topic_id):
+        learning_item = get_learning_item(learning_item_id)
+        if learning_item is not None and int(learning_item["is_archived"]) == 0:
+            learning_items.append(learning_item)
+    return learning_items
 
 
 def _build_editor_current_item(learning_item) -> dict[str, object]:
