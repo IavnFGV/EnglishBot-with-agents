@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-01
+- Removed the dead `/admin` configuration tail after deleting the admin runtime: `englishbot/config.py` no longer exposes `get_admin_telegram_user_id`, `.env.example` no longer documents `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID`, and the focused bootstrap logging test no longer seeds that legacy env var.
 - Deleted the old Telegram-only legacy entrypoint layer entirely: removed `admin_handlers.py`, `teacher_handlers.py`, `workbook_handlers.py`, and their focused handler tests, then trimmed `englishbot/command_registry.py` down so its canonical command list now matches the active family-first runtime instead of preserving dead `/invite`, `/join`, `/assign`, `/granttopic`, `/admin`, and workbook command definitions.
 - Removed legacy admin/teacher/workbook handlers from the active bot wiring in `englishbot/bot.py`, which was the first runtime step before deleting those Telegram entrypoints outright.
 - Runtime-gated several legacy entry points for family users in `teacher_handlers.py`, `admin_handlers.py`, and `workbook_handlers.py`: `/invite`, `/join`, `/assign`, `/granttopic`, `/admin`, and workbook import/export now respond with a family-first deprecation message instead of opening old flows for family setups.

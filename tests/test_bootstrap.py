@@ -276,7 +276,6 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
             message = message % args
         log_messages.append(message)
 
-    monkeypatch.setenv("ENGLISHBOT_ADMIN_TELEGRAM_USER_ID", "777")
     monkeypatch.setenv("ENGLISHBOT_ENV_NAME", "production")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "real-secret-token")
     monkeypatch.setenv("API_KEY", "super-secret-key")
@@ -294,7 +293,6 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
     asyncio.run(bootstrap.run())
 
     assert log_messages[0].startswith("EnglishBot startup environment: ")
-    assert "ENGLISHBOT_ADMIN_TELEGRAM_USER_ID=777" in log_messages[0]
     assert "ENGLISHBOT_ENV_NAME=production" in log_messages[0]
     assert "TELEGRAM_BOT_TOKEN=real-secret-token" in log_messages[0]
     assert "API_KEY=super-secret-key" in log_messages[0]
