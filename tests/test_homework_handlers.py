@@ -16,12 +16,7 @@ from englishbot.families import (
     create_family_learning_item,
     create_homework_assignment as create_family_homework_assignment,
 )
-from englishbot.basic_topics_seed import (
-    resolve_basic_topic_learning_item_ids,
-    seed_basic_topics,
-)
 from englishbot.homework_dialog import HomeworkDialogSG
-from englishbot.homework import create_assignment
 from englishbot.homework_handlers import (
     HOMEWORK_OPEN_CALLBACK,
     build_homework_button,
@@ -29,8 +24,6 @@ from englishbot.homework_handlers import (
     start,
     start_homework,
 )
-from englishbot.teacher_student import create_invite, join_with_invite
-from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import (
     create_learning_item,
     create_learning_item_translation,
@@ -88,17 +81,6 @@ def setup_db(tmp_path: Path) -> None:
     db.init_db()
 
 
-def seed_linked_teacher_and_student() -> tuple[User, User]:
-    teacher = make_user(601, "Teacher")
-    student = make_user(602, "Student")
-    db.save_user(teacher)
-    db.save_user(student)
-    set_user_role(teacher.id, "teacher")
-    invite_code = create_invite(teacher.id)
-    join_with_invite(student.id, invite_code)
-    return teacher, student
-
-
 def seed_learning_item() -> int:
     lexeme_id = create_lexeme("apple")
     learning_item_id = create_learning_item(lexeme_id, "apple")
@@ -118,10 +100,11 @@ def seed_family_parent_and_child() -> tuple[sqlite3.Row, User, User]:
 
 def test_start_shows_homework_button_when_active_assignment_exists(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    learning_item_id = seed_learning_item()
-    create_assignment(teacher.id, student.id, [learning_item_id])
-    message = FakeMessage(student)
+    family, parent, child = seed_family_parent_and_child()
+    learning_item_id = create_family_learning_item(int(family["id"]), create_lexeme("apple-family"), "apple")
+    create_learning_item_translation(learning_item_id, "ru", "яблоко")
+    create_family_homework_assignment(int(family["id"]), parent.id, child.id, [learning_item_id])
+    message = FakeMessage(child)
 
     asyncio.run(start(message))
 
@@ -150,11 +133,18 @@ def test_start_shows_no_homework_message_without_assignments(tmp_path: Path) -> 
 
 def test_open_homework_starts_dialog_flow(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    learning_item_id = seed_learning_item()
-    create_assignment(teacher.id, student.id, [learning_item_id], title="Фрукты")
-    callback_message = FakeMessage(student)
-    callback = FakeCallback(student, HOMEWORK_OPEN_CALLBACK, callback_message)
+    family, parent, child = seed_family_parent_and_child()
+    learning_item_id = create_family_learning_item(int(family["id"]), create_lexeme("fruit-family"), "apple")
+    create_learning_item_translation(learning_item_id, "ru", "яблоко")
+    create_family_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        [learning_item_id],
+        title="Фрукты",
+    )
+    callback_message = FakeMessage(child)
+    callback = FakeCallback(child, HOMEWORK_OPEN_CALLBACK, callback_message)
     manager = FakeDialogManager()
 
     asyncio.run(open_homework(callback, manager))
@@ -173,19 +163,24 @@ def test_open_homework_starts_dialog_flow(tmp_path: Path) -> None:
 
 def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    seed_basic_topics()
-    learning_item_id = resolve_basic_topic_learning_item_ids("weekdays")[0]
-    assignment = create_assignment(
-        teacher.id,
-        student.id,
+    family, parent, child = seed_family_parent_and_child()
+    learning_item_id = create_family_learning_item(
+        int(family["id"]),
+        create_lexeme("weekday-family"),
+        "monday",
+    )
+    create_learning_item_translation(learning_item_id, "ru", "понедельник")
+    assignment_id = create_family_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
         [learning_item_id],
         title="Тестовая домашка",
     )
-    callback_message = FakeMessage(student)
+    callback_message = FakeMessage(child)
     callback = FakeCallback(
-        student,
-        f"homework:start:{assignment['assignment_id']}",
+        child,
+        f"homework:start:family:{assignment_id}",
         callback_message,
     )
 
@@ -195,7 +190,7 @@ def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
     assert len(callback_message.photo_answers) == 1
     assert callback_message.answers == [
         {
-            "text": "Hint: понедельник\nFirst letter: m",
+            "text": "Hint: понедельник\nFirst letter: w",
             "kwargs": {"reply_markup": None},
         }
     ]
@@ -203,19 +198,22 @@ def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
 
 def test_start_homework_progress_shows_item_statuses_for_multiple_items(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    seed_basic_topics()
-    learning_item_ids = resolve_basic_topic_learning_item_ids("weekdays")[:2]
-    assignment = create_assignment(
-        teacher.id,
-        student.id,
-        learning_item_ids,
+    family, parent, child = seed_family_parent_and_child()
+    first_item_id = create_family_learning_item(int(family["id"]), create_lexeme("day-one-family"), "monday")
+    second_item_id = create_family_learning_item(int(family["id"]), create_lexeme("day-two-family"), "tuesday")
+    create_learning_item_translation(first_item_id, "ru", "понедельник")
+    create_learning_item_translation(second_item_id, "ru", "вторник")
+    assignment_id = create_family_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        [first_item_id, second_item_id],
         title="Два слова",
     )
-    callback_message = FakeMessage(student)
+    callback_message = FakeMessage(child)
     callback = FakeCallback(
-        student,
-        f"homework:start:{assignment['assignment_id']}",
+        child,
+        f"homework:start:family:{assignment_id}",
         callback_message,
     )
 

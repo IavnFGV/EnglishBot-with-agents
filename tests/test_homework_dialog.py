@@ -9,7 +9,13 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.homework import create_assignment, start_assignment_training_session
+from englishbot.families import (
+    add_family_member,
+    create_family,
+    create_family_learning_item,
+    create_homework_assignment as create_family_homework_assignment,
+)
+from englishbot.homework import start_assignment_training_session
 from englishbot.homework_dialog import (
     HomeworkDialogSG,
     get_assignments_window_data,
@@ -17,15 +23,11 @@ from englishbot.homework_dialog import (
     launch_selected_homework,
     select_assignment,
 )
-from englishbot.teacher_student import create_invite, join_with_invite
 from englishbot.training import get_active_training_session, submit_training_answer
-from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import (
-    create_learning_item_for_teacher_workspace,
     create_learning_item_translation,
     create_lexeme,
 )
-from englishbot.workspaces import add_workspace_member
 
 
 class FakeDialogManager:
@@ -74,29 +76,21 @@ def setup_db(tmp_path: Path) -> None:
     db.init_db()
 
 
-def seed_linked_teacher_and_student() -> tuple[User, User]:
-    teacher = make_user(1001, "Teacher")
-    student = make_user(1002, "Student")
-    db.save_user(teacher)
-    db.save_user(student)
-    set_user_role(teacher.id, "teacher")
-    invite_code = create_invite(teacher.id)
-    join_with_invite(student.id, invite_code)
-    return teacher, student
+def seed_family_parent_and_child() -> tuple[User, User, int]:
+    parent = make_user(1001, "Parent")
+    child = make_user(1002, "Child")
+    db.save_user(parent)
+    db.save_user(child)
+    family = create_family("Home", parent.id)
+    add_family_member(int(family["id"]), child.id)
+    return parent, child, int(family["id"])
 
 
-def seed_teacher_learning_items(teacher_user_id: int, count: int, *, prefix: str) -> list[int]:
-    workspace_id = db.get_default_content_workspace_id()
-    add_workspace_member(workspace_id, teacher_user_id, "teacher")
+def seed_family_learning_items(family_id: int, count: int, *, prefix: str) -> list[int]:
     learning_item_ids: list[int] = []
     for index in range(count):
         lexeme_id = create_lexeme(f"{prefix}-{index + 1}")
-        learning_item_id = create_learning_item_for_teacher_workspace(
-            teacher_user_id,
-            workspace_id,
-            lexeme_id,
-            f"text-{index + 1}",
-        )
+        learning_item_id = create_family_learning_item(family_id, lexeme_id, f"text-{index + 1}")
         create_learning_item_translation(learning_item_id, "ru", f"слово-{index + 1}")
         learning_item_ids.append(learning_item_id)
     return learning_item_ids
@@ -104,22 +98,24 @@ def seed_teacher_learning_items(teacher_user_id: int, count: int, *, prefix: str
 
 def test_assignments_window_renders_titles_progress_and_selection_indexes(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    create_assignment(
-        teacher.id,
-        student.id,
-        seed_teacher_learning_items(teacher.id, 2, prefix="dialog-fresh"),
+    parent, child, family_id = seed_family_parent_and_child()
+    create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        seed_family_learning_items(family_id, 2, prefix="dialog-fresh"),
         title="Fresh",
     )
-    resumable = create_assignment(
-        teacher.id,
-        student.id,
-        seed_teacher_learning_items(teacher.id, 1, prefix="dialog-resume"),
+    resumable_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        seed_family_learning_items(family_id, 1, prefix="dialog-resume"),
         title="Resume me",
     )
-    start_assignment_training_session(student.id, int(resumable["assignment_id"]))
-    submit_training_answer(student.id, "dialog-resume-1")
-    manager = FakeDialogManager(student)
+    start_assignment_training_session(child.id, f"family:{resumable_id}")
+    submit_training_answer(child.id, "dialog-resume-1")
+    manager = FakeDialogManager(child)
 
     view = asyncio.run(get_assignments_window_data(manager))
 
@@ -131,18 +127,19 @@ def test_assignments_window_renders_titles_progress_and_selection_indexes(tmp_pa
 
 def test_selecting_assignment_opens_overview_with_continue_state(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    assignment = create_assignment(
-        teacher.id,
-        student.id,
-        seed_teacher_learning_items(teacher.id, 1, prefix="dialog-overview"),
+    parent, child, family_id = seed_family_parent_and_child()
+    assignment_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        seed_family_learning_items(family_id, 1, prefix="dialog-overview"),
         title="Overview",
     )
-    start_assignment_training_session(student.id, int(assignment["assignment_id"]))
-    submit_training_answer(student.id, "dialog-overview-1")
-    manager = FakeDialogManager(student)
+    start_assignment_training_session(child.id, f"family:{assignment_id}")
+    submit_training_answer(child.id, "dialog-overview-1")
+    manager = FakeDialogManager(child)
 
-    asyncio.run(select_assignment(None, None, manager, str(assignment["assignment_id"])))
+    asyncio.run(select_assignment(None, None, manager, f"family:{assignment_id}"))
     view = asyncio.run(get_overview_window_data(manager))
 
     assert manager.switch_calls == [
@@ -158,24 +155,26 @@ def test_selecting_assignment_opens_overview_with_continue_state(tmp_path: Path)
 
 def test_launch_selected_homework_reuses_existing_session(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    assignment = create_assignment(
-        teacher.id,
-        student.id,
-        seed_teacher_learning_items(teacher.id, 1, prefix="dialog-reuse"),
+    parent, child, family_id = seed_family_parent_and_child()
+    assignment_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        seed_family_learning_items(family_id, 1, prefix="dialog-reuse"),
         title="Reuse session",
     )
-    started = start_assignment_training_session(student.id, int(assignment["assignment_id"]))
-    submit_training_answer(student.id, "dialog-reuse-1")
-    first_session = get_active_training_session(student.id)
-    manager = FakeDialogManager(student)
-    manager.dialog_data["assignment_id"] = int(assignment["assignment_id"])
-    message = FakeMessage(student)
-    callback = SimpleNamespace(from_user=student, message=message)
+    started = start_assignment_training_session(child.id, f"family:{assignment_id}")
+    submit_training_answer(child.id, "dialog-reuse-1")
+    first_session = get_active_training_session(child.id)
+    manager = FakeDialogManager(child)
+    manager.dialog_data["assignment_key"] = f"family:{assignment_id}"
+    manager.dialog_data["assignment_id"] = assignment_id
+    message = FakeMessage(child)
+    callback = SimpleNamespace(from_user=child, message=message)
 
     asyncio.run(launch_selected_homework(callback, None, manager))
 
-    active_session = get_active_training_session(student.id)
+    active_session = get_active_training_session(child.id)
     assert started["resumed"] is False
     assert first_session is not None
     assert active_session is not None

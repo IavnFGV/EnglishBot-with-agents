@@ -74,6 +74,7 @@ Current status:
 - `/learn` is already connected to family-owned learning items when the user belongs to a family.
 - learner homework now supports both legacy and family-first assignments during the rebuild.
 - family homework uses its own `family_homework_assignment_id` in `training_sessions`, instead of pretending to be a legacy workspace assignment.
+- the focused learner-homework UI tests now launch family homework directly, which reduces the remaining invite/join dependency to older workspace-first domain coverage instead of active learner UX coverage.
 - `/topics` now also supports family-owned topics directly for family members, without topic grants.
 - `/teacher_content` and `/create_assignment` now have a family-first authoring path: family members can work against one shared family content surface instead of teacher workspaces.
 - the main bot command list is now trimmed to family-first commands only.
