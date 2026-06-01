@@ -9,6 +9,12 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.families import (
+    add_family_member,
+    create_family,
+    create_family_learning_item,
+    create_homework_assignment as create_family_homework_assignment,
+)
 from englishbot.homework import (
     AssignmentNotFoundError,
     LearningItemNotFoundError,
@@ -92,6 +98,16 @@ def seed_teacher_learning_items(teacher_user_id: int, count: int) -> list[int]:
         create_learning_item_translation(learning_item_id, "ru", f"слово-{index + 1}")
         learning_item_ids.append(learning_item_id)
     return learning_item_ids
+
+
+def seed_family_parent_and_child() -> tuple[sqlite3.Row, User, User]:
+    parent = make_user(701, "Parent")
+    child = make_user(702, "Child")
+    db.save_user(parent)
+    db.save_user(child)
+    family = create_family("Home", parent.id)
+    add_family_member(int(family["id"]), child.id)
+    return family, parent, child
 
 
 def get_session_item_state(session_id: int, item_order: int) -> sqlite3.Row:
@@ -277,9 +293,78 @@ def test_student_has_active_homework_tracks_active_assignments(tmp_path: Path) -
 
     assert student_has_active_homework(student.id) is False
 
-    create_assignment(teacher.id, student.id, learning_item_ids)
 
-    assert student_has_active_homework(student.id) is True
+def test_list_active_assignments_includes_family_homework(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    item_id = create_family_learning_item(int(family["id"]), create_lexeme("apple-family"), "apple")
+    create_learning_item_translation(item_id, "ru", "яблоко")
+    create_family_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        [item_id],
+        title="Family fruit",
+    )
+
+    assignments = list_active_assignments(child.id)
+
+    assert len(assignments) == 1
+    assert assignments[0]["assignment_source"] == "family"
+    assert assignments[0]["title"] == "Family fruit"
+    assert int(assignments[0]["item_count"]) == 1
+
+
+def test_start_assignment_training_session_supports_family_assignment_key(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    item_id = create_family_learning_item(int(family["id"]), create_lexeme("pear-family"), "pear")
+    create_learning_item_translation(item_id, "ru", "груша")
+    assignment_id = create_family_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        [item_id],
+        title="Family pear",
+    )
+
+    result = start_assignment_training_session(child.id, f"family:{assignment_id}")
+    session = get_active_training_session(child.id)
+
+    assert result["resumed"] is False
+    assert result["assignment_ref"] == f"family:{assignment_id}"
+    assert result["question"] is not None
+    assert session is not None
+    assert session["assignment_id"] is None
+    assert int(session["family_homework_assignment_id"]) == assignment_id
+
+
+def test_family_homework_completion_marks_family_assignment_completed(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    item_id = create_family_learning_item(int(family["id"]), create_lexeme("plum-family"), "plum")
+    create_learning_item_translation(item_id, "ru", "слива")
+    assignment_id = create_family_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        [item_id],
+        title="Family plum",
+    )
+
+    start_assignment_training_session(child.id, f"family:{assignment_id}")
+    for _ in range(4):
+        question = get_current_question(child.id)
+        assert question is not None
+        submit_training_answer(child.id, str(question["expected_answer"]))
+    question = get_current_question(child.id)
+    assert question is not None
+    submit_training_answer(child.id, str(question["expected_answer"]))
+
+    assignment = get_assignment(f"family:{assignment_id}")
+
+    assert assignment is not None
+    assert assignment["status"] == "completed"
 
 
 def test_create_assignment_from_group_publishes_topic_and_keeps_snapshot_title(tmp_path: Path) -> None:

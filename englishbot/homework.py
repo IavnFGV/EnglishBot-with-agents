@@ -1,6 +1,7 @@
 import sqlite3
 
 from .db import get_connection, utc_now
+from .families import get_user_family
 from .topics import find_topic_by_name_for_teacher_workspace, publish_topic_to_workspace
 from .training import (
     HARD_STAGE,
@@ -8,6 +9,7 @@ from .training import (
     MEDIUM_STAGE,
     create_training_session_for_learning_items,
     find_latest_incomplete_assignment_training_session,
+    find_latest_incomplete_family_homework_training_session,
     get_item_progress_status,
     get_current_question,
     resume_training_session,
@@ -27,6 +29,8 @@ from .workspaces import (
 
 ACTIVE_STATUS = "active"
 COMPLETED_STATUS = "completed"
+ASSIGNMENT_SOURCE_LEGACY = "legacy"
+ASSIGNMENT_SOURCE_FAMILY = "family"
 ASSIGNMENT_KIND_HOMEWORK = "homework"
 ASSIGNMENT_MODE_STAGED_DEFAULT = "staged_default"
 SUPPORTED_ASSIGNMENT_KINDS = {ASSIGNMENT_KIND_HOMEWORK}
@@ -165,11 +169,22 @@ def create_assignment_from_group(
 
 
 def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
+    legacy_assignments = _list_active_legacy_assignments(student_user_id)
+    family_assignments = _list_active_family_assignments(student_user_id)
+    combined = legacy_assignments + family_assignments
+    return sorted(
+        combined,
+        key=lambda row: (str(row["created_at"]), int(row["id"])),
+    )
+
+
+def _list_active_legacy_assignments(student_user_id: int) -> list[sqlite3.Row]:
     with get_connection() as connection:
         return connection.execute(
             """
             SELECT
                 assignments.id,
+                'legacy' AS assignment_source,
                 assignments.workspace_id,
                 assignments.teacher_user_id,
                 assignments.student_user_id,
@@ -199,12 +214,77 @@ def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def get_assignment(assignment_id: int) -> sqlite3.Row | None:
+def _list_active_family_assignments(student_user_id: int) -> list[sqlite3.Row]:
+    family = get_user_family(student_user_id)
+    if family is None:
+        return []
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT
+                homework_assignments.id,
+                'family' AS assignment_source,
+                NULL AS workspace_id,
+                homework_assignments.assigned_by_user_id AS teacher_user_id,
+                homework_assignments.assigned_to_user_id AS student_user_id,
+                homework_assignments.title,
+                'homework' AS assignment_kind,
+                'staged_default' AS assignment_mode,
+                homework_assignments.status,
+                homework_assignments.created_at,
+                homework_assignments.updated_at,
+                homework_assignments.completed_at,
+                COUNT(homework_assignment_items.id) AS item_count
+            FROM homework_assignments
+            LEFT JOIN homework_assignment_items
+              ON homework_assignment_items.homework_assignment_id = homework_assignments.id
+            WHERE homework_assignments.family_id = ?
+              AND homework_assignments.assigned_to_user_id = ?
+              AND homework_assignments.status = ?
+            GROUP BY homework_assignments.id
+            ORDER BY homework_assignments.id
+            """,
+            (int(family["id"]), student_user_id, ACTIVE_STATUS),
+        ).fetchall()
+
+
+def build_assignment_key(source: str, assignment_id: int) -> str:
+    return f"{source}:{assignment_id}"
+
+
+def parse_assignment_ref(assignment_ref: int | str) -> tuple[str, int]:
+    if isinstance(assignment_ref, int):
+        return ASSIGNMENT_SOURCE_LEGACY, assignment_ref
+    value = str(assignment_ref).strip()
+    if not value:
+        raise AssignmentNotFoundError
+    if ":" not in value:
+        if not value.isdigit():
+            raise AssignmentNotFoundError
+        return ASSIGNMENT_SOURCE_LEGACY, int(value)
+    source, raw_id = value.split(":", 1)
+    normalized_source = source.strip().lower()
+    if normalized_source not in {ASSIGNMENT_SOURCE_LEGACY, ASSIGNMENT_SOURCE_FAMILY}:
+        raise AssignmentNotFoundError
+    if not raw_id.strip().isdigit():
+        raise AssignmentNotFoundError
+    return normalized_source, int(raw_id.strip())
+
+
+def get_assignment(assignment_ref: int | str) -> sqlite3.Row | None:
+    assignment_source, assignment_id = parse_assignment_ref(assignment_ref)
+    if assignment_source == ASSIGNMENT_SOURCE_FAMILY:
+        return _get_family_assignment(assignment_id)
+    return _get_legacy_assignment(assignment_id)
+
+
+def _get_legacy_assignment(assignment_id: int) -> sqlite3.Row | None:
     with get_connection() as connection:
         return connection.execute(
             """
             SELECT
                 id,
+                'legacy' AS assignment_source,
                 workspace_id,
                 teacher_user_id,
                 student_user_id,
@@ -222,7 +302,39 @@ def get_assignment(assignment_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
-def get_assignment_learning_item_ids(assignment_id: int) -> list[int]:
+def _get_family_assignment(assignment_id: int) -> sqlite3.Row | None:
+    with get_connection() as connection:
+        return connection.execute(
+            """
+            SELECT
+                id,
+                'family' AS assignment_source,
+                NULL AS workspace_id,
+                family_id,
+                assigned_by_user_id AS teacher_user_id,
+                assigned_to_user_id AS student_user_id,
+                title,
+                'homework' AS assignment_kind,
+                'staged_default' AS assignment_mode,
+                status,
+                created_at,
+                updated_at,
+                completed_at
+            FROM homework_assignments
+            WHERE id = ?
+            """,
+            (assignment_id,),
+        ).fetchone()
+
+
+def get_assignment_learning_item_ids(assignment_ref: int | str) -> list[int]:
+    assignment_source, assignment_id = parse_assignment_ref(assignment_ref)
+    if assignment_source == ASSIGNMENT_SOURCE_FAMILY:
+        return _get_family_assignment_learning_item_ids(assignment_id)
+    return _get_legacy_assignment_learning_item_ids(assignment_id)
+
+
+def _get_legacy_assignment_learning_item_ids(assignment_id: int) -> list[int]:
     with get_connection() as connection:
         rows = connection.execute(
             """
@@ -236,32 +348,58 @@ def get_assignment_learning_item_ids(assignment_id: int) -> list[int]:
     return [int(row["learning_item_id"]) for row in rows]
 
 
+def _get_family_assignment_learning_item_ids(assignment_id: int) -> list[int]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT learning_item_id
+            FROM homework_assignment_items
+            WHERE homework_assignment_id = ?
+            ORDER BY item_order
+            """,
+            (assignment_id,),
+        ).fetchall()
+    return [int(row["learning_item_id"]) for row in rows]
+
+
 def student_has_active_homework(student_user_id: int) -> bool:
     return bool(list_active_assignments(student_user_id))
 
 
 def start_assignment_training_session(
     student_user_id: int,
-    assignment_id: int,
+    assignment_ref: int | str,
 ) -> dict[str, object]:
-    assignment = get_assignment(assignment_id)
+    assignment_source, assignment_id = parse_assignment_ref(assignment_ref)
+    assignment = get_assignment(build_assignment_key(assignment_source, assignment_id))
     if assignment is None:
         raise AssignmentNotFoundError
     if int(assignment["student_user_id"]) != student_user_id:
         raise AssignmentNotFoundError
     if str(assignment["status"]) != ACTIVE_STATUS:
         raise AssignmentNotFoundError
-    if not user_is_workspace_member(int(assignment["workspace_id"]), student_user_id):
-        raise AssignmentNotFoundError
+    if assignment_source == ASSIGNMENT_SOURCE_LEGACY:
+        if not user_is_workspace_member(int(assignment["workspace_id"]), student_user_id):
+            raise AssignmentNotFoundError
+    else:
+        family = get_user_family(student_user_id)
+        if family is None or int(assignment["family_id"]) != int(family["id"]):
+            raise AssignmentNotFoundError
 
-    learning_item_ids = get_assignment_learning_item_ids(assignment_id)
+    learning_item_ids = get_assignment_learning_item_ids(build_assignment_key(assignment_source, assignment_id))
     if not learning_item_ids:
         raise EmptyAssignmentError
 
-    active_session = find_latest_incomplete_assignment_training_session(
-        student_user_id,
-        assignment_id,
-    )
+    if assignment_source == ASSIGNMENT_SOURCE_FAMILY:
+        active_session = find_latest_incomplete_family_homework_training_session(
+            student_user_id,
+            assignment_id,
+        )
+    else:
+        active_session = find_latest_incomplete_assignment_training_session(
+            student_user_id,
+            assignment_id,
+        )
     if active_session is not None:
         resumed_session = resume_training_session(int(active_session["id"]))
         if resumed_session is None:
@@ -272,19 +410,32 @@ def start_assignment_training_session(
             "question": get_current_question(student_user_id),
             "assignment_title": assignment["title"],
             "resumed": True,
+            "assignment_ref": build_assignment_key(assignment_source, assignment_id),
         }
 
     result = create_training_session_for_learning_items(
         student_user_id,
         learning_item_ids,
-        assignment_id=assignment_id,
+        assignment_id=assignment_id if assignment_source == ASSIGNMENT_SOURCE_LEGACY else None,
+        family_homework_assignment_id=(
+            assignment_id if assignment_source == ASSIGNMENT_SOURCE_FAMILY else None
+        ),
     )
     result["assignment_title"] = assignment["title"]
     result["resumed"] = False
+    result["assignment_ref"] = build_assignment_key(assignment_source, assignment_id)
     return result
 
 
-def mark_assignment_completed(assignment_id: int) -> None:
+def mark_assignment_completed(assignment_ref: int | str) -> None:
+    assignment_source, assignment_id = parse_assignment_ref(assignment_ref)
+    if assignment_source == ASSIGNMENT_SOURCE_FAMILY:
+        _mark_family_assignment_completed(assignment_id)
+        return
+    _mark_legacy_assignment_completed(assignment_id)
+
+
+def _mark_legacy_assignment_completed(assignment_id: int) -> None:
     with get_connection() as connection:
         connection.execute(
             """
@@ -301,17 +452,41 @@ def mark_assignment_completed(assignment_id: int) -> None:
         )
 
 
+def _mark_family_assignment_completed(assignment_id: int) -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE homework_assignments
+            SET status = ?, updated_at = ?, completed_at = ?
+            WHERE id = ?
+            """,
+            (
+                COMPLETED_STATUS,
+                utc_now(),
+                utc_now(),
+                assignment_id,
+            ),
+        )
+
+
 def get_active_assignment_training_session(
     student_user_id: int,
-    assignment_id: int,
+    assignment_ref: int | str,
 ) -> sqlite3.Row | None:
+    assignment_source, assignment_id = parse_assignment_ref(assignment_ref)
+    assignment_column = (
+        "family_homework_assignment_id"
+        if assignment_source == ASSIGNMENT_SOURCE_FAMILY
+        else "assignment_id"
+    )
     with get_connection() as connection:
         return connection.execute(
-            """
+            f"""
             SELECT
                 id,
                 telegram_user_id,
                 assignment_id,
+                family_homework_assignment_id,
                 current_index,
                 correct_answers,
                 total_questions,
@@ -322,7 +497,7 @@ def get_active_assignment_training_session(
                 updated_at
             FROM training_sessions
             WHERE telegram_user_id = ?
-              AND assignment_id = ?
+              AND {assignment_column} = ?
               AND status = ?
             ORDER BY id DESC
             LIMIT 1
@@ -332,19 +507,33 @@ def get_active_assignment_training_session(
 
 
 def get_assignment_progress_snapshot(
-    assignment_id: int,
+    assignment_ref: int | str,
     session_id: int,
 ) -> dict[str, object]:
-    assignment = get_assignment(assignment_id)
+    assignment_source, assignment_id = parse_assignment_ref(assignment_ref)
+    assignment = get_assignment(build_assignment_key(assignment_source, assignment_id))
     if assignment is None:
         raise AssignmentNotFoundError
 
+    assignment_column = (
+        "family_homework_assignment_id"
+        if assignment_source == ASSIGNMENT_SOURCE_FAMILY
+        else "assignment_id"
+    )
     with get_connection() as connection:
         session = connection.execute(
-            """
-            SELECT id, current_index, total_questions, status, homework_correct_streak, homework_hard_mode
+            f"""
+            SELECT
+                id,
+                assignment_id,
+                family_homework_assignment_id,
+                current_index,
+                total_questions,
+                status,
+                homework_correct_streak,
+                homework_hard_mode
             FROM training_sessions
-            WHERE id = ? AND assignment_id = ?
+            WHERE id = ? AND {assignment_column} = ?
             """,
             (session_id, assignment_id),
         ).fetchone()
@@ -403,6 +592,8 @@ def get_assignment_progress_snapshot(
 
     return {
         "assignment_id": int(assignment["id"]),
+        "assignment_ref": build_assignment_key(assignment_source, int(assignment["id"])),
+        "assignment_source": assignment_source,
         "assignment_title": assignment["title"],
         "assignment_kind": normalize_assignment_kind(assignment["assignment_kind"]),
         "assignment_mode": normalize_assignment_mode(assignment["assignment_mode"]),

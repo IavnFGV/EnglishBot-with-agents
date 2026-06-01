@@ -1034,6 +1034,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 telegram_user_id INTEGER NOT NULL,
                 assignment_id INTEGER,
+                family_homework_assignment_id INTEGER,
                 current_index INTEGER NOT NULL DEFAULT 0,
                 correct_answers INTEGER NOT NULL DEFAULT 0,
                 homework_correct_streak INTEGER NOT NULL DEFAULT 0,
@@ -1045,7 +1046,8 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id),
-                FOREIGN KEY (assignment_id) REFERENCES assignments (id)
+                FOREIGN KEY (assignment_id) REFERENCES assignments (id),
+                FOREIGN KEY (family_homework_assignment_id) REFERENCES homework_assignments (id)
             )
             """
         )
@@ -1055,6 +1057,13 @@ def init_db() -> None:
                 """
                 ALTER TABLE training_sessions
                 ADD COLUMN assignment_id INTEGER
+                """
+            )
+        if "family_homework_assignment_id" not in training_session_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_sessions
+                ADD COLUMN family_homework_assignment_id INTEGER
                 """
             )
         if "progress_message_id" not in training_session_columns:

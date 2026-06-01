@@ -41,6 +41,7 @@
 - Assignment creation: direct `/assign` and dialog-based `/create_assignment` both end in persisted homework assignments.
 - Topic access: `/granttopic` publishes a teacher topic into the shared student workspace and grants access; learners open it with `/topics`.
 - Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`.
+- During the family-first rebuild, `training_sessions` can point either to legacy workspace homework (`assignment_id`) or to new family homework (`family_homework_assignment_id`), while the staged exercise engine remains shared.
 
 ## Business logic vs Telegram/UI
 - Business logic belongs in focused domain modules under `englishbot/`.

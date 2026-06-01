@@ -72,7 +72,8 @@ Wave 2:
 
 Current status:
 - `/learn` is already connected to family-owned learning items when the user belongs to a family.
-- homework still needs its own migration slice because the legacy training session model stores `assignment_id` against the old homework table.
+- learner homework now supports both legacy and family-first assignments during the rebuild.
+- family homework uses its own `family_homework_assignment_id` in `training_sessions`, instead of pretending to be a legacy workspace assignment.
 
 Wave 3:
 - delete legacy entry points and modules that only exist for workspace and publish flows

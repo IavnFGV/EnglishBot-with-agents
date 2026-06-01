@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,12 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.families import (
+    add_family_member,
+    create_family,
+    create_family_learning_item,
+    create_homework_assignment as create_family_homework_assignment,
+)
 from englishbot.basic_topics_seed import (
     resolve_basic_topic_learning_item_ids,
     seed_basic_topics,
@@ -97,6 +104,16 @@ def seed_learning_item() -> int:
     learning_item_id = create_learning_item(lexeme_id, "apple")
     create_learning_item_translation(learning_item_id, "ru", "яблоко")
     return learning_item_id
+
+
+def seed_family_parent_and_child() -> tuple[sqlite3.Row, User, User]:
+    parent = make_user(701, "Parent")
+    child = make_user(702, "Child")
+    db.save_user(parent)
+    db.save_user(child)
+    family = create_family("Home", parent.id)
+    add_family_member(int(family["id"]), child.id)
+    return family, parent, child
 
 
 def test_start_shows_homework_button_when_active_assignment_exists(tmp_path: Path) -> None:
@@ -213,3 +230,29 @@ def test_build_homework_button_uses_homework_open_callback() -> None:
 
     assert keyboard.inline_keyboard[0][0].text == "Homework"
     assert keyboard.inline_keyboard[0][0].callback_data == HOMEWORK_OPEN_CALLBACK
+
+
+def test_start_homework_supports_family_assignment_callback(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    item_id = create_family_learning_item(int(family["id"]), create_lexeme("banana-family"), "banana")
+    create_learning_item_translation(item_id, "ru", "банан")
+    assignment_id = create_family_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        [item_id],
+        title="Family banana",
+    )
+    callback_message = FakeMessage(child)
+    callback = FakeCallback(
+        child,
+        f"homework:start:family:{assignment_id}",
+        callback_message,
+    )
+
+    asyncio.run(start_homework(callback))
+
+    assert callback.answered is True
+    assert len(callback_message.photo_answers) == 1
+    assert len(callback_message.answers) == 1

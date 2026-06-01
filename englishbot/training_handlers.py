@@ -42,11 +42,22 @@ TRAINING_HARD_SKIP_CALLBACK = "training:hard:skip"
 logger = logging.getLogger(__name__)
 
 
-def _get_session_assignment_id(session: object) -> int | None:
-    if hasattr(session, "keys") and "assignment_id" in session.keys():
-        assignment_id = session["assignment_id"]
+def _get_session_assignment_id(session: object) -> str | int | None:
+    if hasattr(session, "keys"):
+        keys = session.keys()
+        family_assignment_id = (
+            session["family_homework_assignment_id"]
+            if "family_homework_assignment_id" in keys
+            else None
+        )
+        if family_assignment_id is not None:
+            return f"family:{int(family_assignment_id)}"
+        assignment_id = session["assignment_id"] if "assignment_id" in keys else None
         return None if assignment_id is None else int(assignment_id)
     if isinstance(session, dict):
+        family_assignment_id = session.get("family_homework_assignment_id")
+        if family_assignment_id is not None:
+            return f"family:{int(family_assignment_id)}"
         assignment_id = session.get("assignment_id")
         return None if assignment_id is None else int(assignment_id)
     return None

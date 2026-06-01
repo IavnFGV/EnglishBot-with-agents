@@ -35,7 +35,8 @@ async def _on_assignment_selected(
     dialog_manager: DialogManager,
     assignment_id: str,
 ) -> None:
-    dialog_manager.dialog_data["assignment_id"] = int(assignment_id)
+    dialog_manager.dialog_data["assignment_key"] = assignment_id
+    dialog_manager.dialog_data["assignment_id"] = int(str(assignment_id).split(":")[-1])
     await dialog_manager.switch_to(HomeworkDialogSG.overview)
 
 
@@ -85,7 +86,7 @@ async def _launch_assignment(
     if callback.from_user is None or callback.message is None:
         return
 
-    assignment_id = _get_selected_assignment_id(dialog_manager)
+    assignment_id = _get_selected_assignment_ref(dialog_manager)
     try:
         result = start_assignment_training_session(callback.from_user.id, assignment_id)
     except AssignmentNotFoundError:
@@ -175,7 +176,7 @@ async def get_overview_window_data(
     user_id = _get_user_id(dialog_manager)
     assignment = get_learner_homework_overview(
         user_id,
-        _get_selected_assignment_id(dialog_manager),
+        _get_selected_assignment_ref(dialog_manager),
     )
     action_key = str(assignment["action_key"])
     progress = translate_for_user(
@@ -243,6 +244,13 @@ def _get_selected_assignment_id(dialog_manager: DialogManager) -> int:
     return int(value)
 
 
+def _get_selected_assignment_ref(dialog_manager: DialogManager) -> str:
+    value = dialog_manager.dialog_data.get("assignment_key")
+    if value is not None:
+        return str(value)
+    return str(_get_selected_assignment_id(dialog_manager))
+
+
 def _get_user_id(dialog_manager: DialogManager) -> int:
     if dialog_manager.event.from_user is None:
         raise RuntimeError("Dialog event user is missing")
@@ -256,7 +264,7 @@ homework_dialog = Dialog(
             Select(
                 Format("{item[index_label]}"),
                 id="assignment_select",
-                item_id_getter=lambda item: item["assignment_id"],
+                item_id_getter=lambda item: item["assignment_key"],
                 items="assignment_items",
                 on_click=_on_assignment_selected,
             ),

@@ -54,6 +54,7 @@ def create_training_session_for_learning_items(
     telegram_user_id: int,
     learning_item_ids: list[int],
     assignment_id: int | None = None,
+    family_homework_assignment_id: int | None = None,
 ) -> dict[str, object]:
     if not learning_item_ids:
         raise NoLearningItemsError
@@ -82,6 +83,7 @@ def create_training_session_for_learning_items(
             INSERT INTO training_sessions (
                 telegram_user_id,
                 assignment_id,
+                family_homework_assignment_id,
                 current_index,
                 correct_answers,
                 total_questions,
@@ -89,11 +91,12 @@ def create_training_session_for_learning_items(
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, 0, 0, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?)
             """,
             (
                 telegram_user_id,
                 assignment_id,
+                family_homework_assignment_id,
                 len(item_snapshots),
                 ACTIVE_STATUS,
                 timestamp,
@@ -149,6 +152,7 @@ def get_active_training_session(telegram_user_id: int) -> sqlite3.Row | None:
                 id,
                 telegram_user_id,
                 assignment_id,
+                family_homework_assignment_id,
                 current_index,
                 correct_answers,
                 homework_correct_streak,
@@ -176,6 +180,7 @@ def get_training_session(session_id: int) -> sqlite3.Row | None:
                 id,
                 telegram_user_id,
                 assignment_id,
+                family_homework_assignment_id,
                 current_index,
                 correct_answers,
                 homework_correct_streak,
@@ -197,6 +202,30 @@ def find_latest_incomplete_assignment_training_session(
     telegram_user_id: int,
     assignment_id: int,
 ) -> sqlite3.Row | None:
+    return _find_latest_incomplete_homework_training_session(
+        telegram_user_id,
+        assignment_id=assignment_id,
+    )
+
+
+def find_latest_incomplete_family_homework_training_session(
+    telegram_user_id: int,
+    family_homework_assignment_id: int,
+) -> sqlite3.Row | None:
+    return _find_latest_incomplete_homework_training_session(
+        telegram_user_id,
+        family_homework_assignment_id=family_homework_assignment_id,
+    )
+
+
+def _find_latest_incomplete_homework_training_session(
+    telegram_user_id: int,
+    *,
+    assignment_id: int | None = None,
+    family_homework_assignment_id: int | None = None,
+) -> sqlite3.Row | None:
+    if assignment_id is None and family_homework_assignment_id is None:
+        return None
     with get_connection() as connection:
         return connection.execute(
             """
@@ -204,6 +233,7 @@ def find_latest_incomplete_assignment_training_session(
                 training_sessions.id,
                 training_sessions.telegram_user_id,
                 training_sessions.assignment_id,
+                training_sessions.family_homework_assignment_id,
                 training_sessions.current_index,
                 training_sessions.correct_answers,
                 training_sessions.homework_correct_streak,
@@ -216,7 +246,10 @@ def find_latest_incomplete_assignment_training_session(
                 training_sessions.updated_at
             FROM training_sessions
             WHERE training_sessions.telegram_user_id = ?
-              AND training_sessions.assignment_id = ?
+              AND (
+                    (? IS NOT NULL AND training_sessions.assignment_id = ?)
+                 OR (? IS NOT NULL AND training_sessions.family_homework_assignment_id = ?)
+              )
               AND EXISTS (
                     SELECT 1
                     FROM training_session_items
@@ -226,7 +259,13 @@ def find_latest_incomplete_assignment_training_session(
             ORDER BY training_sessions.id DESC
             LIMIT 1
             """,
-            (telegram_user_id, assignment_id),
+            (
+                telegram_user_id,
+                assignment_id,
+                assignment_id,
+                family_homework_assignment_id,
+                family_homework_assignment_id,
+            ),
         ).fetchone()
 
 
@@ -354,7 +393,7 @@ def submit_training_answer(
     is_correct = _normalize_answer(answer_text) == _normalize_answer(str(question["expected_answer"]))
     session_hard_streak = int(session["homework_correct_streak"])
     session_hard_mode = bool(session["homework_hard_mode"])
-    if session["assignment_id"] is None:
+    if not _session_uses_homework_rules(session):
         next_item_state = _calculate_next_item_state(question, is_correct)
     else:
         next_item_state, session_hard_streak, session_hard_mode = _calculate_assignment_next_state(
@@ -426,10 +465,7 @@ def submit_training_answer(
         "total_questions": int(session["total_questions"]),
     }
     if status == COMPLETED_STATUS:
-        if session["assignment_id"] is not None:
-            from .homework import mark_assignment_completed
-
-            mark_assignment_completed(int(session["assignment_id"]))
+        _mark_homework_assignment_completed(session)
         result["summary"] = {
             "total_questions": int(session["total_questions"]),
             "correct_answers": updated_correct_answers,
@@ -499,7 +535,7 @@ def skip_optional_hard(telegram_user_id: int) -> dict[str, object] | None:
         return None
 
     with get_connection() as connection:
-        if session["assignment_id"] is None:
+        if not _session_uses_homework_rules(session):
             connection.execute(
                 """
                 UPDATE training_session_items
@@ -566,10 +602,7 @@ def skip_optional_hard(telegram_user_id: int) -> dict[str, object] | None:
         "skipped_hard": True,
     }
     if status == COMPLETED_STATUS:
-        if session["assignment_id"] is not None:
-            from .homework import mark_assignment_completed
-
-            mark_assignment_completed(int(session["assignment_id"]))
+        _mark_homework_assignment_completed(session)
         result["summary"] = {
             "total_questions": int(session["total_questions"]),
             "correct_answers": int(session["correct_answers"]),
@@ -893,10 +926,7 @@ def _mark_session_completed(session: sqlite3.Row) -> None:
             """,
             (COMPLETED_STATUS, utc_now(), int(session["id"])),
         )
-    if session["assignment_id"] is not None:
-        from .homework import mark_assignment_completed
-
-        mark_assignment_completed(int(session["assignment_id"]))
+    _mark_homework_assignment_completed(session)
 
 
 def _find_next_incomplete_item(session_id: int, start_item_order: int) -> sqlite3.Row | None:
@@ -989,9 +1019,9 @@ def _is_hard_unlocked(
 
 
 def _resolve_effective_stage(session: sqlite3.Row, item_snapshot: sqlite3.Row) -> str:
-    if session["assignment_id"] is not None and bool(session["homework_hard_mode"]):
+    if _session_uses_homework_rules(session) and bool(session["homework_hard_mode"]):
         return HARD_STAGE
-    if session["assignment_id"] is not None:
+    if _session_uses_homework_rules(session):
         return _normalize_assignment_base_stage(
             str(item_snapshot["current_stage"]),
             easy_correct_count=int(item_snapshot["easy_correct_count"]),
@@ -999,6 +1029,31 @@ def _resolve_effective_stage(session: sqlite3.Row, item_snapshot: sqlite3.Row) -
             hard_completed=bool(item_snapshot["hard_completed"]),
         )
     return str(item_snapshot["current_stage"])
+
+
+def _session_uses_homework_rules(session: sqlite3.Row | dict[str, object]) -> bool:
+    assignment_id = session["assignment_id"]
+    family_homework_assignment_id = session["family_homework_assignment_id"]
+    return assignment_id is not None or family_homework_assignment_id is not None
+
+
+def get_session_homework_ref(session: sqlite3.Row | dict[str, object]) -> str | int | None:
+    family_homework_assignment_id = session["family_homework_assignment_id"]
+    if family_homework_assignment_id is not None:
+        return f"family:{int(family_homework_assignment_id)}"
+    assignment_id = session["assignment_id"]
+    if assignment_id is not None:
+        return int(assignment_id)
+    return None
+
+
+def _mark_homework_assignment_completed(session: sqlite3.Row | dict[str, object]) -> None:
+    homework_ref = get_session_homework_ref(session)
+    if homework_ref is None:
+        return
+    from .homework import mark_assignment_completed
+
+    mark_assignment_completed(homework_ref)
 
 
 def _normalize_assignment_base_stage(

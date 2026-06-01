@@ -1,9 +1,13 @@
 from .homework import (
+    ASSIGNMENT_SOURCE_FAMILY,
     AssignmentNotFoundError,
     get_assignment_progress_snapshot,
     list_active_assignments,
 )
-from .training import find_latest_incomplete_assignment_training_session
+from .training import (
+    find_latest_incomplete_assignment_training_session,
+    find_latest_incomplete_family_homework_training_session,
+)
 
 
 HOMEWORK_ACTION_START = "start"
@@ -22,10 +26,11 @@ def list_learner_homework(student_user_id: int) -> list[dict[str, object]]:
 
 def get_learner_homework_overview(
     student_user_id: int,
-    assignment_id: int,
+    assignment_ref: int | str,
 ) -> dict[str, object]:
     for assignment in list_active_assignments(student_user_id):
-        if int(assignment["id"]) == assignment_id:
+        assignment_key = f"{assignment['assignment_source']}:{int(assignment['id'])}"
+        if str(assignment_ref) in {assignment_key, str(int(assignment["id"]))}:
             return _build_assignment_snapshot(student_user_id, assignment)
     raise AssignmentNotFoundError
 
@@ -35,14 +40,22 @@ def _build_assignment_snapshot(
     assignment: dict[str, object],
 ) -> dict[str, object]:
     assignment_id = int(assignment["id"])
+    assignment_key = f"{assignment['assignment_source']}:{assignment_id}"
     item_count = int(assignment["item_count"])
-    incomplete_session = find_latest_incomplete_assignment_training_session(
-        student_user_id,
-        assignment_id,
-    )
+    if str(assignment["assignment_source"]) == ASSIGNMENT_SOURCE_FAMILY:
+        incomplete_session = find_latest_incomplete_family_homework_training_session(
+            student_user_id,
+            assignment_id,
+        )
+    else:
+        incomplete_session = find_latest_incomplete_assignment_training_session(
+            student_user_id,
+            assignment_id,
+        )
     if incomplete_session is None:
         return {
             "assignment_id": assignment_id,
+            "assignment_key": assignment_key,
             "title": assignment["title"],
             "item_count": item_count,
             "completed_items": 0,
@@ -54,11 +67,12 @@ def _build_assignment_snapshot(
         }
 
     progress_snapshot = get_assignment_progress_snapshot(
-        assignment_id,
+        assignment_key,
         int(incomplete_session["id"]),
     )
     return {
         "assignment_id": assignment_id,
+        "assignment_key": assignment_key,
         "title": assignment["title"],
         "item_count": item_count,
         "completed_items": int(progress_snapshot["completed_items"]),

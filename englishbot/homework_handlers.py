@@ -76,7 +76,7 @@ async def start_homework(callback: CallbackQuery) -> None:
     if callback.from_user is None or callback.message is None or callback.data is None:
         return
 
-    assignment_id = int(callback.data.removeprefix(HOMEWORK_START_PREFIX))
+    assignment_id = callback.data.removeprefix(HOMEWORK_START_PREFIX)
     try:
         result = start_assignment_training_session(callback.from_user.id, assignment_id)
     except AssignmentNotFoundError:
