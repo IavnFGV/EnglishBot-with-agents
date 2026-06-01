@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-01
+- Switched plain `/learn` to the family-first content path for users who belong to a family: training session creation now prefers family-owned `learning_items` and no longer falls back to legacy workspace content for those users, with focused coverage in `tests/test_training.py`.
 - Added the first family-first persistence slice in `englishbot/db.py` and `englishbot/families.py`: SQLite now stores `families`, `family_members`, family-scoped content ownership on `learning_items` and `topics`, `topic_items`, personal `user_progress`, and dedicated `homework_assignments`, with focused tests in `tests/test_families.py`.
 - Verified the new schema layer against focused `bootstrap`, `families`, `training`, and `homework` tests so the rebuild groundwork does not break the current staged learning flows.
 - Added `docs/family-first-rebuild.md` as the execution brief for the approved family-first rebuild: stay in the current repository, keep deploy as-is, replace the workspace/publish-centric product model with a simpler family-owned content model, and treat legacy teacher/student architecture as removal scope rather than as a compatibility constraint.

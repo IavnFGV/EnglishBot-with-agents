@@ -2,11 +2,13 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import pytest
 from aiogram.types import User
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.families import create_family, create_family_learning_item
 from englishbot.training import (
     NoLearningItemsError,
     get_item_progress_status,
@@ -165,6 +167,48 @@ def test_create_training_session_uses_family_runtime_workspace_in_simple_mode(
 
     assert result["question"] is not None
     assert result["question"]["learning_item_id"] == family_item_id
+
+
+def test_create_training_session_prefers_family_first_items_over_legacy_workspace_content(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(303, "Family")
+    db.save_user(user)
+    family = create_family("Home", user.id)
+
+    legacy_lexeme_id = create_lexeme("legacy-word")
+    legacy_item_id = create_learning_item(legacy_lexeme_id, "legacy-text")
+    create_learning_item_translation(legacy_item_id, "ru", "старый")
+
+    family_lexeme_id = create_lexeme("family-word")
+    family_item_id = create_family_learning_item(
+        int(family["id"]),
+        family_lexeme_id,
+        "family-text",
+    )
+    create_learning_item_translation(family_item_id, "ru", "семейный")
+
+    result = create_training_session(user.id)
+
+    assert result["question"] is not None
+    assert result["question"]["learning_item_id"] == family_item_id
+
+
+def test_create_training_session_raises_when_family_exists_but_has_no_family_items(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(304, "Family")
+    db.save_user(user)
+    create_family("Home", user.id)
+
+    legacy_lexeme_id = create_lexeme("legacy-word")
+    legacy_item_id = create_learning_item(legacy_lexeme_id, "legacy-text")
+    create_learning_item_translation(legacy_item_id, "ru", "старый")
+
+    with pytest.raises(NoLearningItemsError):
+        create_training_session(user.id)
 
 
 def test_round_robin_moves_to_next_active_item_after_each_attempt(tmp_path: Path) -> None:

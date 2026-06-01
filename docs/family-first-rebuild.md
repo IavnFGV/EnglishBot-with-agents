@@ -70,6 +70,10 @@ Wave 2:
 - connect `/learn`, topics, and homework to the new family-first data model
 - build compact family-first navigation
 
+Current status:
+- `/learn` is already connected to family-owned learning items when the user belongs to a family.
+- homework still needs its own migration slice because the legacy training session model stores `assignment_id` against the old homework table.
+
 Wave 3:
 - delete legacy entry points and modules that only exist for workspace and publish flows
 
