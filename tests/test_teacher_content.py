@@ -68,6 +68,28 @@ def test_teacher_content_workspace_listing_and_creation(tmp_path: Path) -> None:
     ]
 
 
+def test_teacher_content_simple_mode_uses_single_family_workspaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_SIMPLE_MODE", "1")
+    db.save_user(type("User", (), {
+        "id": 151,
+        "username": "family",
+        "first_name": "Family",
+        "last_name": None,
+    })())
+
+    created = create_teacher_workspace_for_user(151, "Ignored")
+    workspaces = list_teacher_browsable_workspaces(151)
+    targets = list_teacher_publish_targets(151)
+
+    assert created["name"] == "Family Teacher Workspace"
+    assert workspaces == [{"id": created["id"], "name": "Family Teacher Workspace"}]
+    assert targets == [{"id": targets[0]["id"], "name": "Family Student Workspace"}]
+
+
 def test_teacher_can_browse_and_create_topics(tmp_path: Path) -> None:
     setup_db(tmp_path)
     workspace = create_workspace("Authoring", kind="teacher")

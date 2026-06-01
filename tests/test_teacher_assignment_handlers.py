@@ -9,6 +9,7 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.teacher_assignments import list_assignment_recipients
 from englishbot.teacher_assignment_dialog import (
     TeacherAssignmentDialogSG,
     confirm_assignment,
@@ -182,6 +183,22 @@ def test_create_assignment_command_rejects_non_teacher(tmp_path: Path) -> None:
     assert message.answers == [
         "Command /create_assignment is available only to users with the teacher role."
     ]
+
+
+def test_simple_mode_recipient_list_includes_self_and_other_family_members(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_SIMPLE_MODE", "1")
+    teacher = make_user(812, "Teacher")
+    student = make_user(813, "Student")
+    db.save_user(teacher)
+    db.save_user(student)
+
+    recipients = list_assignment_recipients(teacher.id)
+
+    assert [recipient["student_user_id"] for recipient in recipients] == [teacher.id, student.id]
 
 
 def test_topic_path_shows_summary_then_confirm_without_persisting_before_confirm(tmp_path: Path) -> None:

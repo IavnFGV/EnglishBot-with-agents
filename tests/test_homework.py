@@ -28,6 +28,10 @@ from englishbot.homework_progress_image import (
     build_assignment_progress_image_snapshot,
     render_homework_progress_image,
 )
+from englishbot.simple_mode import (
+    get_simple_mode_student_workspace_id,
+    get_simple_mode_teacher_workspace_id,
+)
 from englishbot.teacher_student import create_invite, join_with_invite
 from englishbot.topics import (
     archive_topic,
@@ -237,6 +241,33 @@ def test_create_assignment_rejects_mixed_workspace_items(tmp_path: Path) -> None
 
     with pytest.raises(MixedWorkspaceAssignmentError):
         create_assignment(teacher.id, student.id, [first_item_id, second_item_id])
+
+
+def test_create_assignment_allows_self_assignment_in_simple_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_SIMPLE_MODE", "1")
+    teacher = make_user(520, "Parent")
+    db.save_user(teacher)
+    teacher_workspace_id = get_simple_mode_teacher_workspace_id()
+    student_workspace_id = get_simple_mode_student_workspace_id()
+    lexeme_id = create_lexeme("family-item")
+    learning_item_id = create_learning_item_for_teacher_workspace(
+        teacher.id,
+        teacher_workspace_id,
+        lexeme_id,
+        "family-item",
+    )
+    create_learning_item_translation(learning_item_id, "ru", "семья")
+
+    result = create_assignment(teacher.id, teacher.id, [learning_item_id], title="Self Homework")
+    stored_assignment = get_assignment(int(result["assignment_id"]))
+
+    assert stored_assignment is not None
+    assert stored_assignment["workspace_id"] == student_workspace_id
+    assert stored_assignment["student_user_id"] == teacher.id
 
 
 def test_student_has_active_homework_tracks_active_assignments(tmp_path: Path) -> None:

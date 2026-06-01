@@ -17,6 +17,7 @@
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
 - Teacher/student onboarding with `/invite` and `/join`.
 - Temporary admin bootstrap facade with `/admin` for one env-configured super-admin who can prepare family/team memberships without mandatory invite/join.
+- Optional env-gated simple family mode via `ENGLISHBOT_SIMPLE_MODE`: each newly seen user is auto-bootstrapped into one shared family teacher workspace and one shared family student workspace, receives the global teacher role, can assign to self or any other family member, and `/learn` reads from the shared family runtime workspace.
 - The `/admin` screen now tolerates repeated button presses that produce the same text and keyboard, instead of surfacing Telegram's `message is not modified` error in logs.
 - Workspace-based content ownership with `teacher` and `student` workspaces.
 - Teacher content editing through `/teacher_content` dialog flows.
@@ -45,6 +46,7 @@
 - Teacher content is authored in teacher workspaces and published into student workspaces for runtime learning.
 - Teacher-student grouping now lives in `workspace_members` on `student` workspaces; there is no separate teacher-student link table.
 - The admin facade is only a bootstrap layer over the same `workspace_members` model: it does not replace invite/join, publish, or assignment rules.
+- Simple mode is also only a bootstrap/resolution layer over the same schema: it does not add tables, dual-role memberships, or special assignment entities.
 - Assignments and training sessions are snapshot-oriented; live teacher edits must not rewrite in-flight learner state.
 - `workspace_members` is the access source of truth for runtime visibility.
 
@@ -63,6 +65,7 @@
 - No Google Sheets integration; workbook flow is local `.xlsx` only.
 - No deep-link driven navigation.
 - The admin facade currently trusts one `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID` and is intended only as a temporary small-scale bootstrap path, not a production role system.
+- Simple mode intentionally collapses family authoring/runtime into one shared pair of workspaces and is aimed at small controlled setups, not mixed-mode migration of older personal workspaces.
 - No advanced learner statistics beyond current session and assignment progress.
 - No dedicated persisted exercise-instance table; exercises are rebuilt from session state.
 - Some learner and topic selection flows still use inline button lists, so treat Telegram UI constraints in `AGENTS.md` as the direction for future cleanup rather than a claim that every legacy screen is already ideal.

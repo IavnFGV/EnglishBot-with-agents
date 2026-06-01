@@ -12,6 +12,11 @@ from .assets import (
     resolve_asset_ref_for_role,
 )
 from .db import get_connection, utc_now
+from .config import is_simple_mode_enabled
+from .simple_mode import (
+    get_simple_mode_student_workspace,
+    get_simple_mode_teacher_workspace,
+)
 from .topics import (
     create_topic_for_teacher_workspace,
     get_learning_items_for_topic,
@@ -59,6 +64,14 @@ class TeacherContentPublishTargetError(Exception):
 
 
 def list_teacher_browsable_workspaces(teacher_user_id: int) -> list[dict[str, object]]:
+    if is_simple_mode_enabled():
+        workspace = get_simple_mode_teacher_workspace()
+        return [
+            {
+                "id": int(workspace["id"]),
+                "name": workspace["name"] or f"Workspace {int(workspace['id'])}",
+            }
+        ]
     workspaces = find_workspaces_for_user_by_role(teacher_user_id, ROLE_TEACHER)
     return [
         {
@@ -74,6 +87,12 @@ def create_teacher_workspace_for_user(
     teacher_user_id: int,
     name: str,
 ) -> dict[str, object]:
+    if is_simple_mode_enabled():
+        workspace = get_simple_mode_teacher_workspace()
+        return {
+            "id": int(workspace["id"]),
+            "name": workspace["name"] or f"Workspace {int(workspace['id'])}",
+        }
     normalized_name = name.strip()
     if not normalized_name:
         raise ValueError("workspace name is required")
@@ -396,6 +415,14 @@ def archive_teacher_topic_item(
 
 
 def list_teacher_publish_targets(teacher_user_id: int) -> list[dict[str, object]]:
+    if is_simple_mode_enabled():
+        workspace = get_simple_mode_student_workspace()
+        return [
+            {
+                "id": int(workspace["id"]),
+                "name": workspace["name"] or f"Workspace {int(workspace['id'])}",
+            }
+        ]
     workspaces = find_workspaces_for_user_by_role(teacher_user_id, ROLE_TEACHER)
     return [
         {

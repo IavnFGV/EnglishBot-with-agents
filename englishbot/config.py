@@ -25,3 +25,8 @@ def get_admin_telegram_user_id() -> int | None:
     if not raw_value.isdigit():
         return None
     return int(raw_value)
+
+
+def is_simple_mode_enabled() -> bool:
+    raw_value = os.getenv("ENGLISHBOT_SIMPLE_MODE", "").strip().lower()
+    return raw_value in {"1", "true", "yes", "on"}

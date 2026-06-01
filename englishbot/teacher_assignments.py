@@ -1,5 +1,6 @@
 import sqlite3
 
+from .config import is_simple_mode_enabled
 from .db import get_user
 from .homework import (
     ASSIGNMENT_KIND_HOMEWORK,
@@ -9,6 +10,7 @@ from .homework import (
     normalize_assignment_kind,
     normalize_assignment_mode,
 )
+from .simple_mode import list_simple_mode_student_user_ids
 from .teacher_content import (
     TeacherContentAccessError,
     list_teacher_browsable_workspaces,
@@ -135,6 +137,16 @@ def build_word_selection_snapshot(
 
 
 def list_assignment_recipients(teacher_user_id: int) -> list[dict[str, object]]:
+    if is_simple_mode_enabled():
+        return [
+            {
+                "student_user_id": student_user_id,
+                "display_name": _build_user_display_name(get_user(student_user_id), student_user_id),
+                "workspace_id": None,
+            }
+            for student_user_id in list_simple_mode_student_user_ids()
+        ]
+
     recipients: list[dict[str, object]] = []
     for row in list_student_workspace_students_for_teacher(teacher_user_id):
         student_user_id = int(row["student_user_id"])

@@ -16,6 +16,7 @@ from englishbot.training import (
     skip_optional_hard,
     submit_training_answer,
 )
+from englishbot.simple_mode import get_simple_mode_student_workspace_id
 from englishbot.user_profiles import set_user_hint_language
 from englishbot.vocabulary import (
     create_learning_item,
@@ -136,6 +137,34 @@ def test_new_sessions_initialize_easy_stage_and_zero_counters(tmp_path: Path) ->
     assert first_item["is_completed"] == 0
     assert first_item["prompt_text"] == "слово-1"
     assert first_item["expected_answer"] == "word-1"
+
+
+def test_create_training_session_uses_family_runtime_workspace_in_simple_mode(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_SIMPLE_MODE", "1")
+    user = make_user(302, "Family")
+    db.save_user(user)
+    family_workspace_id = get_simple_mode_student_workspace_id()
+
+    default_lexeme_id = create_lexeme("default-word")
+    default_item_id = create_learning_item(default_lexeme_id, "default-text")
+    create_learning_item_translation(default_item_id, "ru", "обычный")
+
+    family_lexeme_id = create_lexeme("family-word")
+    family_item_id = create_learning_item(
+        family_lexeme_id,
+        "family-text",
+        workspace_id=family_workspace_id,
+    )
+    create_learning_item_translation(family_item_id, "ru", "семейный")
+
+    result = create_training_session(user.id)
+
+    assert result["question"] is not None
+    assert result["question"]["learning_item_id"] == family_item_id
 
 
 def test_round_robin_moves_to_next_active_item_after_each_attempt(tmp_path: Path) -> None:

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06-01
+- Added an env-gated simple family mode via `ENGLISHBOT_SIMPLE_MODE`: on first Telegram contact the bot now auto-promotes the user to the global teacher role, creates one shared family teacher workspace plus one shared family student workspace, and joins the user to both so small household setups can skip `/invite`, `/join`, and `/admin`.
+- In simple mode, teacher-content and assignment flows now resolve to the shared family workspaces instead of personal workspace lists, recipient selection includes all family members including self, and plain `/learn` now reads from the shared family student runtime workspace rather than the legacy default content workspace.
+- Added focused tests covering simple-mode user bootstrap, shared authoring/runtime workspace visibility, self-assignment, family recipient listing, and `/learn` runtime selection.
+
 ## 2026-05-31
 - Fixed the first service-owned task config after the real infra run showed shell parsing issues: `scheduled-tasks/backup-maintenance.env` now quotes the cron expression so the helper can source it safely instead of trying to execute files matched by `*`.
 - Simplified scheduled-task registration again after the infra helper was updated: deploy now only passes `SERVICE_NAME` and `SERVICE_DIR` to `/usr/local/bin/infra-vps-register-service-scheduled-tasks`, and no longer needs to teach this repo where any `infra-vps` checkout lives.
