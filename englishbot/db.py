@@ -264,6 +264,7 @@ def _rebuild_learning_items_without_legacy_media_columns(connection: sqlite3.Con
     if "image_ref" not in learning_item_columns and "audio_ref" not in learning_item_columns:
         return
 
+    has_family_id = "family_id" in learning_item_columns
     connection.execute("DROP TRIGGER IF EXISTS trg_learning_items_set_workbook_key")
     connection.execute("PRAGMA foreign_keys = OFF")
     connection.execute("ALTER TABLE learning_items RENAME TO learning_items_legacy")
@@ -272,6 +273,7 @@ def _rebuild_learning_items_without_legacy_media_columns(connection: sqlite3.Con
         CREATE TABLE learning_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             workspace_id INTEGER NOT NULL,
+            family_id INTEGER,
             workbook_key TEXT,
             source_learning_item_id INTEGER,
             lexeme_id INTEGER NOT NULL,
@@ -280,6 +282,7 @@ def _rebuild_learning_items_without_legacy_media_columns(connection: sqlite3.Con
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
+            FOREIGN KEY (family_id) REFERENCES families (id),
             FOREIGN KEY (source_learning_item_id) REFERENCES learning_items (id),
             FOREIGN KEY (lexeme_id) REFERENCES lexemes (id)
         )
@@ -290,6 +293,7 @@ def _rebuild_learning_items_without_legacy_media_columns(connection: sqlite3.Con
         INSERT INTO learning_items (
             id,
             workspace_id,
+            family_id,
             workbook_key,
             source_learning_item_id,
             lexeme_id,
@@ -301,6 +305,7 @@ def _rebuild_learning_items_without_legacy_media_columns(connection: sqlite3.Con
         SELECT
             id,
             workspace_id,
+            %s,
             workbook_key,
             source_learning_item_id,
             lexeme_id,
@@ -311,6 +316,7 @@ def _rebuild_learning_items_without_legacy_media_columns(connection: sqlite3.Con
         FROM learning_items_legacy
         ORDER BY id
         """
+        % ("family_id" if has_family_id else "NULL"),
     )
     connection.execute("DROP TABLE learning_items_legacy")
     connection.execute("PRAGMA foreign_keys = ON")
@@ -506,6 +512,44 @@ def init_db() -> None:
             )
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS families (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                created_by_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (created_by_user_id) REFERENCES users (telegram_user_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS family_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                family_id INTEGER NOT NULL,
+                telegram_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (family_id) REFERENCES families (id),
+                FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id),
+                UNIQUE (family_id, telegram_user_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_family_members_user_unique
+            ON family_members (telegram_user_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_family_members_family_id
+            ON family_members (family_id)
+            """
+        )
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS workspace_members (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 workspace_id INTEGER NOT NULL,
@@ -644,6 +688,14 @@ def init_db() -> None:
                 REFERENCES learning_items (id)
                 """
             )
+        if "family_id" not in learning_item_columns:
+            connection.execute(
+                """
+                ALTER TABLE learning_items
+                ADD COLUMN family_id INTEGER
+                REFERENCES families (id)
+                """
+            )
         _ensure_assets_schema(connection, include_learning_item_links=False)
         pending_asset_links = _collect_legacy_learning_item_assets(connection)
         _rebuild_learning_items_without_legacy_media_columns(connection)
@@ -672,6 +724,12 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_learning_items_workspace_id
             ON learning_items (workspace_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_learning_items_family_id
+            ON learning_items (family_id)
             """
         )
         connection.execute(
@@ -760,6 +818,14 @@ def init_db() -> None:
                 REFERENCES topics (id)
                 """
             )
+        if "family_id" not in topic_columns:
+            connection.execute(
+                """
+                ALTER TABLE topics
+                ADD COLUMN family_id INTEGER
+                REFERENCES families (id)
+                """
+            )
         connection.execute(
             """
             UPDATE topics
@@ -827,6 +893,12 @@ def init_db() -> None:
         )
         connection.execute(
             """
+            CREATE INDEX IF NOT EXISTS idx_topics_family_id
+            ON topics (family_id)
+            """
+        )
+        connection.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_topics_workspace_source
             ON topics (workspace_id, source_topic_id)
             """
@@ -854,6 +926,24 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_topic_learning_items_topic_id
             ON topic_learning_items (topic_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS topic_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic_id INTEGER NOT NULL,
+                learning_item_id INTEGER NOT NULL,
+                FOREIGN KEY (topic_id) REFERENCES topics (id),
+                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id),
+                UNIQUE (topic_id, learning_item_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_topic_items_topic_id
+            ON topic_items (topic_id)
             """
         )
         connection.execute(
@@ -913,6 +1003,29 @@ def init_db() -> None:
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_student_topic_access_workspace_student_topic
             ON student_topic_access (workspace_id, student_user_id, topic_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_progress (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_user_id INTEGER NOT NULL,
+                learning_item_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'new',
+                correct_streak INTEGER NOT NULL DEFAULT 0,
+                last_answered_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id),
+                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id),
+                UNIQUE (telegram_user_id, learning_item_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_user_progress_user_id
+            ON user_progress (telegram_user_id)
             """
         )
         connection.execute(
@@ -1097,6 +1210,55 @@ def init_db() -> None:
             """
             CREATE INDEX IF NOT EXISTS idx_training_session_items_session_order
             ON training_session_items (session_id, item_order)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS homework_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                family_id INTEGER NOT NULL,
+                assigned_by_user_id INTEGER NOT NULL,
+                assigned_to_user_id INTEGER NOT NULL,
+                title TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY (family_id) REFERENCES families (id),
+                FOREIGN KEY (assigned_by_user_id) REFERENCES users (telegram_user_id),
+                FOREIGN KEY (assigned_to_user_id) REFERENCES users (telegram_user_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_homework_assignments_assigned_to_status
+            ON homework_assignments (assigned_to_user_id, status)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_homework_assignments_family_id
+            ON homework_assignments (family_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS homework_assignment_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                homework_assignment_id INTEGER NOT NULL,
+                learning_item_id INTEGER NOT NULL,
+                item_order INTEGER NOT NULL,
+                FOREIGN KEY (homework_assignment_id) REFERENCES homework_assignments (id),
+                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id),
+                UNIQUE (homework_assignment_id, item_order)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_homework_assignment_items_assignment_order
+            ON homework_assignment_items (homework_assignment_id, item_order)
             """
         )
         connection.execute(

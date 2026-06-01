@@ -1,6 +1,10 @@
 # Changelog
 
 ## 2026-06-01
+- Added the first family-first persistence slice in `englishbot/db.py` and `englishbot/families.py`: SQLite now stores `families`, `family_members`, family-scoped content ownership on `learning_items` and `topics`, `topic_items`, personal `user_progress`, and dedicated `homework_assignments`, with focused tests in `tests/test_families.py`.
+- Verified the new schema layer against focused `bootstrap`, `families`, `training`, and `homework` tests so the rebuild groundwork does not break the current staged learning flows.
+- Added `docs/family-first-rebuild.md` as the execution brief for the approved family-first rebuild: stay in the current repository, keep deploy as-is, replace the workspace/publish-centric product model with a simpler family-owned content model, and treat legacy teacher/student architecture as removal scope rather than as a compatibility constraint.
+- Updated `docs/module-map.md` and `context/current-state.md` so the next implementation slice can start from the new family-first brief instead of extending the temporary workspace-based simple mode.
 - Added an env-gated simple family mode via `ENGLISHBOT_SIMPLE_MODE`: on first Telegram contact the bot now auto-promotes the user to the global teacher role, creates one shared family teacher workspace plus one shared family student workspace, and joins the user to both so small household setups can skip `/invite`, `/join`, and `/admin`.
 - In simple mode, teacher-content and assignment flows now resolve to the shared family workspaces instead of personal workspace lists, recipient selection includes all family members including self, and plain `/learn` now reads from the shared family student runtime workspace rather than the legacy default content workspace.
 - Added focused tests covering simple-mode user bootstrap, shared authoring/runtime workspace visibility, self-assignment, family recipient listing, and `/learn` runtime selection.

@@ -18,6 +18,7 @@
 - Teacher/student onboarding with `/invite` and `/join`.
 - Temporary admin bootstrap facade with `/admin` for one env-configured super-admin who can prepare family/team memberships without mandatory invite/join.
 - Optional env-gated simple family mode via `ENGLISHBOT_SIMPLE_MODE`: each newly seen user is auto-bootstrapped into one shared family teacher workspace and one shared family student workspace, receives the global teacher role, can assign to self or any other family member, and `/learn` reads from the shared family runtime workspace.
+- The first family-first rebuild slice is now implemented in persistence: SQLite now has `families`, `family_members`, family-scoped `learning_items`/`topics` support, `topic_items`, `user_progress`, and `homework_assignments` tables, with focused helpers in `englishbot/families.py`.
 - The `/admin` screen now tolerates repeated button presses that produce the same text and keyboard, instead of surfacing Telegram's `message is not modified` error in logs.
 - Workspace-based content ownership with `teacher` and `student` workspaces.
 - Teacher content editing through `/teacher_content` dialog flows.
@@ -38,6 +39,7 @@
 - `chain_of_commands/` now includes a dedicated history prompt for the local-media persistence change so that asset-storage decisions can be replayed from one concise brief.
 - `chain_of_commands/` also includes a dedicated history prompt for the student-workspace access-model cleanup so the teacher-student refactor can be replayed from one concise brief.
 - `chain_of_commands/` also includes a dedicated history prompt for building a temporary admin/UI bootstrap facade over the current workspace model, aimed at a small family/team setup without mandatory invite/join onboarding.
+- `docs/family-first-rebuild.md` records the approved next direction: keep this repository and deploy path, but replace the workspace/publish-centric product model with a family-first core built around shared family content plus personal progress and homework.
 
 ## Data and ownership constraints
 - SQLite is the runtime source of truth.
@@ -66,6 +68,7 @@
 - No deep-link driven navigation.
 - The admin facade currently trusts one `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID` and is intended only as a temporary small-scale bootstrap path, not a production role system.
 - Simple mode intentionally collapses family authoring/runtime into one shared pair of workspaces and is aimed at small controlled setups, not mixed-mode migration of older personal workspaces.
+- The current family setup remains legacy-heavy: `ENGLISHBOT_SIMPLE_MODE` and `/admin` are bootstrap overlays on the workspace model, not the target architecture.
 - No advanced learner statistics beyond current session and assignment progress.
 - No dedicated persisted exercise-instance table; exercises are rebuilt from session state.
 - Some learner and topic selection flows still use inline button lists, so treat Telegram UI constraints in `AGENTS.md` as the direction for future cleanup rather than a claim that every legacy screen is already ideal.
@@ -77,6 +80,7 @@
 - Tests are the best proof of current behavior when docs and older prompts disagree.
 
 ## Immediate next work areas supported by repo state
+- Start the family-first rebuild from `docs/family-first-rebuild.md`, beginning with the new minimal SQLite schema and family membership/content tables.
+- Next family-first step is to connect learner and homework flows to the new `englishbot/families.py` model and then start deleting legacy workspace entry points.
 - Tighten older Telegram list screens toward the single-screen UI rules where practical.
 - Keep narrowing documentation and task navigation around the module map instead of large historical notes.
-- Preserve the current workspace/publish/training boundaries while extending teacher and learner flows.

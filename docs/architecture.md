@@ -16,6 +16,7 @@
 - Runtime wiring: `bootstrap.py`, `runtime.py`, `bot.py`, `command_registry.py`
 - Persistence: `db.py`
 - User/i18n: `user_profiles.py`, `i18n.py`, `settings_handlers.py`
+- Family-first domain slice: `families.py`
 - Admin bootstrap facade: `admin_access.py`, `admin_handlers.py`
 - Learning domain: `vocabulary.py`, `topics.py`, `assets.py`, `exercises.py`, `training.py`
 - Teacher/student workflows: `teacher_student.py`, `workspaces.py`, `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`
@@ -28,6 +29,7 @@
 - `lexemes` are global vocabulary roots.
 - `learning_items` are the main learning units and belong to workspaces.
 - `topics` group workspace-owned learning items.
+- The new family-first persistence slice also supports family-owned `learning_items` and `topics`, plus dedicated family membership, personal progress, and family homework tables, while legacy workspace flows still exist during the rebuild.
 - `assets` plus `learning_item_assets` store media metadata.
 - `workspaces` and `workspace_members` define ownership, teacher-student grouping, and runtime access.
 - Student-facing runtime content is published into student workspaces rather than read live from teacher workspaces.
