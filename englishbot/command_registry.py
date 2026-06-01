@@ -53,32 +53,9 @@ CANCEL_COMMAND = CommandDefinition(
     scope="user",
     register_after_startup=True,
 )
-INVITE_COMMAND = CommandDefinition(
-    name="invite",
-    description_key="command.invite",
-    scope="teacher",
-    register_after_startup=True,)
-JOIN_COMMAND = CommandDefinition(
-    name="join",
-    description_key="command.join",
-    scope="user",
-    register_after_startup=True,
-)
-ASSIGN_COMMAND = CommandDefinition(
-    name="assign",
-    description_key="command.assign",
-    scope="teacher",
-    register_after_startup=True,
-)
 CREATE_ASSIGNMENT_COMMAND = CommandDefinition(
     name="create_assignment",
     description_key="command.create_assignment",
-    scope="teacher",
-    register_after_startup=True,
-)
-GRANTTOPIC_COMMAND = CommandDefinition(
-    name="granttopic",
-    description_key="command.granttopic",
     scope="teacher",
     register_after_startup=True,
 )
@@ -88,28 +65,10 @@ TOPICS_COMMAND = CommandDefinition(
     scope="student",
     register_after_startup=True,
 )
-WORKBOOK_EXPORT_COMMAND = CommandDefinition(
-    name="workbook_export",
-    description_key="command.workbook_export",
-    scope="teacher",
-    register_after_startup=True,
-)
-WORKBOOK_IMPORT_COMMAND = CommandDefinition(
-    name="workbook_import",
-    description_key="command.workbook_import",
-    scope="teacher",
-    register_after_startup=True,
-)
 TEACHER_CONTENT_COMMAND = CommandDefinition(
     name="teacher_content",
     description_key="command.teacher_content",
     scope="teacher",
-    register_after_startup=True,
-)
-ADMIN_COMMAND = CommandDefinition(
-    name="admin",
-    description_key="command.admin",
-    scope="admin",
     register_after_startup=True,
 )
 
@@ -119,16 +78,9 @@ ALL_COMMANDS = (
     ME_COMMAND,
     SETTINGS_COMMAND,
     CANCEL_COMMAND,
-    INVITE_COMMAND,
-    JOIN_COMMAND,
-    ASSIGN_COMMAND,
     CREATE_ASSIGNMENT_COMMAND,
-    GRANTTOPIC_COMMAND,
     TOPICS_COMMAND,
-    WORKBOOK_EXPORT_COMMAND,
-    WORKBOOK_IMPORT_COMMAND,
     TEACHER_CONTENT_COMMAND,
-    ADMIN_COMMAND,
 )
 
 

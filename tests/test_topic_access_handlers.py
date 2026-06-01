@@ -16,7 +16,6 @@ from englishbot.families import (
     create_family_topic,
     replace_topic_items as replace_family_topic_items,
 )
-from englishbot.teacher_handlers import grant_topic
 from englishbot.teacher_student import create_invite, join_with_invite
 from englishbot.topic_access import grant_topic_access, list_accessible_topics
 from englishbot.topic_access_handlers import (
@@ -87,20 +86,6 @@ def seed_family_topic() -> tuple[User, User, int]:
     topic_id = create_family_topic(int(family["id"]), "pets", "Pets")
     replace_family_topic_items(topic_id, [item_id])
     return parent, child, topic_id
-
-
-def test_grant_topic_handler_grants_named_topic_to_linked_student(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    seed_basic_topics()
-    message = FakeMessage(teacher)
-    workspace_id = db.get_default_content_workspace_id()
-
-    asyncio.run(grant_topic(message, SimpleNamespace(args=f"{student.id} {workspace_id} weekdays")))
-
-    assert message.answers == [
-        {"text": "Topic access granted: Дни недели (weekdays).", "kwargs": {}}
-    ]
 
 
 def test_topics_handler_lists_accessible_topics(tmp_path: Path) -> None:
@@ -181,18 +166,3 @@ def test_topics_handler_lists_family_topics_without_grants(tmp_path: Path) -> No
     assert keyboard.inline_keyboard[0][0].text == "Pets"
     assert keyboard.inline_keyboard[0][0].callback_data == f"{TOPICS_START_PREFIX}{topic_id}"
 
-
-def test_grant_topic_handler_requires_explicit_workspace_id(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    seed_basic_topics()
-    message = FakeMessage(teacher)
-
-    asyncio.run(grant_topic(message, SimpleNamespace(args=f"{student.id} weekdays")))
-
-    assert message.answers == [
-        {
-            "text": "Usage: /granttopic <student_user_id> <teacher_workspace_id> <topic_name>",
-            "kwargs": {},
-        }
-    ]

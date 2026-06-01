@@ -17,9 +17,9 @@
 - Persistence: `db.py`
 - User/i18n: `user_profiles.py`, `i18n.py`, `settings_handlers.py`
 - Family-first domain slice: `families.py`
-- Admin bootstrap facade: `admin_access.py`, `admin_handlers.py`
 - Learning domain: `vocabulary.py`, `topics.py`, `assets.py`, `exercises.py`, `training.py`
-- Teacher/student workflows: `teacher_student.py`, `workspaces.py`, `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`
+- Family-first workflows: `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`
+- Legacy workspace helpers still on disk during cleanup: `teacher_student.py`, `workspaces.py`
 - Telegram orchestration: `*_handlers.py`
 - Multi-step Telegram UI: `homework_dialog.py`, `teacher_assignment_dialog.py`, `teacher_content_dialog.py`
 - Operations: `logging_setup.py`, `build_info.py`, `status_server.py`
@@ -35,13 +35,10 @@
 - Student-facing runtime content is published into student workspaces rather than read live from teacher workspaces.
 
 ## Major flows
-- Teacher onboarding: `/invite` creates one-time codes; `/join` ensures a shared student workspace exists between the teacher and the joining learner.
-- Admin bootstrap: `/admin` lets one env-configured super-admin prepare a small family/team setup by granting teacher role, ensuring personal teacher/student workspaces, and linking users into a shared student workspace without requiring invite/join first.
-- Teacher authoring: `/teacher_content` edits teacher workspaces, topics, items, translations, and linked assets through aiogram-dialog.
-- Assignment creation: direct `/assign` and dialog-based `/create_assignment` both end in persisted homework assignments.
+- Family authoring: `/teacher_content` edits shared family topics, items, translations, and linked assets through aiogram-dialog, while still carrying some workspace-aware code paths during the rebuild.
+- Assignment creation: `/create_assignment` persists family homework assignments and still coexists with older workspace assignment persistence during the cleanup phase.
 - During the family-first rebuild, the same dialogs can also target family-owned topics and family homework assignments without routing through teacher/student workspace publish flows.
-- Topic access: `/granttopic` publishes a teacher topic into the shared student workspace and grants access; learners open it with `/topics`.
-- During the family-first rebuild, `/topics` can also resolve family-owned shared topics directly from `topics.family_id` plus `topic_items`, without going through the legacy topic-grant table.
+- Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`, while legacy published student-workspace topics still remain readable where they already exist.
 - Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`.
 - During the family-first rebuild, `training_sessions` can point either to legacy workspace homework (`assignment_id`) or to new family homework (`family_homework_assignment_id`), while the staged exercise engine remains shared.
 
@@ -50,8 +47,8 @@
 - Telegram handlers and dialogs should only validate transport input, call domain functions, and render UI.
 - Bot-facing text belongs in `i18n.py`.
 - Command definitions belong in `command_registry.py`.
-- The default registered command set is intentionally narrower than the full legacy command constant list during the rebuild, so family-first commands stay primary while older maintenance paths remain callable only when needed.
-- Some legacy handlers are now also runtime-gated for family users, so keeping old modules in the tree does not mean they remain part of the active family-first product path.
+- The registered command set is intentionally limited to family-first commands during the rebuild.
+- The active bot wiring in `englishbot/bot.py` no longer imports the old admin, invite/join, assign, grant, or workbook Telegram handlers.
 
 ## Persistence summary
 - Schema bootstrap and migrations live in `db.py`.
