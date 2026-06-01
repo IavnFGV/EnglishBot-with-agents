@@ -71,11 +71,18 @@ Current task:
 scheduled-tasks/backup-maintenance.sh
 ```
 
+Task config:
+
+```text
+scheduled-tasks/backup-maintenance.env
+```
+
 That host-side task:
 
 - reads backup files from `/srv/services/englishbot/backups`
 - copies them into `/srv/drive-sync/services/englishbot/backups`
 - keeps only the newest `30` files in each directory by default
+- uses a shell-sourced `.env` file, so values with spaces such as cron expressions must be quoted
 
 The task intentionally does not create SQLite backups. The app is responsible for producing backup files before the host task ever sees them.
 
