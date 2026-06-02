@@ -72,11 +72,11 @@ Wave 2:
 
 Current status:
 - `/learn` is already connected to family-owned learning items when the user belongs to a family.
-- learner homework now supports both legacy and family-first assignments during the rebuild.
-- family homework uses its own `family_homework_assignment_id` in `training_sessions`, instead of pretending to be a legacy workspace assignment.
+- learner homework is now family-first only on the active runtime path.
+- family homework uses its own `family_homework_assignment_id` in `training_sessions`.
 - the focused learner-homework UI tests now launch family homework directly, which reduces the remaining invite/join dependency to older workspace-first domain coverage instead of active learner UX coverage.
 - the homework-specific `training_handlers` coverage now also runs on family homework directly, so the remaining invite/join dependency is shrinking toward older domain tests instead of active learner runtime coverage.
-- `/topics` now also supports family-owned topics directly for family members, without topic grants.
+- `/topics` is now family-first only on the active runtime path, without topic grants or published student-workspace copies.
 - the focused `/topics` Telegram handler coverage now also runs on family topics directly, so invite/join is no longer part of the active topic-picker UI coverage.
 - the old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are gone; the remaining legacy surface is now workspace-first persistence, not onboarding or bootstrap scaffolding.
 - `/teacher_content` and `/create_assignment` now have a family-first authoring path: family members can work against one shared family content surface instead of teacher workspaces.
@@ -85,7 +85,7 @@ Current status:
 - legacy admin, invite/join, assign/grant, and workbook Telegram handlers have been removed from active runtime wiring and deleted from the codebase.
 
 Wave 3:
-- delete the remaining workspace-first domain paths once family-first flows stop depending on them for old tests and persistence compatibility
+- delete the remaining workspace-first authoring and workbook paths once family-first authoring fully replaces them
 
 ## First implementation slice
 The first coder task should deliver:

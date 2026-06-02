@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-01
+- Deleted the remaining active learner dual-path in topic and homework runtime: `englishbot/topic_access.py` is now family-only, `englishbot/homework.py` is now family-only on the active runtime path, `englishbot/teacher_assignments.py` no longer falls back to workspace assignment creation, and the focused `topic_access`, `homework`, and teacher-assignment handler tests were rewritten around the family-first contract.
 - Deleted the transitional `simple_mode` layer completely: removed `englishbot/simple_mode.py`, `ENGLISHBOT_SIMPLE_MODE` from `.env.example`, and the remaining simple-mode branches from `training.py`, `teacher_content.py`, `teacher_assignments.py`, and `db.py`, then dropped the now-obsolete focused tests that only existed to verify that bootstrap path.
 - Deleted `englishbot/teacher_student.py` and `tests/test_teacher_student.py` after the remaining live homework/topic/assignment flows and tests stopped depending on invite scaffolding; the leftover legacy surface is now workspace-first persistence rather than invite onboarding code.
 - Fixed the family-first assignment confirm path in `englishbot/teacher_assignments.py`: confirm snapshots no longer try to resolve a virtual family workspace through the legacy teacher-workspace guard, and `tests/test_teacher_assignment_handlers.py` now exercises the main topic/words/recipient/confirm flow on family content directly.

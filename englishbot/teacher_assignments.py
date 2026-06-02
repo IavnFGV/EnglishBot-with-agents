@@ -10,26 +10,11 @@ from .db import get_connection, get_user
 from .homework import (
     ASSIGNMENT_KIND_HOMEWORK,
     ASSIGNMENT_MODE_STAGED_DEFAULT,
-    create_assignment,
-    create_assignment_from_group,
     normalize_assignment_kind,
     normalize_assignment_mode,
 )
-from .teacher_content import (
-    TeacherContentAccessError,
-    list_teacher_browsable_workspaces,
-    list_teacher_workspace_topics,
-)
-from .topics import get_topic, get_topic_learning_item_ids
+from .topics import get_topic
 from .vocabulary import get_learning_item, list_learning_item_translations, list_learning_items
-from .workspaces import (
-    WorkspaceEditPermissionError,
-    WorkspaceKindMismatchError,
-    WorkspaceNotFoundError,
-    ensure_teacher_can_edit_workspace_content,
-    find_shared_workspace_for_teacher_and_student,
-    list_student_workspace_students_for_teacher,
-)
 
 
 SOURCE_MODE_TOPIC = "topic"
@@ -56,15 +41,15 @@ class TeacherAssignmentRecipientsRequiredError(TeacherAssignmentDraftError):
 
 def list_assignment_workspaces(teacher_user_id: int) -> list[dict[str, object]]:
     family = get_user_family(teacher_user_id)
-    if family is not None:
-        family_id = int(family["id"])
-        return [
-            {
-                "workspace_id": _family_workspace_id(family_id),
-                "name": str(family["name"] or "Family"),
-            }
-        ]
-    return list_teacher_browsable_workspaces(teacher_user_id)
+    if family is None:
+        return []
+    family_id = int(family["id"])
+    return [
+        {
+            "workspace_id": _family_workspace_id(family_id),
+            "name": str(family["name"] or "Family"),
+        }
+    ]
 
 
 def list_assignment_topics(
@@ -72,20 +57,18 @@ def list_assignment_topics(
     workspace_id: int,
 ) -> list[dict[str, object]]:
     family_id = _workspace_family_id(workspace_id)
-    if family_id is not None:
-        return [
-            {
-                "topic_id": int(topic["id"]),
-                "name": str(topic["name"]),
-                "title": str(topic["title"]),
-                "item_count": len(_get_family_topic_learning_item_ids(int(topic["id"]))),
-            }
-            for topic in list_family_topics(family_id)
-        ]
-    try:
-        return list_teacher_workspace_topics(teacher_user_id, workspace_id)
-    except TeacherContentAccessError as error:
-        raise TeacherAssignmentAccessError from error
+    family = get_user_family(teacher_user_id)
+    if family is None or family_id != int(family["id"]):
+        raise TeacherAssignmentAccessError
+    return [
+        {
+            "topic_id": int(topic["id"]),
+            "name": str(topic["name"]),
+            "title": str(topic["title"]),
+            "item_count": len(_get_family_topic_learning_item_ids(int(topic["id"]))),
+        }
+        for topic in list_family_topics(family_id)
+    ]
 
 
 def build_topic_selection_summary(
@@ -94,36 +77,18 @@ def build_topic_selection_summary(
     topic_id: int,
 ) -> dict[str, object]:
     family_id = _workspace_family_id(workspace_id)
-    if family_id is not None:
-        family = get_user_family(teacher_user_id)
-        if family is None:
-            raise TeacherAssignmentDraftError
-        topic = _get_family_topic(topic_id, family_id)
-        if topic is None:
-            raise TeacherAssignmentDraftError
-        learning_item_ids = _get_family_topic_learning_item_ids(topic_id)
-        preview_items = _build_learning_item_preview_rows(learning_item_ids[:SUMMARY_PREVIEW_LIMIT])
-        return {
-            "source_mode": SOURCE_MODE_TOPIC,
-            "workspace_id": workspace_id,
-            "workspace_name": str(family["name"]),
-            "topic_id": topic_id,
-            "topic_title": str(topic["title"]),
-            "topic_name": str(topic["name"]),
-            "learning_item_ids": learning_item_ids,
-            "selected_count": len(learning_item_ids),
-            "preview_items": preview_items,
-        }
-    workspace = _ensure_teacher_workspace(teacher_user_id, workspace_id)
-    topic = get_topic(topic_id)
-    if topic is None or int(topic["workspace_id"]) != workspace_id:
+    family = get_user_family(teacher_user_id)
+    if family is None or family_id != int(family["id"]):
         raise TeacherAssignmentDraftError
-    learning_item_ids = get_topic_learning_item_ids(topic_id)
+    topic = _get_family_topic(topic_id, family_id)
+    if topic is None:
+        raise TeacherAssignmentDraftError
+    learning_item_ids = _get_family_topic_learning_item_ids(topic_id)
     preview_items = _build_learning_item_preview_rows(learning_item_ids[:SUMMARY_PREVIEW_LIMIT])
     return {
         "source_mode": SOURCE_MODE_TOPIC,
         "workspace_id": workspace_id,
-        "workspace_name": workspace["name"] or f"Workspace {workspace_id}",
+        "workspace_name": str(family["name"]),
         "topic_id": topic_id,
         "topic_title": str(topic["title"]),
         "topic_name": str(topic["name"]),
@@ -141,19 +106,15 @@ def build_word_selection_snapshot(
     current_learning_item_id: int | None = None,
 ) -> dict[str, object]:
     family_id = _workspace_family_id(workspace_id)
-    if family_id is not None:
-        family = get_user_family(teacher_user_id)
-        if family is None:
-            raise TeacherAssignmentDraftError
-        workspace = {"name": str(family["name"])}
-        learning_items = [
-            get_learning_item(int(item["id"]))
-            for item in list_family_learning_items(family_id)
-        ]
-        learning_items = [item for item in learning_items if item is not None]
-    else:
-        workspace = _ensure_teacher_workspace(teacher_user_id, workspace_id)
-        learning_items = list_learning_items(workspace_id=workspace_id)
+    family = get_user_family(teacher_user_id)
+    if family is None or family_id != int(family["id"]):
+        raise TeacherAssignmentDraftError
+    workspace = {"name": str(family["name"])}
+    learning_items = [
+        get_learning_item(int(item["id"]))
+        for item in list_family_learning_items(family_id)
+    ]
+    learning_items = [item for item in learning_items if item is not None]
     if not learning_items:
         return {
             "workspace_id": workspace_id,
@@ -196,35 +157,16 @@ def build_word_selection_snapshot(
 
 def list_assignment_recipients(teacher_user_id: int) -> list[dict[str, object]]:
     family = get_user_family(teacher_user_id)
-    if family is not None:
-        return [
-            {
-                "student_user_id": int(member["telegram_user_id"]),
-                "display_name": _build_user_display_name(member, int(member["telegram_user_id"])),
-                "workspace_id": None,
-            }
-            for member in list_family_members(int(family["id"]))
-        ]
-
-    recipients: list[dict[str, object]] = []
-    for row in list_student_workspace_students_for_teacher(teacher_user_id):
-        student_user_id = int(row["student_user_id"])
-        shared_workspace = find_shared_workspace_for_teacher_and_student(
-            teacher_user_id,
-            student_user_id,
-            kind="student",
-        )
-        if shared_workspace is None:
-            continue
-        user = get_user(student_user_id)
-        recipients.append(
-            {
-                "student_user_id": student_user_id,
-                "display_name": _build_user_display_name(user, student_user_id),
-                "workspace_id": int(shared_workspace["id"]),
-            }
-        )
-    return recipients
+    if family is None:
+        return []
+    return [
+        {
+            "student_user_id": int(member["telegram_user_id"]),
+            "display_name": _build_user_display_name(member, int(member["telegram_user_id"])),
+            "workspace_id": None,
+        }
+        for member in list_family_members(int(family["id"]))
+    ]
 
 
 def build_assignment_confirm_snapshot(
@@ -241,14 +183,10 @@ def build_assignment_confirm_snapshot(
     normalized_kind = normalize_assignment_kind(assignment_kind)
     normalized_mode = normalize_assignment_mode(assignment_mode)
     family_id = _workspace_family_id(workspace_id)
-    if family_id is not None:
-        family = get_user_family(teacher_user_id)
-        if family is None or int(family["id"]) != family_id:
-            raise TeacherAssignmentAccessError
-        workspace_name = str(family["name"] or "Family")
-    else:
-        workspace = _ensure_teacher_workspace(teacher_user_id, workspace_id)
-        workspace_name = str(workspace["name"] or f"Workspace {workspace_id}")
+    family = get_user_family(teacher_user_id)
+    if family is None or int(family["id"]) != family_id:
+        raise TeacherAssignmentAccessError
+    workspace_name = str(family["name"] or "Family")
     recipient_lookup = {
         recipient["student_user_id"]: recipient
         for recipient in list_assignment_recipients(teacher_user_id)
@@ -309,92 +247,55 @@ def persist_assignment_draft(
     if not recipient_user_ids:
         raise TeacherAssignmentRecipientsRequiredError
     family_id = _workspace_family_id(workspace_id)
-    if family_id is not None:
-        if source_mode == SOURCE_MODE_TOPIC:
-            if topic_id is None:
-                raise TeacherAssignmentDraftError
-            topic = _get_family_topic(topic_id, family_id)
-            if topic is None:
-                raise TeacherAssignmentDraftError
-            learning_item_ids = _get_family_topic_learning_item_ids(topic_id)
-            if not learning_item_ids:
-                raise TeacherAssignmentDraftError
-            return [
-                {
-                    "assignment_id": create_family_homework_assignment(
-                        family_id,
-                        teacher_user_id,
-                        student_user_id,
-                        learning_item_ids,
-                        title=str(topic["title"]),
-                    ),
-                    "student_user_id": student_user_id,
-                    "title": str(topic["title"]),
-                    "assignment_kind": normalize_assignment_kind(assignment_kind),
-                    "assignment_mode": normalize_assignment_mode(assignment_mode),
-                    "learning_item_ids": learning_item_ids,
-                }
-                for student_user_id in recipient_user_ids
-            ]
-        if source_mode == SOURCE_MODE_WORDS:
-            if not selected_learning_item_ids:
-                raise TeacherAssignmentDraftError
-            return [
-                {
-                    "assignment_id": create_family_homework_assignment(
-                        family_id,
-                        teacher_user_id,
-                        student_user_id,
-                        selected_learning_item_ids,
-                    ),
-                    "student_user_id": student_user_id,
-                    "title": None,
-                    "assignment_kind": normalize_assignment_kind(assignment_kind),
-                    "assignment_mode": normalize_assignment_mode(assignment_mode),
-                    "learning_item_ids": list(selected_learning_item_ids),
-                }
-                for student_user_id in recipient_user_ids
-            ]
+    family = get_user_family(teacher_user_id)
+    if family is None or int(family["id"]) != family_id:
         raise TeacherAssignmentDraftError
     if source_mode == SOURCE_MODE_TOPIC:
         if topic_id is None:
             raise TeacherAssignmentDraftError
-        topic = get_topic(topic_id)
-        if topic is None or int(topic["workspace_id"]) != workspace_id:
+        topic = _get_family_topic(topic_id, family_id)
+        if topic is None:
             raise TeacherAssignmentDraftError
-        results = [
-            create_assignment_from_group(
-                teacher_user_id,
-                student_user_id,
-                workspace_id,
-                str(topic["name"]),
-                assignment_kind=assignment_kind,
-                assignment_mode=assignment_mode,
-            )
+        learning_item_ids = _get_family_topic_learning_item_ids(topic_id)
+        if not learning_item_ids:
+            raise TeacherAssignmentDraftError
+        return [
+            {
+                "assignment_id": create_family_homework_assignment(
+                    family_id,
+                    teacher_user_id,
+                    student_user_id,
+                    learning_item_ids,
+                    title=str(topic["title"]),
+                ),
+                "student_user_id": student_user_id,
+                "title": str(topic["title"]),
+                "assignment_kind": normalize_assignment_kind(assignment_kind),
+                "assignment_mode": normalize_assignment_mode(assignment_mode),
+                "learning_item_ids": learning_item_ids,
+            }
             for student_user_id in recipient_user_ids
         ]
-        return results
     if source_mode == SOURCE_MODE_WORDS:
         if not selected_learning_item_ids:
             raise TeacherAssignmentDraftError
         return [
-            create_assignment(
-                teacher_user_id,
-                student_user_id,
-                selected_learning_item_ids,
-                assignment_kind=assignment_kind,
-                assignment_mode=assignment_mode,
-            )
+            {
+                "assignment_id": create_family_homework_assignment(
+                    family_id,
+                    teacher_user_id,
+                    student_user_id,
+                    selected_learning_item_ids,
+                ),
+                "student_user_id": student_user_id,
+                "title": None,
+                "assignment_kind": normalize_assignment_kind(assignment_kind),
+                "assignment_mode": normalize_assignment_mode(assignment_mode),
+                "learning_item_ids": list(selected_learning_item_ids),
+            }
             for student_user_id in recipient_user_ids
         ]
     raise TeacherAssignmentDraftError
-
-
-def _ensure_teacher_workspace(teacher_user_id: int, workspace_id: int) -> sqlite3.Row:
-    try:
-        return ensure_teacher_can_edit_workspace_content(workspace_id, teacher_user_id)
-    except (WorkspaceEditPermissionError, WorkspaceKindMismatchError, WorkspaceNotFoundError) as error:
-        raise TeacherAssignmentAccessError from error
 
 
 def _serialize_learning_item_card(learning_item: dict[str, object]) -> dict[str, object]:

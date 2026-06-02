@@ -29,18 +29,18 @@
 - `lexemes` are global vocabulary roots.
 - `learning_items` are the main learning units and belong to workspaces.
 - `topics` group workspace-owned learning items.
-- The new family-first persistence slice also supports family-owned `learning_items` and `topics`, plus dedicated family membership, personal progress, and family homework tables, while some legacy workspace persistence still exists during the rebuild.
+- The new family-first persistence slice also supports family-owned `learning_items` and `topics`, plus dedicated family membership, personal progress, and family homework tables; active learner flows now read that family-owned content directly.
 - `assets` plus `learning_item_assets` store media metadata.
 - `workspaces` and `workspace_members` define ownership, teacher-student grouping, and runtime access.
 - Student-facing runtime content is published into student workspaces rather than read live from teacher workspaces.
 
 ## Major flows
 - Family authoring: `/teacher_content` edits shared family topics, items, translations, and linked assets through aiogram-dialog, while still carrying some workspace-aware code paths during the rebuild.
-- Assignment creation: `/create_assignment` persists family homework assignments and still coexists with older workspace assignment persistence during the cleanup phase.
+- Assignment creation: `/create_assignment` persists family homework assignments for family members.
 - During the family-first rebuild, the same dialogs can also target family-owned topics and family homework assignments without routing through teacher/student invite or simple-mode bootstrap flows.
-- Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`, while legacy published student-workspace topics still remain readable where they already exist.
+- Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`.
 - Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`.
-- During the family-first rebuild, `training_sessions` can point either to legacy workspace homework (`assignment_id`) or to new family homework (`family_homework_assignment_id`), while the staged exercise engine remains shared.
+- During the family-first rebuild, family homework uses `training_sessions.family_homework_assignment_id`, while the staged exercise engine remains shared.
 
 ## Business logic vs Telegram/UI
 - Business logic belongs in focused domain modules under `englishbot/`.

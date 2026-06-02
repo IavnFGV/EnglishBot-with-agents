@@ -31,14 +31,11 @@ from englishbot.teacher_assignment_dialog import (
     toggle_recipient,
 )
 from englishbot.teacher_assignment_handlers import create_assignment_flow
-from englishbot.topics import create_topic_for_teacher_workspace, replace_topic_learning_items
 from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import (
-    create_learning_item_for_teacher_workspace,
     create_learning_item_translation,
     create_lexeme,
 )
-from englishbot.workspaces import add_workspace_member, create_workspace
 
 
 class FakeDialogManager:
@@ -110,24 +107,6 @@ def setup_db(tmp_path: Path) -> None:
     db.init_db()
 
 
-def seed_teacher_workspace_items(teacher_user_id: int, *, count: int = 3) -> tuple[int, list[int]]:
-    workspace = create_workspace("Assignments", kind="teacher")
-    workspace_id = int(workspace["workspace_id"])
-    add_workspace_member(workspace_id, teacher_user_id, "teacher")
-    learning_item_ids: list[int] = []
-    for index in range(count):
-        lexeme_id = create_lexeme(f"assign-{index + 1}")
-        learning_item_id = create_learning_item_for_teacher_workspace(
-            teacher_user_id,
-            workspace_id,
-            lexeme_id,
-            f"assign-{index + 1}",
-        )
-        create_learning_item_translation(learning_item_id, "ru", f"слово-{index + 1}")
-        learning_item_ids.append(learning_item_id)
-    return workspace_id, learning_item_ids
-
-
 def seed_family_content(parent: User, *members: User) -> tuple[int, list[int], int]:
     db.save_user(parent)
     for member in members:
@@ -144,24 +123,6 @@ def seed_family_content(parent: User, *members: User) -> tuple[int, list[int], i
     topic_id = create_family_topic(int(family["id"]), "family-topic", "Family Topic")
     replace_family_topic_items(topic_id, learning_item_ids)
     return int(family["id"]), learning_item_ids, topic_id
-
-
-def seed_teacher_topic(teacher_user_id: int) -> tuple[int, int]:
-    workspace_id, learning_item_ids = seed_teacher_workspace_items(teacher_user_id, count=2)
-    topic_id = create_topic_for_teacher_workspace(
-        teacher_user_id,
-        workspace_id,
-        "assignment-topic",
-        "Assignment Topic",
-    )
-    replace_topic_learning_items(teacher_user_id, topic_id, learning_item_ids)
-    return workspace_id, topic_id
-
-
-def count_assignments() -> int:
-    with db.get_connection() as connection:
-        row = connection.execute("SELECT COUNT(*) AS count FROM assignments").fetchone()
-    return int(row["count"])
 
 
 def count_family_assignments() -> int:
@@ -261,7 +222,6 @@ def test_topic_path_shows_summary_then_confirm_without_persisting_before_confirm
     assert "Topic: Family Topic" in bot.edit_calls[0]["text"]
     assert "not selected yet" in confirm_view["screen_text"]
     assert confirm_view["can_confirm"] is False
-    assert count_assignments() == 0
     assert count_family_assignments() == 0
 
 
@@ -290,7 +250,6 @@ def test_words_path_uses_summary_and_current_item_browser(tmp_path: Path) -> Non
     assert "Selected: no" in second_view["screen_text"]
     assert "Selected: 1" in bot.edit_calls[-1]["text"]
     assert len(bot.edit_calls) == edit_call_count_after_toggle
-    assert count_assignments() == 0
     assert count_family_assignments() == 0
 
 
@@ -316,7 +275,6 @@ def test_recipient_skip_keeps_confirm_non_persistent_until_recipient_selected(tm
 
     assert confirm_view["can_confirm"] is False
     assert "Choose recipients before final confirm." in confirm_view["screen_text"]
-    assert count_assignments() == 0
     assert count_family_assignments() == 0
 
 
@@ -346,7 +304,6 @@ def test_confirm_creates_expected_assignments_after_recipient_selection(tmp_path
     asyncio.run(toggle_recipient(SimpleNamespace(message=message), None, manager, str(second_recipient_id)))
     asyncio.run(confirm_assignment(SimpleNamespace(message=message), None, manager))
 
-    assert count_assignments() == 0
     assert count_family_assignments() == 2
     assert manager.done_calls == [{"result": {"assignment_count": 2}, "show_mode": ShowMode.SEND}]
     assert len(bot.sent_messages) == 2
@@ -372,7 +329,6 @@ def test_family_confirm_creates_family_homework_assignments(tmp_path: Path) -> N
 
     asyncio.run(confirm_assignment(SimpleNamespace(message=message), None, manager))
 
-    assert count_assignments() == 0
     assert count_family_assignments() == 1
     assert manager.done_calls == [{"result": {"assignment_count": 1}, "show_mode": ShowMode.SEND}]
     assert len(bot.sent_messages) == 1

@@ -17,10 +17,10 @@
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
 - The first family-first rebuild slice is now implemented in persistence: SQLite now has `families`, `family_members`, family-scoped `learning_items`/`topics` support, `topic_items`, `user_progress`, and `homework_assignments` tables, with focused helpers in `englishbot/families.py`.
 - Plain `/learn` now prefers family-owned learning items when the user belongs to a family, instead of falling back to the legacy workspace content source.
-- Learner homework flows now also understand family-first homework assignments: active homework lists, start callbacks, progress snapshots, and training-session completion work for both legacy workspace assignments and new family homework.
+- Learner homework flows are now family-first end to end: active homework lists, start callbacks, progress snapshots, and training-session completion all run only on `homework_assignments`.
 - The focused learner-homework UI tests now exercise family homework directly, so the homework list, overview dialog, and homework start handler no longer rely on invite/join scaffolding for their main coverage.
 - The homework-specific `training_handlers` tests now also use family homework directly, so learner progress-photo and homework-summary coverage no longer depends on teacher-student invite setup.
-- `/topics` now prefers family-owned shared topics for family members, so family learners can open shared topics directly without the legacy topic-grant path.
+- `/topics` is now family-first end to end: family learners open shared family topics directly, without grants, published runtime copies, or `student_topic_access`.
 - The focused `/topics` handler tests now also run on family topics directly, so the Telegram topic-picker coverage no longer relies on invite/join scaffolding.
 - `/teacher_content` and `/create_assignment` now also admit family members without the legacy teacher role and can work against family-owned topics/items for authoring and homework creation.
 - The focused assignment-dialog handler tests now also run the main topic/words/recipient/confirm path on family content directly, and the family confirm snapshot bug in `teacher_assignments.py` has been fixed.
@@ -30,7 +30,7 @@
 - The old `/admin` env config tail is gone too: `.env.example` no longer documents `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID`, and `englishbot/config.py` no longer exposes an admin-id helper.
 - Workspace-based content ownership with `teacher` and `student` workspaces.
 - Teacher content editing through `/teacher_content` dialog flows.
-- Homework assignments from explicit item ids or teacher topics.
+- Homework assignments from family topics or explicit family item selection.
 - Learner homework list/overview dialog and resumable homework sessions.
 - Topic access grants plus learner `/topics` launch flow.
 - Training sessions with staged `easy`, `medium`, and optional `hard` exercises.
@@ -52,7 +52,7 @@
 - SQLite is the runtime source of truth.
 - Core learning unit is `learning_item`, not plain word.
 - `lexemes` stay global; `learning_items`, `topics`, and assets are workspace-scoped through ownership or links.
-- Teacher content is authored in teacher workspaces and published into student workspaces for runtime learning.
+- Family learning runtime now reads shared family content directly; publish-era teacher/student workspace runtime is no longer part of active learner flows.
 - Teacher-student grouping now lives in `workspace_members` on `student` workspaces; there is no separate teacher-student link table.
 - Assignments and training sessions are snapshot-oriented; live teacher edits must not rewrite in-flight learner state.
 - `workspace_members` is the access source of truth for runtime visibility.
@@ -71,7 +71,7 @@
 - No hard delete lifecycle for learning content.
 - No Google Sheets integration; workbook flow is local `.xlsx` only.
 - No deep-link driven navigation.
-- The current family setup still carries workspace-first persistence under the hood, especially in topic access, old assignments, and publish-era content ownership.
+- The remaining legacy surface is mostly in teacher-content/workspace authoring helpers, workbook-domain code, and old schema baggage that is no longer on the active learner path.
 - No advanced learner statistics beyond current session and assignment progress.
 - No dedicated persisted exercise-instance table; exercises are rebuilt from session state.
 - Some learner and topic selection flows still use inline button lists, so treat Telegram UI constraints in `AGENTS.md` as the direction for future cleanup rather than a claim that every legacy screen is already ideal.
@@ -83,6 +83,6 @@
 - Tests are the best proof of current behavior when docs and older prompts disagree.
 
 ## Immediate next work areas supported by repo state
-- Next family-first step is the remaining domain cleanup wave: remove workspace-first helpers and persistence paths that are no longer needed once family-first flows fully replace them.
+- Next family-first step is the remaining authoring cleanup wave: simplify `teacher_content.py` and related tests so active authoring no longer carries workspace-first branches.
 - Tighten older Telegram list screens toward the single-screen UI rules where practical.
 - Keep narrowing documentation and task navigation around the module map instead of large historical notes.
