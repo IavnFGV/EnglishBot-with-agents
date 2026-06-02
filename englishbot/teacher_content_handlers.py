@@ -8,20 +8,17 @@ from .families import get_user_family
 from .i18n import translate_for_user
 from .runtime import router
 from .teacher_content_dialog import TeacherContentDialogSG
-from .user_profiles import get_user_role
-
-
 @router.message(Command(TEACHER_CONTENT_COMMAND.name))
 async def teacher_content(message: Message, dialog_manager: DialogManager) -> None:
     if message.from_user is None:
         return
 
     save_user(message.from_user)
-    if get_user_role(message.from_user.id) != "teacher" and get_user_family(message.from_user.id) is None:
+    if get_user_family(message.from_user.id) is None:
         await message.answer(
             translate_for_user(
                 message.from_user.id,
-                "teacher.command_teacher_only",
+                "family.command_family_only",
                 command=TEACHER_CONTENT_COMMAND.token,
             )
         )

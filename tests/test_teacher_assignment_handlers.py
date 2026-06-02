@@ -131,13 +131,13 @@ def count_family_assignments() -> int:
     return int(row["count"])
 
 
-def test_create_assignment_command_starts_dialog_for_teacher(tmp_path: Path) -> None:
+def test_create_assignment_command_starts_dialog_for_family_member(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher = make_user(801, "Teacher")
-    db.save_user(teacher)
-    set_user_role(teacher.id, "teacher")
-    manager = FakeDialogManager(teacher)
-    message = FakeMessage(teacher)
+    parent = make_user(801, "Parent")
+    child = make_user(802, "Child")
+    seed_family_content(parent, child)
+    manager = FakeDialogManager(parent)
+    message = FakeMessage(parent)
 
     asyncio.run(create_assignment_flow(message, manager))
 
@@ -163,7 +163,7 @@ def test_create_assignment_command_rejects_non_teacher(tmp_path: Path) -> None:
 
     assert manager.start_calls == []
     assert message.answers == [
-        "Command /create_assignment is available only to users with the teacher role."
+        "Command /create_assignment is available only inside a family setup."
     ]
 
 

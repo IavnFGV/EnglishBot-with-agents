@@ -75,13 +75,11 @@ async def teacher_content_command(message: Message, dialog_manager: DialogManage
     if message.from_user is None:
         return
     save_user(message.from_user)
-    from .user_profiles import get_user_role
-
-    if get_user_role(message.from_user.id) != "teacher" and get_user_family(message.from_user.id) is None:
+    if get_user_family(message.from_user.id) is None:
         await message.answer(
             translate_for_user(
                 message.from_user.id,
-                "teacher.command_teacher_only",
+                "family.command_family_only",
                 command=TEACHER_CONTENT_COMMAND.token,
             )
         )

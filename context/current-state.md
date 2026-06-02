@@ -22,17 +22,16 @@
 - The homework-specific `training_handlers` tests now also use family homework directly, so learner progress-photo and homework-summary coverage no longer depends on teacher-student invite setup.
 - `/topics` is now family-first end to end: family learners open shared family topics directly, without grants, published runtime copies, or `student_topic_access`.
 - The focused `/topics` handler tests now also run on family topics directly, so the Telegram topic-picker coverage no longer relies on invite/join scaffolding.
-- `/teacher_content` and `/create_assignment` now also admit family members without the legacy teacher role and can work against family-owned topics/items for authoring and homework creation.
+- `/teacher_content` and `/create_assignment` are now family-first on the active runtime path: both entrypoints require family membership and work only against family-owned topics/items.
 - The focused assignment-dialog handler tests now also run the main topic/words/recipient/confirm path on family content directly, and the family confirm snapshot bug in `teacher_assignments.py` has been fixed.
-- The old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are now deleted; remaining legacy surface is concentrated in workspace-first persistence paths.
+- The old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are now deleted; the remaining legacy surface is mostly workbook-domain code and old schema/helpers that are no longer on active product paths.
 - The active registered command list is now family-first only: `/start`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/topics`, and `/teacher_content`.
 - Legacy admin, invite/join, assign/grant, and workbook Telegram handlers have been deleted from the active bot runtime and from the codebase.
 - The old `/admin` env config tail is gone too: `.env.example` no longer documents `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID`, and `englishbot/config.py` no longer exposes an admin-id helper.
-- Workspace-based content ownership with `teacher` and `student` workspaces.
 - Teacher content editing through `/teacher_content` dialog flows.
 - Homework assignments from family topics or explicit family item selection.
 - Learner homework list/overview dialog and resumable homework sessions.
-- Topic access grants plus learner `/topics` launch flow.
+- Learner `/topics` launch flow over shared family topics.
 - Training sessions with staged `easy`, `medium`, and optional `hard` exercises.
 - Centralized i18n for bot-facing text with `en`, `ru`, `uk`, and `bg`.
 - Workbook export/import for teacher workspaces through Telegram `.xlsx` files.
@@ -51,11 +50,9 @@
 ## Data and ownership constraints
 - SQLite is the runtime source of truth.
 - Core learning unit is `learning_item`, not plain word.
-- `lexemes` stay global; `learning_items`, `topics`, and assets are workspace-scoped through ownership or links.
+- `lexemes` stay global; active product content now lives in family-owned `learning_items`, `topics`, and linked assets.
 - Family learning runtime now reads shared family content directly; publish-era teacher/student workspace runtime is no longer part of active learner flows.
-- Teacher-student grouping now lives in `workspace_members` on `student` workspaces; there is no separate teacher-student link table.
 - Assignments and training sessions are snapshot-oriented; live teacher edits must not rewrite in-flight learner state.
-- `workspace_members` is the access source of truth for runtime visibility.
 
 ## Code boundaries
 - Business logic lives in focused modules under `englishbot/`.
@@ -71,7 +68,7 @@
 - No hard delete lifecycle for learning content.
 - No Google Sheets integration; workbook flow is local `.xlsx` only.
 - No deep-link driven navigation.
-- The remaining legacy surface is mostly in teacher-content/workspace authoring helpers, workbook-domain code, and old schema baggage that is no longer on the active learner path.
+- The remaining legacy surface is mostly workbook-domain code, old schema baggage, and cleanup-worthy workspace helpers that are no longer on active product paths.
 - No advanced learner statistics beyond current session and assignment progress.
 - No dedicated persisted exercise-instance table; exercises are rebuilt from session state.
 - Some learner and topic selection flows still use inline button lists, so treat Telegram UI constraints in `AGENTS.md` as the direction for future cleanup rather than a claim that every legacy screen is already ideal.
@@ -83,6 +80,6 @@
 - Tests are the best proof of current behavior when docs and older prompts disagree.
 
 ## Immediate next work areas supported by repo state
-- Next family-first step is the remaining authoring cleanup wave: simplify `teacher_content.py` and related tests so active authoring no longer carries workspace-first branches.
+- Next family-first step is the final delete wave: decide whether workbook import/export survives as an offline maintenance tool or gets removed entirely, then prune the leftover workspace-first helpers and old schema baggage.
 - Tighten older Telegram list screens toward the single-screen UI rules where practical.
 - Keep narrowing documentation and task navigation around the module map instead of large historical notes.

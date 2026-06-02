@@ -27,15 +27,14 @@
 ## Data ownership boundaries
 - SQLite is the runtime source of truth.
 - `lexemes` are global vocabulary roots.
-- `learning_items` are the main learning units and belong to workspaces.
-- `topics` group workspace-owned learning items.
+- `learning_items` are the main learning units.
+- `topics` group learning items.
 - The new family-first persistence slice also supports family-owned `learning_items` and `topics`, plus dedicated family membership, personal progress, and family homework tables; active learner flows now read that family-owned content directly.
 - `assets` plus `learning_item_assets` store media metadata.
-- `workspaces` and `workspace_members` define ownership, teacher-student grouping, and runtime access.
-- Student-facing runtime content is published into student workspaces rather than read live from teacher workspaces.
+- `workspaces` and related helpers now remain mostly as legacy cleanup baggage rather than active product foundations.
 
 ## Major flows
-- Family authoring: `/teacher_content` edits shared family topics, items, translations, and linked assets through aiogram-dialog, while still carrying some workspace-aware code paths during the rebuild.
+- Family authoring: `/teacher_content` edits shared family topics, items, translations, and linked assets through aiogram-dialog.
 - Assignment creation: `/create_assignment` persists family homework assignments for family members.
 - During the family-first rebuild, the same dialogs can also target family-owned topics and family homework assignments without routing through teacher/student invite or simple-mode bootstrap flows.
 - Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`.
