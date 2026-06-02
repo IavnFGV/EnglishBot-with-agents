@@ -252,7 +252,15 @@ def build_assignment_confirm_snapshot(
 ) -> dict[str, object]:
     normalized_kind = normalize_assignment_kind(assignment_kind)
     normalized_mode = normalize_assignment_mode(assignment_mode)
-    workspace = _ensure_teacher_workspace(teacher_user_id, workspace_id)
+    family_id = _workspace_family_id(workspace_id)
+    if family_id is not None:
+        family = get_user_family(teacher_user_id)
+        if family is None or int(family["id"]) != family_id:
+            raise TeacherAssignmentAccessError
+        workspace_name = str(family["name"] or "Family")
+    else:
+        workspace = _ensure_teacher_workspace(teacher_user_id, workspace_id)
+        workspace_name = str(workspace["name"] or f"Workspace {workspace_id}")
     recipient_lookup = {
         recipient["student_user_id"]: recipient
         for recipient in list_assignment_recipients(teacher_user_id)
@@ -279,7 +287,7 @@ def build_assignment_confirm_snapshot(
         content_summary = {
             "source_mode": SOURCE_MODE_WORDS,
             "workspace_id": workspace_id,
-            "workspace_name": workspace["name"] or f"Workspace {workspace_id}",
+            "workspace_name": workspace_name,
             "selected_count": int(snapshot["selected_count"]),
             "preview_items": list(snapshot["preview_items"]),
             "learning_item_ids": list(snapshot["selected_learning_item_ids"]),
@@ -289,7 +297,7 @@ def build_assignment_confirm_snapshot(
 
     return {
         "workspace_id": workspace_id,
-        "workspace_name": workspace["name"] or f"Workspace {workspace_id}",
+        "workspace_name": workspace_name,
         "source_mode": source_mode,
         "content_summary": content_summary,
         "assignment_kind": normalized_kind,

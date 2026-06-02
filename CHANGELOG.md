@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-01
+- Fixed the family-first assignment confirm path in `englishbot/teacher_assignments.py`: confirm snapshots no longer try to resolve a virtual family workspace through the legacy teacher-workspace guard, and `tests/test_teacher_assignment_handlers.py` now exercises the main topic/words/recipient/confirm flow on family content directly.
 - Moved the homework-specific `training_handlers` coverage onto family-first assignments: the learner progress-photo and homework-summary tests in `tests/test_training_handlers.py` now create family homework directly instead of relying on teacher-student invite scaffolding.
 - Moved `/topics` handler coverage onto the family-first path: `tests/test_topic_access_handlers.py` now exercises family topics directly instead of bootstrapping teacher-student links through invite/join for that Telegram UI layer.
 - Moved the learner-homework UI coverage further onto the family-first path: `tests/test_learner_homework.py`, `tests/test_homework_dialog.py`, and `tests/test_homework_handlers.py` now build and launch family homework assignments directly instead of depending on invite/join scaffolding for those screens.
