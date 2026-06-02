@@ -9,7 +9,7 @@ from aiogram.types import Chat, Message, Update
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.bot import BOT_COMMANDS, configure_bot_commands, dispatcher, me
+from englishbot.bot import BOT_COMMANDS, configure_bot_commands, dispatcher, help_command, me
 from englishbot.command_registry import get_registered_commands
 from englishbot.training import create_training_session, get_active_training_session
 from englishbot.vocabulary import create_learning_item, create_learning_item_translation, create_lexeme
@@ -54,6 +54,28 @@ def test_me_handler_shows_profile_role_and_text_count(tmp_path: Path) -> None:
 
     assert message.answers == [
         "Mira\ntelegram_user_id: 901\nrole: student\nsaved_text_messages: 2"
+    ]
+
+
+def test_help_handler_shows_family_first_command_list(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(904, "Nora")
+    db.save_user(user)
+    message = FakeMessage(user)
+
+    asyncio.run(help_command(message))
+
+    assert message.answers == [
+        "Available commands:\n"
+        "/start - open the main menu\n"
+        "/help - show this help\n"
+        "/learn - start training\n"
+        "/topics - open family topics\n"
+        "/me - show your profile\n"
+        "/settings - open settings\n"
+        "/cancel - stop the current flow\n"
+        "/teacher_content - edit family content\n"
+        "/create_assignment - assign homework inside the family"
     ]
 
 

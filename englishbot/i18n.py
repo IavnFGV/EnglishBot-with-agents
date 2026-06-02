@@ -13,6 +13,7 @@ LANGUAGE_LABELS: Final[dict[str, str]] = {
 TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
     "en": {
         "command.start": "Open the main menu",
+        "command.help": "Show available commands",
         "command.learn": "Start training",
         "command.me": "Show my profile",
         "command.settings": "Open settings",
@@ -33,6 +34,7 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "common.yes": "yes",
         "common.no": "no",
         "bot.profile": "{display_name}\ntelegram_user_id: {telegram_user_id}\nrole: {role}\nsaved_text_messages: {message_count}",
+        "bot.help": "Available commands:\n/start - open the main menu\n/help - show this help\n/learn - start training\n/topics - open family topics\n/me - show your profile\n/settings - open settings\n/cancel - stop the current flow\n/teacher_content - edit family content\n/create_assignment - assign homework inside the family",
         "admin.command_admin_only": "Command /admin is available only to the configured admin user.",
         "admin.action.prev": "⬅ Prev",
         "admin.action.next": "Next ➡",
@@ -283,6 +285,7 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
     },
     "ru": {
         "command.start": "Открыть главное меню",
+        "command.help": "Показать доступные команды",
         "command.learn": "Начать тренировку",
         "command.me": "Показать мой профиль",
         "command.settings": "Открыть настройки",
@@ -302,6 +305,7 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "common.yes": "да",
         "common.no": "нет",
         "bot.profile": "{display_name}\ntelegram_user_id: {telegram_user_id}\nrole: {role}\nsaved_text_messages: {message_count}",
+        "bot.help": "Доступные команды:\n/start - открыть главное меню\n/help - показать эту справку\n/learn - начать тренировку\n/topics - открыть семейные темы\n/me - показать профиль\n/settings - открыть настройки\n/cancel - остановить текущий флоу\n/teacher_content - редактировать семейный контент\n/create_assignment - назначить домашку внутри семьи",
         "admin.command_admin_only": "Команда /admin доступна только настроенному admin-пользователю.",
         "admin.action.prev": "⬅ Назад",
         "admin.action.next": "Дальше ➡",
@@ -552,6 +556,7 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
     },
     "uk": {
         "command.start": "Відкрити головне меню",
+        "command.help": "Показати доступні команди",
         "command.learn": "Почати тренування",
         "command.me": "Показати мій профіль",
         "command.settings": "Відкрити налаштування",
@@ -571,6 +576,7 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "common.yes": "так",
         "common.no": "ні",
         "bot.profile": "{display_name}\ntelegram_user_id: {telegram_user_id}\nrole: {role}\nsaved_text_messages: {message_count}",
+        "bot.help": "Доступні команди:\n/start - відкрити головне меню\n/help - показати цю довідку\n/learn - почати тренування\n/topics - відкрити сімейні теми\n/me - показати профіль\n/settings - відкрити налаштування\n/cancel - зупинити поточний флоу\n/teacher_content - редагувати сімейний контент\n/create_assignment - призначити домашнє завдання всередині сім'ї",
         "admin.command_admin_only": "Команда /admin доступна лише для налаштованого admin-користувача.",
         "admin.action.prev": "⬅ Назад",
         "admin.action.next": "Далі ➡",
@@ -821,6 +827,7 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
     },
     "bg": {
         "command.start": "Отвори главното меню",
+        "command.help": "Покажи достъпните команди",
         "command.learn": "Започни тренировка",
         "command.me": "Покажи моя профил",
         "command.settings": "Отвори настройките",
@@ -840,6 +847,7 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "common.yes": "да",
         "common.no": "не",
         "bot.profile": "{display_name}\ntelegram_user_id: {telegram_user_id}\nrole: {role}\nsaved_text_messages: {message_count}",
+        "bot.help": "Достъпни команди:\n/start - отвори главното меню\n/help - покажи тази помощ\n/learn - започни тренировка\n/topics - отвори семейните теми\n/me - покажи профила\n/settings - отвори настройките\n/cancel - спри текущия flow\n/teacher_content - редактирай семейното съдържание\n/create_assignment - задай домашно в рамките на семейството",
         "admin.command_admin_only": "Командата /admin е достъпна само за настроения admin потребител.",
         "admin.action.prev": "⬅ Назад",
         "admin.action.next": "Напред ➡",

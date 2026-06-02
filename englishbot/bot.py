@@ -4,7 +4,7 @@ from aiogram.filters import Command
 from aiogram.types import ErrorEvent, Message
 from aiogram_dialog import setup_dialogs
 
-from .command_registry import BOT_COMMANDS, ME_COMMAND
+from .command_registry import BOT_COMMANDS, HELP_COMMAND, ME_COMMAND
 from .db import count_text_interactions, get_user
 from .homework_dialog import homework_dialog
 from .i18n import translate_for_user
@@ -31,6 +31,19 @@ setup_dialogs(dispatcher)
 
 async def configure_bot_commands(bot) -> None:
     await bot.set_my_commands(BOT_COMMANDS)
+
+
+@router.message(Command(HELP_COMMAND.name))
+async def help_command(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    await message.answer(
+        translate_for_user(
+            message.from_user.id,
+            "bot.help",
+        )
+    )
 
 
 @router.message(Command(ME_COMMAND.name))

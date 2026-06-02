@@ -8,6 +8,7 @@ from englishbot.command_registry import (
     BOT_COMMANDS,
     CANCEL_COMMAND,
     CREATE_ASSIGNMENT_COMMAND,
+    HELP_COMMAND,
     LEARN_COMMAND,
     ME_COMMAND,
     SETTINGS_COMMAND,
@@ -23,6 +24,7 @@ from englishbot.i18n import translate
 def test_command_registry_contains_all_canonical_commands() -> None:
     assert [command.name for command in ALL_COMMANDS] == [
         "start",
+        "help",
         "learn",
         "me",
         "settings",
@@ -39,6 +41,7 @@ def test_bot_command_collection_stays_consistent_with_registry() -> None:
 
     assert registered == (
         START_COMMAND,
+        HELP_COMMAND,
         LEARN_COMMAND,
         ME_COMMAND,
         SETTINGS_COMMAND,

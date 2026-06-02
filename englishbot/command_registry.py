@@ -29,6 +29,12 @@ START_COMMAND = CommandDefinition(
     scope="student",
     register_after_startup=True,
 )
+HELP_COMMAND = CommandDefinition(
+    name="help",
+    description_key="command.help",
+    scope="user",
+    register_after_startup=True,
+)
 LEARN_COMMAND = CommandDefinition(
     name="learn",
     description_key="command.learn",
@@ -74,6 +80,7 @@ TEACHER_CONTENT_COMMAND = CommandDefinition(
 
 ALL_COMMANDS = (
     START_COMMAND,
+    HELP_COMMAND,
     LEARN_COMMAND,
     ME_COMMAND,
     SETTINGS_COMMAND,
@@ -87,6 +94,7 @@ ALL_COMMANDS = (
 def get_registered_commands() -> tuple[CommandDefinition, ...]:
     return (
         START_COMMAND,
+        HELP_COMMAND,
         LEARN_COMMAND,
         ME_COMMAND,
         SETTINGS_COMMAND,
