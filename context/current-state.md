@@ -16,6 +16,7 @@
 ## Implemented product slices
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
 - A minimal `/help` command now shows the active family-first command set, so unsupported commands like `/help` no longer fall through as unhandled updates.
+- Added global observability for unhandled updates: fallback message handler and UnknownIntent error handler now log at WARNING level.
 - The first family-first rebuild slice is now implemented in persistence: SQLite now has `families`, `family_members`, family-scoped `learning_items`/`topics` support, `topic_items`, `user_progress`, and `homework_assignments` tables, with focused helpers in `englishbot/families.py`.
 - Plain `/learn` now prefers family-owned learning items when the user belongs to a family, instead of falling back to the legacy workspace content source.
 - Learner homework flows are now family-first end to end: active homework lists, start callbacks, progress snapshots, and training-session completion all run only on `homework_assignments`.

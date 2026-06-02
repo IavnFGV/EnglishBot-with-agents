@@ -47,6 +47,7 @@ Read `context/englishbot_handoff.md` only when the task explicitly needs histori
 - All bot-facing text must go through `englishbot/i18n.py`.
 - Any new or changed Telegram command must be defined in `englishbot/command_registry.py` first.
 - Optional AI, TTS, WebApp, or deployment extras must not become required for core runtime.
+- All code-level text (comments, docstrings, variable names) must be in English, except for internationalization content in `englishbot/i18n.py`, intentional language-specific literals, or unless specifically requested otherwise.
 - Prefer ASCII unless the file already uses Unicode intentionally.
 - Keep comments short and only where they help.
 - New non-trivial behavior requires focused automated tests.

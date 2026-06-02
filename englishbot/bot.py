@@ -1,8 +1,10 @@
 import logging
 
+from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import ErrorEvent, Message
 from aiogram_dialog import setup_dialogs
+from aiogram_dialog.api.exceptions import UnknownIntent
 
 from .command_registry import BOT_COMMANDS, HELP_COMMAND, ME_COMMAND
 from .db import count_text_interactions, get_user
@@ -22,10 +24,12 @@ from . import training_handlers  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
+unhandled_router = Router()
 
 dispatcher.include_router(teacher_assignment_dialog)
 dispatcher.include_router(homework_dialog)
 dispatcher.include_router(teacher_content_dialog)
+dispatcher.include_router(unhandled_router)
 setup_dialogs(dispatcher)
 
 
@@ -70,8 +74,31 @@ async def me(message: Message) -> None:
         )
     )
 
-@router.errors()
+@unhandled_router.message()
+async def unhandled_message(message: Message) -> None:
+    """
+    Catches any messages or commands that were not handled by other routers.
+    Logs them as a warning for visibility.
+    """
+    user_id = message.from_user.id if message.from_user else "Unknown"
+    text = message.text or message.caption or "[No text]"
+    logger.warning("Unhandled message or command from user %s: %s", user_id, text)
+
+@dispatcher.errors()
 async def on_error(event: ErrorEvent) -> None:
+    """
+    Global error handler. Specifically catches UnknownIntent (often due to expired 
+    aiogram-dialog sessions) and logs them as a warning.
+    """
+    if isinstance(event.exception, UnknownIntent):
+        user_id = (
+            event.update.callback_query.from_user.id 
+            if event.update.callback_query 
+            else "Unknown"
+        )
+        logger.warning("Unknown dialog intent detected for user %s", user_id)
+        return
+
     logger.exception(
         "Unhandled exception while processing an update",
         exc_info=event.exception,

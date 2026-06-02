@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06-02
+- Added global fallback router for unhandled Telegram updates (messages and commands) with WARNING level logging.
+- Added global error handler to catch `aiogram_dialog` UnknownIntent and log it as a warning for better observability of session expirations.
+- Updated `AGENTS.md` to strictly require English for all code-level text (comments, docstrings, variables).
+
 ## 2026-06-01
 - Added a minimal family-first `/help` command: it is now registered in `command_registry.py`, handled in `englishbot/bot.py`, returns a short list of the active commands through `i18n.py`, and prevents `/help` from falling through as an unhandled Telegram update.
 - Added `chain_of_commands/047-family-first-rebuild.md`, a single replayable prompt that describes the whole family-first rebuild wave from persistence foundation through learner/teacher flow cleanup and legacy deletion.
