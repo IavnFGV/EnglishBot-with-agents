@@ -15,7 +15,6 @@ from englishbot.families import (
     create_family_topic,
     replace_topic_items as replace_family_topic_items,
 )
-from englishbot.teacher_student import create_invite, join_with_invite
 from englishbot.topic_access import (
     StudentWorkspaceMembershipRequiredError,
     TopicAccessDeniedError,
@@ -37,6 +36,7 @@ from englishbot.workspaces import (
     add_workspace_member,
     create_workspace,
     find_shared_workspace_for_teacher_and_student,
+    get_or_create_student_workspace,
 )
 
 
@@ -55,8 +55,8 @@ def seed_linked_teacher_and_student() -> tuple[User, User]:
     db.save_user(teacher)
     db.save_user(student)
     set_user_role(teacher.id, "teacher")
-    invite_code = create_invite(teacher.id)
-    join_with_invite(student.id, invite_code)
+    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
+    get_or_create_student_workspace(teacher.id, student.id)
     return teacher, student
 
 

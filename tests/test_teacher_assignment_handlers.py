@@ -227,22 +227,6 @@ def test_create_assignment_command_allows_family_member_without_teacher_role(tmp
     ]
 
 
-def test_simple_mode_recipient_list_includes_self_and_other_family_members(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    setup_db(tmp_path)
-    monkeypatch.setenv("ENGLISHBOT_SIMPLE_MODE", "1")
-    teacher = make_user(812, "Teacher")
-    student = make_user(813, "Student")
-    db.save_user(teacher)
-    db.save_user(student)
-
-    recipients = list_assignment_recipients(teacher.id)
-
-    assert [recipient["student_user_id"] for recipient in recipients] == [teacher.id, student.id]
-
-
 def test_family_recipient_list_uses_family_members_without_workspace_model(tmp_path: Path) -> None:
     setup_db(tmp_path)
     parent = make_user(816, "Parent")

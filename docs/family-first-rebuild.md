@@ -78,6 +78,7 @@ Current status:
 - the homework-specific `training_handlers` coverage now also runs on family homework directly, so the remaining invite/join dependency is shrinking toward older domain tests instead of active learner runtime coverage.
 - `/topics` now also supports family-owned topics directly for family members, without topic grants.
 - the focused `/topics` Telegram handler coverage now also runs on family topics directly, so invite/join is no longer part of the active topic-picker UI coverage.
+- the old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are gone; the remaining legacy surface is now workspace-first persistence, not onboarding or bootstrap scaffolding.
 - `/teacher_content` and `/create_assignment` now have a family-first authoring path: family members can work against one shared family content surface instead of teacher workspaces.
 - the assignment-dialog confirm snapshot now understands virtual family workspaces correctly, so the main topic/words/recipient/confirm authoring path can be covered on family content directly.
 - the main bot command list is now trimmed to family-first commands only.

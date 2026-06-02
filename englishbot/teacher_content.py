@@ -12,7 +12,6 @@ from .assets import (
     resolve_asset_ref_for_role,
 )
 from .db import get_connection, utc_now
-from .config import is_simple_mode_enabled
 from .families import (
     create_family_learning_item,
     create_family_topic,
@@ -20,10 +19,6 @@ from .families import (
     list_family_learning_items,
     list_family_topics,
     replace_topic_items as replace_family_topic_items,
-)
-from .simple_mode import (
-    get_simple_mode_student_workspace,
-    get_simple_mode_teacher_workspace,
 )
 from .topics import (
     create_topic_for_teacher_workspace,
@@ -82,14 +77,6 @@ def list_teacher_browsable_workspaces(teacher_user_id: int) -> list[dict[str, ob
                 "name": str(family["name"] or "Family"),
             }
         ]
-    if is_simple_mode_enabled():
-        workspace = get_simple_mode_teacher_workspace()
-        return [
-            {
-                "id": int(workspace["id"]),
-                "name": workspace["name"] or f"Workspace {int(workspace['id'])}",
-            }
-        ]
     workspaces = find_workspaces_for_user_by_role(teacher_user_id, ROLE_TEACHER)
     return [
         {
@@ -110,12 +97,6 @@ def create_teacher_workspace_for_user(
         return {
             "id": _family_workspace_id(int(family["id"])),
             "name": str(family["name"] or "Family"),
-        }
-    if is_simple_mode_enabled():
-        workspace = get_simple_mode_teacher_workspace()
-        return {
-            "id": int(workspace["id"]),
-            "name": workspace["name"] or f"Workspace {int(workspace['id'])}",
         }
     normalized_name = name.strip()
     if not normalized_name:
@@ -486,14 +467,6 @@ def archive_teacher_topic_item(
 def list_teacher_publish_targets(teacher_user_id: int) -> list[dict[str, object]]:
     if get_user_family(teacher_user_id) is not None:
         return []
-    if is_simple_mode_enabled():
-        workspace = get_simple_mode_student_workspace()
-        return [
-            {
-                "id": int(workspace["id"]),
-                "name": workspace["name"] or f"Workspace {int(workspace['id'])}",
-            }
-        ]
     workspaces = find_workspaces_for_user_by_role(teacher_user_id, ROLE_TEACHER)
     return [
         {

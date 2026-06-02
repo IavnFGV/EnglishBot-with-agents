@@ -16,6 +16,3 @@ def load_config() -> str:
         )
 
     return token
-def is_simple_mode_enabled() -> bool:
-    raw_value = os.getenv("ENGLISHBOT_SIMPLE_MODE", "").strip().lower()
-    return raw_value in {"1", "true", "yes", "on"}

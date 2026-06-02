@@ -7,11 +7,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.simple_mode import (
-    SIMPLE_MODE_STUDENT_WORKSPACE_NAME,
-    SIMPLE_MODE_TEACHER_WORKSPACE_NAME,
-)
-from englishbot.user_profiles import get_user_role
 from englishbot.workspaces import (
     InvalidWorkspaceKindError,
     InvalidWorkspaceRoleError,
@@ -218,37 +213,3 @@ def test_teacher_only_content_edit_checks_workspace_kind_and_role(tmp_path: Path
     with pytest.raises(WorkspaceEditPermissionError):
         ensure_teacher_can_edit_workspace_content(teacher_workspace["workspace_id"], 1202)
 
-
-def test_save_user_bootstraps_simple_mode_shared_workspaces(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    setup_db(tmp_path)
-    monkeypatch.setenv("ENGLISHBOT_SIMPLE_MODE", "1")
-
-    db.save_user(type("User", (), {
-        "id": 1301,
-        "username": "parent",
-        "first_name": "Parent",
-        "last_name": None,
-    })())
-    db.save_user(type("User", (), {
-        "id": 1302,
-        "username": "child",
-        "first_name": "Child",
-        "last_name": None,
-    })())
-
-    parent_workspaces = list_workspaces_for_user(1301)
-    child_workspaces = list_workspaces_for_user(1302)
-
-    assert get_user_role(1301) == "teacher"
-    assert get_user_role(1302) == "teacher"
-    assert [(row["name"], row["kind"], row["role"]) for row in parent_workspaces] == [
-        (SIMPLE_MODE_TEACHER_WORKSPACE_NAME, "teacher", "teacher"),
-        (SIMPLE_MODE_STUDENT_WORKSPACE_NAME, "student", "teacher"),
-    ]
-    assert [(row["name"], row["kind"], row["role"]) for row in child_workspaces] == [
-        (SIMPLE_MODE_TEACHER_WORKSPACE_NAME, "teacher", "teacher"),
-        (SIMPLE_MODE_STUDENT_WORKSPACE_NAME, "student", "teacher"),
-    ]

@@ -19,7 +19,7 @@
 - Family-first domain slice: `families.py`
 - Learning domain: `vocabulary.py`, `topics.py`, `assets.py`, `exercises.py`, `training.py`
 - Family-first workflows: `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`
-- Legacy workspace helpers still on disk during cleanup: `teacher_student.py`, `workspaces.py`
+- Legacy workspace helpers still on disk during cleanup: `workspaces.py`
 - Telegram orchestration: `*_handlers.py`
 - Multi-step Telegram UI: `homework_dialog.py`, `teacher_assignment_dialog.py`, `teacher_content_dialog.py`
 - Operations: `logging_setup.py`, `build_info.py`, `status_server.py`
@@ -29,7 +29,7 @@
 - `lexemes` are global vocabulary roots.
 - `learning_items` are the main learning units and belong to workspaces.
 - `topics` group workspace-owned learning items.
-- The new family-first persistence slice also supports family-owned `learning_items` and `topics`, plus dedicated family membership, personal progress, and family homework tables, while legacy workspace flows still exist during the rebuild.
+- The new family-first persistence slice also supports family-owned `learning_items` and `topics`, plus dedicated family membership, personal progress, and family homework tables, while some legacy workspace persistence still exists during the rebuild.
 - `assets` plus `learning_item_assets` store media metadata.
 - `workspaces` and `workspace_members` define ownership, teacher-student grouping, and runtime access.
 - Student-facing runtime content is published into student workspaces rather than read live from teacher workspaces.
@@ -37,7 +37,7 @@
 ## Major flows
 - Family authoring: `/teacher_content` edits shared family topics, items, translations, and linked assets through aiogram-dialog, while still carrying some workspace-aware code paths during the rebuild.
 - Assignment creation: `/create_assignment` persists family homework assignments and still coexists with older workspace assignment persistence during the cleanup phase.
-- During the family-first rebuild, the same dialogs can also target family-owned topics and family homework assignments without routing through teacher/student workspace publish flows.
+- During the family-first rebuild, the same dialogs can also target family-owned topics and family homework assignments without routing through teacher/student invite or simple-mode bootstrap flows.
 - Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`, while legacy published student-workspace topics still remain readable where they already exist.
 - Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`.
 - During the family-first rebuild, `training_sessions` can point either to legacy workspace homework (`assignment_id`) or to new family homework (`family_homework_assignment_id`), while the staged exercise engine remains shared.

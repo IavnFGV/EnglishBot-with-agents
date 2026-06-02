@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-06-01
+- Deleted the transitional `simple_mode` layer completely: removed `englishbot/simple_mode.py`, `ENGLISHBOT_SIMPLE_MODE` from `.env.example`, and the remaining simple-mode branches from `training.py`, `teacher_content.py`, `teacher_assignments.py`, and `db.py`, then dropped the now-obsolete focused tests that only existed to verify that bootstrap path.
+- Deleted `englishbot/teacher_student.py` and `tests/test_teacher_student.py` after the remaining live homework/topic/assignment flows and tests stopped depending on invite scaffolding; the leftover legacy surface is now workspace-first persistence rather than invite onboarding code.
 - Fixed the family-first assignment confirm path in `englishbot/teacher_assignments.py`: confirm snapshots no longer try to resolve a virtual family workspace through the legacy teacher-workspace guard, and `tests/test_teacher_assignment_handlers.py` now exercises the main topic/words/recipient/confirm flow on family content directly.
 - Moved the homework-specific `training_handlers` coverage onto family-first assignments: the learner progress-photo and homework-summary tests in `tests/test_training_handlers.py` now create family homework directly instead of relying on teacher-student invite scaffolding.
 - Moved `/topics` handler coverage onto the family-first path: `tests/test_topic_access_handlers.py` now exercises family topics directly instead of bootstrapping teacher-student links through invite/join for that Telegram UI layer.

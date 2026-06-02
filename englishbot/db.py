@@ -1447,7 +1447,6 @@ def save_user(user: User) -> None:
                 timestamp,
             ),
         )
-    _apply_simple_mode_bootstrap(user.id)
 
 
 def ensure_user_exists(telegram_user_id: int) -> None:
@@ -1488,14 +1487,6 @@ def ensure_user_exists(telegram_user_id: int) -> None:
                 timestamp,
             ),
         )
-
-
-def _apply_simple_mode_bootstrap(telegram_user_id: int) -> None:
-    from .simple_mode import ensure_simple_mode_user
-
-    ensure_simple_mode_user(telegram_user_id)
-
-
 def save_interaction(
     telegram_user_id: int,
     direction: str,

@@ -15,7 +15,6 @@
 
 ## Implemented product slices
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
-- Optional env-gated simple family mode via `ENGLISHBOT_SIMPLE_MODE`: each newly seen user is auto-bootstrapped into one shared family teacher workspace and one shared family student workspace, receives the global teacher role, can assign to self or any other family member, and `/learn` reads from the shared family runtime workspace.
 - The first family-first rebuild slice is now implemented in persistence: SQLite now has `families`, `family_members`, family-scoped `learning_items`/`topics` support, `topic_items`, `user_progress`, and `homework_assignments` tables, with focused helpers in `englishbot/families.py`.
 - Plain `/learn` now prefers family-owned learning items when the user belongs to a family, instead of falling back to the legacy workspace content source.
 - Learner homework flows now also understand family-first homework assignments: active homework lists, start callbacks, progress snapshots, and training-session completion work for both legacy workspace assignments and new family homework.
@@ -25,6 +24,7 @@
 - The focused `/topics` handler tests now also run on family topics directly, so the Telegram topic-picker coverage no longer relies on invite/join scaffolding.
 - `/teacher_content` and `/create_assignment` now also admit family members without the legacy teacher role and can work against family-owned topics/items for authoring and homework creation.
 - The focused assignment-dialog handler tests now also run the main topic/words/recipient/confirm path on family content directly, and the family confirm snapshot bug in `teacher_assignments.py` has been fixed.
+- The old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are now deleted; remaining legacy surface is concentrated in workspace-first persistence paths.
 - The active registered command list is now family-first only: `/start`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/topics`, and `/teacher_content`.
 - Legacy admin, invite/join, assign/grant, and workbook Telegram handlers have been deleted from the active bot runtime and from the codebase.
 - The old `/admin` env config tail is gone too: `.env.example` no longer documents `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID`, and `englishbot/config.py` no longer exposes an admin-id helper.
@@ -54,7 +54,6 @@
 - `lexemes` stay global; `learning_items`, `topics`, and assets are workspace-scoped through ownership or links.
 - Teacher content is authored in teacher workspaces and published into student workspaces for runtime learning.
 - Teacher-student grouping now lives in `workspace_members` on `student` workspaces; there is no separate teacher-student link table.
-- Simple mode is also only a bootstrap/resolution layer over the same schema: it does not add tables, dual-role memberships, or special assignment entities.
 - Assignments and training sessions are snapshot-oriented; live teacher edits must not rewrite in-flight learner state.
 - `workspace_members` is the access source of truth for runtime visibility.
 
@@ -72,8 +71,7 @@
 - No hard delete lifecycle for learning content.
 - No Google Sheets integration; workbook flow is local `.xlsx` only.
 - No deep-link driven navigation.
-- Simple mode intentionally collapses family authoring/runtime into one shared pair of workspaces and is aimed at small controlled setups, not mixed-mode migration of older personal workspaces.
-- The current family setup still carries workspace-first persistence under the hood, especially in topic access, old assignments, and simple mode bootstrap.
+- The current family setup still carries workspace-first persistence under the hood, especially in topic access, old assignments, and publish-era content ownership.
 - No advanced learner statistics beyond current session and assignment progress.
 - No dedicated persisted exercise-instance table; exercises are rebuilt from session state.
 - Some learner and topic selection flows still use inline button lists, so treat Telegram UI constraints in `AGENTS.md` as the direction for future cleanup rather than a claim that every legacy screen is already ideal.

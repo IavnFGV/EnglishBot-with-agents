@@ -1,6 +1,4 @@
 import sqlite3
-
-from .config import is_simple_mode_enabled
 from .families import (
     create_homework_assignment as create_family_homework_assignment,
     get_user_family,
@@ -17,7 +15,6 @@ from .homework import (
     normalize_assignment_kind,
     normalize_assignment_mode,
 )
-from .simple_mode import list_simple_mode_student_user_ids
 from .teacher_content import (
     TeacherContentAccessError,
     list_teacher_browsable_workspaces,
@@ -207,15 +204,6 @@ def list_assignment_recipients(teacher_user_id: int) -> list[dict[str, object]]:
                 "workspace_id": None,
             }
             for member in list_family_members(int(family["id"]))
-        ]
-    if is_simple_mode_enabled():
-        return [
-            {
-                "student_user_id": student_user_id,
-                "display_name": _build_user_display_name(get_user(student_user_id), student_user_id),
-                "workspace_id": None,
-            }
-            for student_user_id in list_simple_mode_student_user_ids()
         ]
 
     recipients: list[dict[str, object]] = []

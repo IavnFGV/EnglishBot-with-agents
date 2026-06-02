@@ -1,11 +1,9 @@
 import sqlite3
 
 from .assets import PRIMARY_IMAGE_ROLE, resolve_asset_ref_for_role
-from .config import is_simple_mode_enabled
 from .db import DEFAULT_HINT_LANGUAGE, get_connection, utc_now
 from .exercises import ExerciseBuildError, ResolvedLearningItem, TranslationEntry, build_exercise
 from .families import get_user_family, list_family_learning_items
-from .simple_mode import get_simple_mode_runtime_workspace_id
 from .user_profiles import get_user_hint_language
 from .vocabulary import get_learning_item_with_translations, get_lexeme, list_learning_items
 
@@ -41,10 +39,7 @@ def create_training_session(
             raise NoLearningItemsError
         return create_training_session_for_learning_items(telegram_user_id, learning_item_ids)
 
-    workspace_id = None
-    if is_simple_mode_enabled():
-        workspace_id = get_simple_mode_runtime_workspace_id()
-    learning_item_ids = [row["id"] for row in list_learning_items(limit, workspace_id=workspace_id)]
+    learning_item_ids = [row["id"] for row in list_learning_items(limit)]
     if not learning_item_ids:
         raise NoLearningItemsError
     return create_training_session_for_learning_items(telegram_user_id, learning_item_ids)
