@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-01
+- Added `chain_of_commands/047-family-first-rebuild.md`, a single replayable prompt that describes the whole family-first rebuild wave from persistence foundation through learner/teacher flow cleanup and legacy deletion.
 - Deleted the remaining active authoring dual-path: `englishbot/teacher_content.py` now treats the virtual family workspace as the only active authoring surface, `/teacher_content` and `/create_assignment` now require family membership on entry, family-owned item edits no longer route through teacher-workspace guards in `vocabulary.py`, and the focused teacher-content plus handler tests were rewritten around the family-first contract.
 - Deleted the remaining active learner dual-path in topic and homework runtime: `englishbot/topic_access.py` is now family-only, `englishbot/homework.py` is now family-only on the active runtime path, `englishbot/teacher_assignments.py` no longer falls back to workspace assignment creation, and the focused `topic_access`, `homework`, and teacher-assignment handler tests were rewritten around the family-first contract.
 - Deleted the transitional `simple_mode` layer completely: removed `englishbot/simple_mode.py`, `ENGLISHBOT_SIMPLE_MODE` from `.env.example`, and the remaining simple-mode branches from `training.py`, `teacher_content.py`, `teacher_assignments.py`, and `db.py`, then dropped the now-obsolete focused tests that only existed to verify that bootstrap path.

@@ -45,6 +45,7 @@
 - Task config files under `scheduled-tasks/*.env` are shell-sourced by infra, so values containing spaces, such as cron expressions, must be quoted.
 - `chain_of_commands/` now includes a dedicated history prompt for the local-media persistence change so that asset-storage decisions can be replayed from one concise brief.
 - `chain_of_commands/` also includes a dedicated history prompt for the student-workspace access-model cleanup so the teacher-student refactor can be replayed from one concise brief.
+- `chain_of_commands/047-family-first-rebuild.md` now captures the full family-first rebuild brief so the whole simplification wave can be replayed from one prompt instead of reconstructing it from many commits.
 - `docs/family-first-rebuild.md` records the approved next direction: keep this repository and deploy path, but replace the workspace/publish-centric product model with a family-first core built around shared family content plus personal progress and homework.
 
 ## Data and ownership constraints
