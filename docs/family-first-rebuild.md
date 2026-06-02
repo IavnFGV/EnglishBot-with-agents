@@ -75,6 +75,7 @@ Current status:
 - learner homework now supports both legacy and family-first assignments during the rebuild.
 - family homework uses its own `family_homework_assignment_id` in `training_sessions`, instead of pretending to be a legacy workspace assignment.
 - the focused learner-homework UI tests now launch family homework directly, which reduces the remaining invite/join dependency to older workspace-first domain coverage instead of active learner UX coverage.
+- the homework-specific `training_handlers` coverage now also runs on family homework directly, so the remaining invite/join dependency is shrinking toward older domain tests instead of active learner runtime coverage.
 - `/topics` now also supports family-owned topics directly for family members, without topic grants.
 - the focused `/topics` Telegram handler coverage now also runs on family topics directly, so invite/join is no longer part of the active topic-picker UI coverage.
 - `/teacher_content` and `/create_assignment` now have a family-first authoring path: family members can work against one shared family content surface instead of teacher workspaces.

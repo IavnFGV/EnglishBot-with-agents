@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-01
+- Moved the homework-specific `training_handlers` coverage onto family-first assignments: the learner progress-photo and homework-summary tests in `tests/test_training_handlers.py` now create family homework directly instead of relying on teacher-student invite scaffolding.
 - Moved `/topics` handler coverage onto the family-first path: `tests/test_topic_access_handlers.py` now exercises family topics directly instead of bootstrapping teacher-student links through invite/join for that Telegram UI layer.
 - Moved the learner-homework UI coverage further onto the family-first path: `tests/test_learner_homework.py`, `tests/test_homework_dialog.py`, and `tests/test_homework_handlers.py` now build and launch family homework assignments directly instead of depending on invite/join scaffolding for those screens.
 - Removed the dead `/admin` configuration tail after deleting the admin runtime: `englishbot/config.py` no longer exposes `get_admin_telegram_user_id`, `.env.example` no longer documents `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID`, and the focused bootstrap logging test no longer seeds that legacy env var.

@@ -8,8 +8,13 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.homework import create_assignment, start_assignment_training_session
-from englishbot.teacher_student import create_invite, join_with_invite
+from englishbot.families import (
+    add_family_member,
+    create_family,
+    create_family_learning_item,
+    create_homework_assignment as create_family_homework_assignment,
+)
+from englishbot.homework import start_assignment_training_session
 from englishbot.training import get_active_training_session, get_current_question, submit_training_answer
 from englishbot.training_handlers import (
     TRAINING_EASY_CALLBACK_PREFIX,
@@ -27,7 +32,6 @@ from englishbot.training_handlers import (
     render_started_training_session,
 )
 from englishbot.user_profiles import set_user_hint_language
-from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import create_learning_item, create_learning_item_translation, create_lexeme
 from englishbot.workspaces import add_workspace_member
 
@@ -134,15 +138,14 @@ def seed_learning_items(item_count: int) -> None:
         create_learning_item_translation(learning_item_id, "ru", f"слово-{index + 1}")
 
 
-def seed_linked_teacher_and_student() -> tuple[User, User]:
-    teacher = make_user(498, "Teacher")
-    student = make_user(497, "Student")
-    db.save_user(teacher)
-    db.save_user(student)
-    set_user_role(teacher.id, "teacher")
-    invite_code = create_invite(teacher.id)
-    join_with_invite(student.id, invite_code)
-    return teacher, student
+def seed_family_parent_and_child() -> tuple[User, User, int]:
+    parent = make_user(498, "Parent")
+    child = make_user(497, "Child")
+    db.save_user(parent)
+    db.save_user(child)
+    family = create_family("Home", parent.id)
+    add_family_member(int(family["id"]), child.id)
+    return parent, child, int(family["id"])
 
 
 def _find_keyboard_index_by_label(keyboard, label: str) -> int:
@@ -447,23 +450,28 @@ def test_learn_renders_hint_prompt_from_persisted_hint_language(tmp_path: Path) 
 
 def test_homework_completion_uses_homework_specific_summary(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
+    parent, child, family_id = seed_family_parent_and_child()
     lexeme_id = create_lexeme("homework-word")
-    learning_item_id = create_learning_item(lexeme_id, "homework-word")
+    learning_item_id = create_family_learning_item(family_id, lexeme_id, "homework-word")
     create_learning_item_translation(learning_item_id, "ru", "домашка")
-    assignment = create_assignment(teacher.id, student.id, [learning_item_id], title="Homework set")
-    start_assignment_training_session(student.id, int(assignment["assignment_id"]))
-    start_message = FakeMessage(student)
-    asyncio.run(render_started_training_session(start_message, student.id))
+    assignment_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        [learning_item_id],
+        title="Homework set",
+    )
+    start_assignment_training_session(child.id, f"family:{assignment_id}")
+    start_message = FakeMessage(child)
+    asyncio.run(render_started_training_session(start_message, child.id))
 
-    submit_training_answer(student.id, "homework-word")
-    submit_training_answer(student.id, "homework-word")
-    submit_training_answer(student.id, "homework-word")
-    submit_training_answer(student.id, "homework-word")
-    session = get_active_training_session(student.id)
+    submit_training_answer(child.id, "homework-word")
+    submit_training_answer(child.id, "homework-word")
+    submit_training_answer(child.id, "homework-word")
+    submit_training_answer(child.id, "homework-word")
+    session = get_active_training_session(child.id)
     assert session is not None
-    answer_message = FakeMessage(student, text="homework-word", bot=start_message.bot)
+    answer_message = FakeMessage(child, text="homework-word", bot=start_message.bot)
     answer_message.message_id = int(session["current_question_message_id"])
     asyncio.run(answer_training_question(answer_message))
 
@@ -471,25 +479,30 @@ def test_homework_completion_uses_homework_specific_summary(tmp_path: Path) -> N
         'Correct.\nHomework "Homework set" completed.\nResult: 1 questions, 5 correct answers.'
     )
     assert start_message.bot.deleted_messages == [
-        {"chat_id": student.id, "message_id": 2},
-        {"chat_id": student.id, "message_id": 1},
+        {"chat_id": child.id, "message_id": 2},
+        {"chat_id": child.id, "message_id": 1},
     ]
 
 
 def test_homework_start_renders_one_progress_photo_and_one_question(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
-    lexeme_id = create_lexeme("homework-word")
-    learning_item_id = create_learning_item(lexeme_id, "homework-word")
+    parent, child, family_id = seed_family_parent_and_child()
+    lexeme_id = create_lexeme("homework-word-family")
+    learning_item_id = create_family_learning_item(family_id, lexeme_id, "homework-word")
     create_learning_item_translation(learning_item_id, "ru", "домашка")
-    assignment = create_assignment(teacher.id, student.id, [learning_item_id], title="Homework set")
-    start_assignment_training_session(student.id, int(assignment["assignment_id"]))
-    start_message = FakeMessage(student)
+    assignment_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        [learning_item_id],
+        title="Homework set",
+    )
+    start_assignment_training_session(child.id, f"family:{assignment_id}")
+    start_message = FakeMessage(child)
 
-    asyncio.run(render_started_training_session(start_message, student.id))
+    asyncio.run(render_started_training_session(start_message, child.id))
 
-    session = get_active_training_session(student.id)
+    session = get_active_training_session(child.id)
     assert session is not None
     assert len(start_message.photo_answers) == 1
     assert len(start_message.answers) == 1
@@ -499,59 +512,77 @@ def test_homework_start_renders_one_progress_photo_and_one_question(tmp_path: Pa
 
 def test_homework_progress_photo_updates_in_place_after_answer(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
+    parent, child, family_id = seed_family_parent_and_child()
     learning_item_ids: list[int] = []
     for index in range(3):
         lexeme_id = create_lexeme(f"homework-word-{index}")
-        learning_item_id = create_learning_item(lexeme_id, f"homework-word-{index}")
+        learning_item_id = create_family_learning_item(
+            family_id,
+            lexeme_id,
+            f"homework-word-{index}",
+        )
         create_learning_item_translation(learning_item_id, "ru", f"домашка-{index}")
         learning_item_ids.append(learning_item_id)
-    assignment = create_assignment(teacher.id, student.id, learning_item_ids, title="Homework set")
-    start_assignment_training_session(student.id, int(assignment["assignment_id"]))
-    start_message = FakeMessage(student)
+    assignment_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        learning_item_ids,
+        title="Homework set",
+    )
+    start_assignment_training_session(child.id, f"family:{assignment_id}")
+    start_message = FakeMessage(child)
 
-    asyncio.run(render_started_training_session(start_message, student.id))
+    asyncio.run(render_started_training_session(start_message, child.id))
 
     keyboard = start_message.answers[0]["kwargs"]["reply_markup"]
-    correct_answer = str(get_current_question(student.id)["expected_answer"])
+    correct_answer = str(get_current_question(child.id)["expected_answer"])
     correct_index = _find_keyboard_index_by_label(keyboard, correct_answer)
-    callback = FakeCallback(student, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", start_message)
+    callback = FakeCallback(child, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", start_message)
 
     asyncio.run(answer_training_easy(callback))
 
-    session = get_active_training_session(student.id)
+    session = get_active_training_session(child.id)
     assert session is not None
     assert len(start_message.photo_answers) == 1
     assert len(start_message.bot.edited_media) == 1
-    assert start_message.bot.edited_media[0]["chat_id"] == student.id
+    assert start_message.bot.edited_media[0]["chat_id"] == child.id
     assert start_message.bot.edited_media[0]["message_id"] == 1
     assert session["progress_message_id"] == 1
 
 
 def test_homework_progress_photo_not_modified_does_not_send_new_message(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
+    parent, child, family_id = seed_family_parent_and_child()
     learning_item_ids: list[int] = []
     for index in range(3):
         lexeme_id = create_lexeme(f"homework-word-{index}")
-        learning_item_id = create_learning_item(lexeme_id, f"homework-word-{index}")
+        learning_item_id = create_family_learning_item(
+            family_id,
+            lexeme_id,
+            f"homework-word-{index}",
+        )
         create_learning_item_translation(learning_item_id, "ru", f"домашка-{index}")
         learning_item_ids.append(learning_item_id)
-    assignment = create_assignment(teacher.id, student.id, learning_item_ids, title="Homework set")
-    start_assignment_training_session(student.id, int(assignment["assignment_id"]))
-    start_message = FakeMessage(student)
+    assignment_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        learning_item_ids,
+        title="Homework set",
+    )
+    start_assignment_training_session(child.id, f"family:{assignment_id}")
+    start_message = FakeMessage(child)
 
-    asyncio.run(render_started_training_session(start_message, student.id))
+    asyncio.run(render_started_training_session(start_message, child.id))
     start_message.bot.fail_edit_media_message = "Bad Request: message is not modified"
     keyboard = start_message.answers[0]["kwargs"]["reply_markup"]
-    correct_answer = str(get_current_question(student.id)["expected_answer"])
+    correct_answer = str(get_current_question(child.id)["expected_answer"])
     correct_index = _find_keyboard_index_by_label(keyboard, correct_answer)
 
-    asyncio.run(answer_training_easy(FakeCallback(student, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", start_message)))
+    asyncio.run(answer_training_easy(FakeCallback(child, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", start_message)))
 
-    session = get_active_training_session(student.id)
+    session = get_active_training_session(child.id)
     assert session is not None
     assert len(start_message.photo_answers) == 1
     assert session["progress_message_id"] == 1
