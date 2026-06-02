@@ -21,6 +21,7 @@
 - Learner homework flows now also understand family-first homework assignments: active homework lists, start callbacks, progress snapshots, and training-session completion work for both legacy workspace assignments and new family homework.
 - The focused learner-homework UI tests now exercise family homework directly, so the homework list, overview dialog, and homework start handler no longer rely on invite/join scaffolding for their main coverage.
 - `/topics` now prefers family-owned shared topics for family members, so family learners can open shared topics directly without the legacy topic-grant path.
+- The focused `/topics` handler tests now also run on family topics directly, so the Telegram topic-picker coverage no longer relies on invite/join scaffolding.
 - `/teacher_content` and `/create_assignment` now also admit family members without the legacy teacher role and can work against family-owned topics/items for authoring and homework creation.
 - The active registered command list is now family-first only: `/start`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/topics`, and `/teacher_content`.
 - Legacy admin, invite/join, assign/grant, and workbook Telegram handlers have been deleted from the active bot runtime and from the codebase.

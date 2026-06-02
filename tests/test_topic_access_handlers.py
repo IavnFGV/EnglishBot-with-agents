@@ -8,7 +8,6 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.basic_topics_seed import seed_basic_topics
 from englishbot.families import (
     add_family_member,
     create_family,
@@ -16,15 +15,13 @@ from englishbot.families import (
     create_family_topic,
     replace_topic_items as replace_family_topic_items,
 )
-from englishbot.teacher_student import create_invite, join_with_invite
-from englishbot.topic_access import grant_topic_access, list_accessible_topics
+from englishbot.topic_access import list_accessible_topics
 from englishbot.topic_access_handlers import (
     TOPICS_START_PREFIX,
     build_accessible_topics_keyboard,
     start_topic_training,
     topics,
 )
-from englishbot.user_profiles import set_user_role
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
 
@@ -63,17 +60,6 @@ def setup_db(tmp_path: Path) -> None:
     db.init_db()
 
 
-def seed_linked_teacher_and_student() -> tuple[User, User]:
-    teacher = make_user(801, "Teacher")
-    student = make_user(802, "Student")
-    db.save_user(teacher)
-    db.save_user(student)
-    set_user_role(teacher.id, "teacher")
-    invite_code = create_invite(teacher.id)
-    join_with_invite(student.id, invite_code)
-    return teacher, student
-
-
 def seed_family_topic() -> tuple[User, User, int]:
     parent = make_user(821, "Parent")
     child = make_user(822, "Child")
@@ -88,33 +74,30 @@ def seed_family_topic() -> tuple[User, User, int]:
     return parent, child, topic_id
 
 
-def test_topics_handler_lists_accessible_topics(tmp_path: Path) -> None:
+def test_topics_handler_lists_family_topics(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    seed_basic_topics()
-    grant_topic_access(teacher.id, student.id, db.get_default_content_workspace_id(), "months")
-    message = FakeMessage(student)
+    _, child, topic_id = seed_family_topic()
+    message = FakeMessage(child)
 
     asyncio.run(topics(message))
 
     assert message.answers[0]["text"] == "Available topics:"
     keyboard = message.answers[0]["kwargs"]["reply_markup"]
-    accessible_topic = list_accessible_topics(student.id)[0]
-    assert keyboard.inline_keyboard[0][0].text == "Месяцы"
+    accessible_topic = list_accessible_topics(child.id)[0]
+    assert accessible_topic["id"] == topic_id
+    assert keyboard.inline_keyboard[0][0].text == "Pets"
     assert keyboard.inline_keyboard[0][0].callback_data == (
         f"{TOPICS_START_PREFIX}{accessible_topic['id']}"
     )
 
 
-def test_start_topic_training_handler_uses_accessible_topic(tmp_path: Path) -> None:
+def test_start_topic_training_handler_uses_family_topic(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    teacher, student = seed_linked_teacher_and_student()
-    seed_basic_topics()
-    grant_topic_access(teacher.id, student.id, db.get_default_content_workspace_id(), "colors")
-    callback_message = FakeMessage(student)
-    accessible_topic = list_accessible_topics(student.id)[0]
+    _, child, _ = seed_family_topic()
+    callback_message = FakeMessage(child)
+    accessible_topic = list_accessible_topics(child.id)[0]
     callback = FakeCallback(
-        student,
+        child,
         f"{TOPICS_START_PREFIX}{accessible_topic['id']}",
         callback_message,
     )
@@ -123,21 +106,21 @@ def test_start_topic_training_handler_uses_accessible_topic(tmp_path: Path) -> N
 
     assert callback.answered is True
     assert callback_message.answers[0] == {
-        "text": "Item 1/6\nDone 0/6\nStage: easy",
+        "text": "Item 1/1\nDone 0/1\nStage: easy",
         "kwargs": {},
     }
-    assert callback_message.answers[1]["text"] == "красный"
+    assert callback_message.answers[1]["text"] == "Hint: кот\nFirst letter: c"
     keyboard = callback_message.answers[1]["kwargs"]["reply_markup"]
-    assert keyboard is not None
-    assert len(keyboard.inline_keyboard) == 3
+    assert keyboard is None
 
 
 def test_start_topic_training_handler_rejects_inaccessible_topic(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    _, student = seed_linked_teacher_and_student()
-    seed_basic_topics()
-    callback_message = FakeMessage(student)
-    callback = FakeCallback(student, f"{TOPICS_START_PREFIX}1", callback_message)
+    _, _, topic_id = seed_family_topic()
+    outsider = make_user(899, "Outsider")
+    db.save_user(outsider)
+    callback_message = FakeMessage(outsider)
+    callback = FakeCallback(outsider, f"{TOPICS_START_PREFIX}{topic_id}", callback_message)
 
     asyncio.run(start_topic_training(callback))
 
@@ -165,4 +148,3 @@ def test_topics_handler_lists_family_topics_without_grants(tmp_path: Path) -> No
     keyboard = message.answers[0]["kwargs"]["reply_markup"]
     assert keyboard.inline_keyboard[0][0].text == "Pets"
     assert keyboard.inline_keyboard[0][0].callback_data == f"{TOPICS_START_PREFIX}{topic_id}"
-
