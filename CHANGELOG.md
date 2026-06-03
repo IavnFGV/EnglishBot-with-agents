@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-03
+- Added `chain_of_commands/051-family-bulk-edit-via-xlsx.md`, a replayable prompt for restoring the older `.xlsx` workbook editing flow from project history onto the current family-first runtime, with a single global bulk-edit session, bot-wide gating, backup-before-apply, archive-on-missing semantics, and a display-only `image` column exported as a Google Sheets `IMAGE()` formula beside `image_ref`.
 - Added `chain_of_commands/050-unknown-intent-recovery-notice.md`, a single replayable prompt for the expired-dialog recovery slice around `UnknownIntent` logging plus a user-facing restart notice.
 - Improved expired dialog UX: `UnknownIntent` now still logs as a warning, but also sends a localized recovery message telling the user that the screen is no longer active and they should reopen `/start` and begin again.
 - Fixed a family-first assignment dialog regression in `/create_assignment`: topic list rows now include the dialog-compatible `id` field expected by `aiogram-dialog` selects, so opening the topic picker no longer crashes with `KeyError: 'id'`, and focused assignment handler coverage now locks that shape in.

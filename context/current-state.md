@@ -60,6 +60,7 @@
 - `chain_of_commands/048-owner-managed-family-access.md` now captures the owner-only privacy layer for local family bootstrap and the technical `/add_family <telegram_user_id>` flow.
 - `chain_of_commands/049-local-demo-seeding-and-noop-ui-guard.md` now captures the local-owner polish slice: `/seed_demo` demo bootstrap plus exact Telegram no-op edit guards for both focused dialogs and global bot error handling.
 - `chain_of_commands/050-unknown-intent-recovery-notice.md` now captures the expired-dialog recovery slice for `UnknownIntent` logging plus user-facing restart guidance.
+- `chain_of_commands/051-family-bulk-edit-via-xlsx.md` now captures the planned return of workbook-based bulk editing from project history, adapted to the current family-first runtime with one global bulk-edit session, bot-wide gating, backup-before-apply, archive-on-missing, and a display-only `image` column exported as a Google Sheets `IMAGE()` formula next to `image_ref`.
 - `docs/family-first-rebuild.md` records the approved direction: keep this repository and deploy path, but replace the old workspace/publish-centric product model with a family-first core built around shared family content plus personal progress and homework.
 
 ## Data and ownership constraints
