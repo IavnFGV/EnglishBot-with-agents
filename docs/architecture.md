@@ -39,7 +39,7 @@
 - During the family-first rebuild, the same dialogs can also target family-owned topics and family homework assignments without routing through teacher/student invite or simple-mode bootstrap flows.
 - Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`.
 - Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`.
-- During the family-first rebuild, family homework uses `training_sessions.family_homework_assignment_id`, while the staged exercise engine remains shared.
+- Family homework uses `training_sessions.family_homework_assignment_id` as the only active homework session link, while the staged exercise engine remains shared.
 
 ## Business logic vs Telegram/UI
 - Business logic belongs in focused domain modules under `englishbot/`.
@@ -53,6 +53,7 @@
 - Schema bootstrap and migrations live in `db.py`.
 - The repository uses SQLite through stdlib `sqlite3`.
 - Sessions, assignments, topic access, workspaces, and content all persist in SQLite.
+- The active family-first schema no longer bootstraps the old `student_topic_access`, `assignments`, or `assignment_items` tables.
 - Workbook files and Telegram message state are integration surfaces, not primary storage.
 
 ## Testing strategy

@@ -14,10 +14,10 @@ from .i18n import translate_for_user
 
 def build_assignment_progress_image_snapshot(
     telegram_user_id: int,
-    assignment_id: int,
+    assignment_ref: int | str,
     session_id: int,
 ) -> AssignmentProgressSnapshot:
-    snapshot = get_assignment_progress_snapshot(assignment_id, session_id)
+    snapshot = get_assignment_progress_snapshot(assignment_ref, session_id)
     items = list(snapshot["items"])
     current_item = _resolve_current_item(snapshot)
 
@@ -51,13 +51,13 @@ def build_assignment_progress_image_snapshot(
 
 def render_homework_progress_image(
     telegram_user_id: int,
-    assignment_id: int,
+    assignment_ref: int | str,
     session_id: int,
 ) -> Path:
     output_path = Path(tempfile.gettempdir()) / "englishbot-progress" / f"assignment-{session_id}.png"
     snapshot = build_assignment_progress_image_snapshot(
         telegram_user_id,
-        assignment_id,
+        assignment_ref,
         session_id,
     )
     return render_assignment_progress_image(snapshot, output_path=output_path)

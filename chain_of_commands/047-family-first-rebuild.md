@@ -120,6 +120,10 @@
 - `homework.py` должен стать family-only на active runtime path
 - `teacher_assignments.py` не должен падать обратно в workspace assignment creation
 - `teacher_content.py` не должен держать active workspace/publish authoring path
+- если в процессе всплывет legacy dual-path внутри shared runtime engine, тоже удаляй его:
+  - `training_sessions.assignment_id`
+  - старые assignment lookup branches в `training.py`, `training_handlers.py`, `learner_homework.py`
+  - publish UI shell в `teacher_content_dialog.py`
 
 Шаг 10. Оставь честный хвост в конце:
 

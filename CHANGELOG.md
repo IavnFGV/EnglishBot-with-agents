@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-06-03
+- Deleted the last visible publish-era teacher-content shell: removed the publish helpers from `englishbot/teacher_content.py`, deleted the publish state/window/button from `englishbot/teacher_content_dialog.py`, dropped the obsolete publish-focused teacher-content tests, and removed the now-dead publish/granttopic i18n strings so the active family authoring UI no longer hints at student-workspace publishing.
+- Deleted the last active legacy assignment/runtime tail from the family-first path: `englishbot/training.py`, `training_handlers.py`, `homework.py`, `homework_progress_image.py`, and `learner_homework.py` now treat family homework as the only active homework session model, and the focused homework/topic/training tests now assert the family-only training-session shape directly.
+- Trimmed old schema baggage from `englishbot/db.py`: new and migrated SQLite databases no longer keep `student_topic_access`, `assignments`, or `assignment_items`, and old `training_sessions.assignment_id` rows are migrated onto the family-first shape before the obsolete table tail is dropped.
+- Deleted the remaining publish-era domain helpers and tests from `englishbot/topics.py`, `englishbot/vocabulary.py`, `tests/test_topics.py`, and `tests/test_vocabulary.py`; workspace publish-copy behavior is no longer presented as part of the live product model, while workbook/workspace modules remain only as offline legacy baggage.
+
 ## 2026-06-02
 - Added global fallback router for unhandled Telegram updates (messages and commands) with WARNING level logging.
 - Added global error handler to catch `aiogram_dialog` UnknownIntent and log it as a warning for better observability of session expirations.

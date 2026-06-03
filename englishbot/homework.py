@@ -216,7 +216,6 @@ def get_active_assignment_training_session(
             SELECT
                 id,
                 telegram_user_id,
-                assignment_id,
                 family_homework_assignment_id,
                 current_index,
                 correct_answers,
@@ -252,7 +251,6 @@ def get_assignment_progress_snapshot(
             """
             SELECT
                 id,
-                assignment_id,
                 family_homework_assignment_id,
                 current_index,
                 total_questions,

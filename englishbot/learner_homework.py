@@ -5,7 +5,6 @@ from .homework import (
     list_active_assignments,
 )
 from .training import (
-    find_latest_incomplete_assignment_training_session,
     find_latest_incomplete_family_homework_training_session,
 )
 
@@ -42,16 +41,12 @@ def _build_assignment_snapshot(
     assignment_id = int(assignment["id"])
     assignment_key = f"{assignment['assignment_source']}:{assignment_id}"
     item_count = int(assignment["item_count"])
-    if str(assignment["assignment_source"]) == ASSIGNMENT_SOURCE_FAMILY:
-        incomplete_session = find_latest_incomplete_family_homework_training_session(
-            student_user_id,
-            assignment_id,
-        )
-    else:
-        incomplete_session = find_latest_incomplete_assignment_training_session(
-            student_user_id,
-            assignment_id,
-        )
+    if str(assignment["assignment_source"]) != ASSIGNMENT_SOURCE_FAMILY:
+        raise AssignmentNotFoundError
+    incomplete_session = find_latest_incomplete_family_homework_training_session(
+        student_user_id,
+        assignment_id,
+    )
     if incomplete_session is None:
         return {
             "assignment_id": assignment_id,

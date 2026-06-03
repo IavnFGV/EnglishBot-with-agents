@@ -91,7 +91,7 @@ def test_start_topic_training_session_uses_family_topic_items(tmp_path: Path) ->
     assert result["topic_title"] == "Pets"
     assert question["prompt"] == "кот"
     assert active_session is not None
-    assert active_session["assignment_id"] is None
+    assert active_session["family_homework_assignment_id"] is None
 
 
 def test_start_topic_training_session_rejects_user_from_other_family(tmp_path: Path) -> None:

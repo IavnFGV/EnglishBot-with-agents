@@ -24,6 +24,7 @@ from .training import (
     NoLearningItemsError,
     append_medium_answer_letter,
     create_training_session,
+    get_session_homework_ref,
     get_active_training_session,
     get_current_question,
     pop_medium_answer_letter,
@@ -40,29 +41,6 @@ TRAINING_MEDIUM_BACKSPACE_CALLBACK = "training:medium:backspace"
 TRAINING_MEDIUM_CHECK_CALLBACK = "training:medium:check"
 TRAINING_HARD_SKIP_CALLBACK = "training:hard:skip"
 logger = logging.getLogger(__name__)
-
-
-def _get_session_assignment_id(session: object) -> str | int | None:
-    if hasattr(session, "keys"):
-        keys = session.keys()
-        family_assignment_id = (
-            session["family_homework_assignment_id"]
-            if "family_homework_assignment_id" in keys
-            else None
-        )
-        if family_assignment_id is not None:
-            return f"family:{int(family_assignment_id)}"
-        assignment_id = session["assignment_id"] if "assignment_id" in keys else None
-        return None if assignment_id is None else int(assignment_id)
-    if isinstance(session, dict):
-        family_assignment_id = session.get("family_homework_assignment_id")
-        if family_assignment_id is not None:
-            return f"family:{int(family_assignment_id)}"
-        assignment_id = session.get("assignment_id")
-        return None if assignment_id is None else int(assignment_id)
-    return None
-
-
 def _build_easy_options_keyboard(question: dict[str, object]) -> InlineKeyboardMarkup | None:
     options = question.get("options")
     if question.get("exercise_type") != "multiple_choice" or not isinstance(options, list):
@@ -177,23 +155,23 @@ def _render_progress_text(
     )
 
 
-def _resolve_assignment_title(telegram_user_id: int, assignment_id: int) -> str:
-    assignment = get_assignment(assignment_id)
+def _resolve_assignment_title(telegram_user_id: int, assignment_ref: int | str) -> str:
+    assignment = get_assignment(assignment_ref)
     if assignment is not None and assignment["title"] is not None and str(assignment["title"]).strip():
         return str(assignment["title"])
     return translate_for_user(
         telegram_user_id,
         "homework.assignment_fallback",
-        assignment_id=assignment_id,
+        assignment_id=str(assignment_ref).split(":")[-1],
     )
 
 
 def _render_homework_progress_text(
     telegram_user_id: int,
-    assignment_id: int,
+    assignment_ref: int | str,
     session_id: int,
 ) -> str:
-    snapshot = get_assignment_progress_snapshot(assignment_id, session_id)
+    snapshot = get_assignment_progress_snapshot(assignment_ref, session_id)
     item_statuses = " | ".join(
         translate_for_user(
             telegram_user_id,
@@ -209,7 +187,7 @@ def _render_homework_progress_text(
     return translate_for_user(
         telegram_user_id,
         "homework.progress",
-        assignment_title=_resolve_assignment_title(telegram_user_id, assignment_id),
+        assignment_title=_resolve_assignment_title(telegram_user_id, assignment_ref),
         completed_items=snapshot["completed_items"],
         total_items=snapshot["total_items"],
         current_item_position=snapshot["current_item_position"],
@@ -231,11 +209,11 @@ def _render_session_progress_text(
     stage_key: str,
     hard_unlocked: bool,
 ) -> str:
-    assignment_id = _get_session_assignment_id(session)
-    if assignment_id is not None:
+    assignment_ref = get_session_homework_ref(session)
+    if assignment_ref is not None:
         return _render_homework_progress_text(
             telegram_user_id,
-            assignment_id,
+            assignment_ref,
             int(session["id"]),
         )
     return _render_progress_text(
@@ -256,13 +234,13 @@ def _render_session_summary_text(
     total_questions: int,
     correct_answers: int,
 ) -> str:
-    assignment_id = _get_session_assignment_id(session)
-    if assignment_id is not None:
+    assignment_ref = get_session_homework_ref(session)
+    if assignment_ref is not None:
         return translate_for_user(
             telegram_user_id,
             "homework.summary",
             feedback=feedback,
-            assignment_title=_resolve_assignment_title(telegram_user_id, assignment_id),
+            assignment_title=_resolve_assignment_title(telegram_user_id, assignment_ref),
             total_questions=total_questions,
             correct_answers=correct_answers,
         )
@@ -316,8 +294,8 @@ async def render_started_training_session(message: Message, telegram_user_id: in
     if session is None or question is None:
         return
 
-    assignment_id = _get_session_assignment_id(session)
-    if assignment_id is None:
+    assignment_ref = get_session_homework_ref(session)
+    if assignment_ref is None:
         progress_message = await message.answer(
             _render_session_progress_text(
                 telegram_user_id,
@@ -333,7 +311,7 @@ async def render_started_training_session(message: Message, telegram_user_id: in
         progress_image = FSInputFile(
             render_homework_progress_image(
                 telegram_user_id,
-                assignment_id,
+                assignment_ref,
                 int(session["id"]),
             )
         )
@@ -380,10 +358,10 @@ async def _edit_progress_message(
     hard_unlocked: bool,
 ) -> None:
     progress_message_id = session["progress_message_id"]
-    assignment_id = _get_session_assignment_id(session)
+    assignment_ref = get_session_homework_ref(session)
     progress_text = None
     progress_image_path = None
-    if assignment_id is None:
+    if assignment_ref is None:
         progress_text = _render_session_progress_text(
             telegram_user_id,
             session,
@@ -396,7 +374,7 @@ async def _edit_progress_message(
     else:
         progress_image_path = render_homework_progress_image(
             telegram_user_id,
-            assignment_id,
+            assignment_ref,
             int(session["id"]),
         )
     if progress_message_id is None:

@@ -83,6 +83,9 @@ Current status:
 - the assignment-dialog confirm snapshot now understands virtual family workspaces correctly, so the main topic/words/recipient/confirm authoring path can be covered on family content directly.
 - the main bot command list is now trimmed to family-first commands only.
 - legacy admin, invite/join, assign/grant, and workbook Telegram handlers have been removed from active runtime wiring and deleted from the codebase.
+- the old publish shell is now removed from the active teacher-content UI, so family authoring no longer shows publish buttons, publish screens, or publish target stubs.
+- `training_sessions.assignment_id` plus the old `student_topic_access` / `assignments` / `assignment_items` tables are now removed from the active schema path, which leaves family homework as the only live homework runtime model.
+- publish-copy helpers in `topics.py` and `vocabulary.py` are gone from the active codebase; remaining workspace/workbook modules are honest offline cleanup baggage only.
 
 Wave 3:
 - delete the remaining workbook and workspace-helper leftovers once the team decides whether workbook tooling stays as an offline maintenance path

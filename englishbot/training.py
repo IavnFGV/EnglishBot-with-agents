@@ -48,7 +48,6 @@ def create_training_session(
 def create_training_session_for_learning_items(
     telegram_user_id: int,
     learning_item_ids: list[int],
-    assignment_id: int | None = None,
     family_homework_assignment_id: int | None = None,
 ) -> dict[str, object]:
     if not learning_item_ids:
@@ -77,7 +76,6 @@ def create_training_session_for_learning_items(
             """
             INSERT INTO training_sessions (
                 telegram_user_id,
-                assignment_id,
                 family_homework_assignment_id,
                 current_index,
                 correct_answers,
@@ -86,11 +84,10 @@ def create_training_session_for_learning_items(
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?)
+            VALUES (?, ?, 0, 0, ?, ?, ?, ?)
             """,
             (
                 telegram_user_id,
-                assignment_id,
                 family_homework_assignment_id,
                 len(item_snapshots),
                 ACTIVE_STATUS,
@@ -146,7 +143,6 @@ def get_active_training_session(telegram_user_id: int) -> sqlite3.Row | None:
             SELECT
                 id,
                 telegram_user_id,
-                assignment_id,
                 family_homework_assignment_id,
                 current_index,
                 correct_answers,
@@ -174,7 +170,6 @@ def get_training_session(session_id: int) -> sqlite3.Row | None:
             SELECT
                 id,
                 telegram_user_id,
-                assignment_id,
                 family_homework_assignment_id,
                 current_index,
                 correct_answers,
@@ -193,33 +188,11 @@ def get_training_session(session_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
-def find_latest_incomplete_assignment_training_session(
-    telegram_user_id: int,
-    assignment_id: int,
-) -> sqlite3.Row | None:
-    return _find_latest_incomplete_homework_training_session(
-        telegram_user_id,
-        assignment_id=assignment_id,
-    )
-
-
 def find_latest_incomplete_family_homework_training_session(
     telegram_user_id: int,
     family_homework_assignment_id: int,
 ) -> sqlite3.Row | None:
-    return _find_latest_incomplete_homework_training_session(
-        telegram_user_id,
-        family_homework_assignment_id=family_homework_assignment_id,
-    )
-
-
-def _find_latest_incomplete_homework_training_session(
-    telegram_user_id: int,
-    *,
-    assignment_id: int | None = None,
-    family_homework_assignment_id: int | None = None,
-) -> sqlite3.Row | None:
-    if assignment_id is None and family_homework_assignment_id is None:
+    if family_homework_assignment_id is None:
         return None
     with get_connection() as connection:
         return connection.execute(
@@ -227,7 +200,6 @@ def _find_latest_incomplete_homework_training_session(
             SELECT
                 training_sessions.id,
                 training_sessions.telegram_user_id,
-                training_sessions.assignment_id,
                 training_sessions.family_homework_assignment_id,
                 training_sessions.current_index,
                 training_sessions.correct_answers,
@@ -241,10 +213,7 @@ def _find_latest_incomplete_homework_training_session(
                 training_sessions.updated_at
             FROM training_sessions
             WHERE training_sessions.telegram_user_id = ?
-              AND (
-                    (? IS NOT NULL AND training_sessions.assignment_id = ?)
-                 OR (? IS NOT NULL AND training_sessions.family_homework_assignment_id = ?)
-              )
+              AND training_sessions.family_homework_assignment_id = ?
               AND EXISTS (
                     SELECT 1
                     FROM training_session_items
@@ -256,9 +225,6 @@ def _find_latest_incomplete_homework_training_session(
             """,
             (
                 telegram_user_id,
-                assignment_id,
-                assignment_id,
-                family_homework_assignment_id,
                 family_homework_assignment_id,
             ),
         ).fetchone()
@@ -560,7 +526,7 @@ def skip_optional_hard(telegram_user_id: int) -> dict[str, object] | None:
                 (utc_now(), int(session["id"])),
             )
 
-    if session["assignment_id"] is None:
+    if session["family_homework_assignment_id"] is None:
         status, next_index = _update_session_after_answer(
             session,
             int(session["correct_answers"]),
@@ -1027,18 +993,18 @@ def _resolve_effective_stage(session: sqlite3.Row, item_snapshot: sqlite3.Row) -
 
 
 def _session_uses_homework_rules(session: sqlite3.Row | dict[str, object]) -> bool:
-    assignment_id = session["assignment_id"]
-    family_homework_assignment_id = session["family_homework_assignment_id"]
-    return assignment_id is not None or family_homework_assignment_id is not None
+    if isinstance(session, dict):
+        return session.get("family_homework_assignment_id") is not None
+    return session["family_homework_assignment_id"] is not None
 
 
-def get_session_homework_ref(session: sqlite3.Row | dict[str, object]) -> str | int | None:
-    family_homework_assignment_id = session["family_homework_assignment_id"]
+def get_session_homework_ref(session: sqlite3.Row | dict[str, object]) -> str | None:
+    if isinstance(session, dict):
+        family_homework_assignment_id = session.get("family_homework_assignment_id")
+    else:
+        family_homework_assignment_id = session["family_homework_assignment_id"]
     if family_homework_assignment_id is not None:
         return f"family:{int(family_homework_assignment_id)}"
-    assignment_id = session["assignment_id"]
-    if assignment_id is not None:
-        return int(assignment_id)
     return None
 
 

@@ -74,6 +74,10 @@ def test_init_db_creates_family_homework_tables_and_training_column(tmp_path: Pa
 
     assert "homework_assignments" in table_names
     assert "homework_assignment_items" in table_names
+    assert "assignments" not in table_names
+    assert "assignment_items" not in table_names
+    assert "student_topic_access" not in table_names
+    assert "assignment_id" not in training_session_columns
     assert "family_homework_assignment_id" in training_session_columns
 
 

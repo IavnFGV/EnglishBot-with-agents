@@ -946,65 +946,7 @@ def init_db() -> None:
             ON topic_items (topic_id)
             """
         )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS student_topic_access (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                workspace_id INTEGER,
-                student_user_id INTEGER NOT NULL,
-                topic_id INTEGER NOT NULL,
-                granted_by_teacher_user_id INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
-                FOREIGN KEY (student_user_id) REFERENCES users (telegram_user_id),
-                FOREIGN KEY (topic_id) REFERENCES topics (id),
-                FOREIGN KEY (granted_by_teacher_user_id) REFERENCES users (telegram_user_id),
-                UNIQUE (student_user_id, topic_id)
-            )
-            """
-        )
-        student_topic_access_columns = get_table_columns(connection, "student_topic_access")
-        if "workspace_id" not in student_topic_access_columns:
-            connection.execute(
-                """
-                ALTER TABLE student_topic_access
-                ADD COLUMN workspace_id INTEGER
-                REFERENCES workspaces (id)
-                """
-            )
-        connection.execute(
-            """
-            UPDATE student_topic_access
-            SET workspace_id = COALESCE(
-                (
-                    SELECT topics.workspace_id
-                    FROM topics
-                    WHERE topics.id = student_topic_access.topic_id
-                ),
-                ?
-            )
-            WHERE workspace_id IS NULL
-            """,
-            (default_content_workspace_id,),
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_student_topic_access_student_user_id
-            ON student_topic_access (student_user_id)
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_student_topic_access_workspace_student
-            ON student_topic_access (workspace_id, student_user_id)
-            """
-        )
-        connection.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_student_topic_access_workspace_student_topic
-            ON student_topic_access (workspace_id, student_user_id, topic_id)
-            """
-        )
+        connection.execute("DROP TABLE IF EXISTS student_topic_access")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS user_progress (
@@ -1033,7 +975,6 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS training_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 telegram_user_id INTEGER NOT NULL,
-                assignment_id INTEGER,
                 family_homework_assignment_id INTEGER,
                 current_index INTEGER NOT NULL DEFAULT 0,
                 correct_answers INTEGER NOT NULL DEFAULT 0,
@@ -1046,19 +987,70 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id),
-                FOREIGN KEY (assignment_id) REFERENCES assignments (id),
                 FOREIGN KEY (family_homework_assignment_id) REFERENCES homework_assignments (id)
             )
             """
         )
         training_session_columns = get_table_columns(connection, "training_sessions")
-        if "assignment_id" not in training_session_columns:
+        if "assignment_id" in training_session_columns:
             connection.execute(
                 """
-                ALTER TABLE training_sessions
-                ADD COLUMN assignment_id INTEGER
+                CREATE TABLE training_sessions_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_user_id INTEGER NOT NULL,
+                    family_homework_assignment_id INTEGER,
+                    current_index INTEGER NOT NULL DEFAULT 0,
+                    correct_answers INTEGER NOT NULL DEFAULT 0,
+                    homework_correct_streak INTEGER NOT NULL DEFAULT 0,
+                    homework_hard_mode INTEGER NOT NULL DEFAULT 0,
+                    total_questions INTEGER NOT NULL,
+                    progress_message_id INTEGER,
+                    current_question_message_id INTEGER,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id),
+                    FOREIGN KEY (family_homework_assignment_id) REFERENCES homework_assignments (id)
+                )
                 """
             )
+            connection.execute(
+                """
+                INSERT INTO training_sessions_new (
+                    id,
+                    telegram_user_id,
+                    family_homework_assignment_id,
+                    current_index,
+                    correct_answers,
+                    homework_correct_streak,
+                    homework_hard_mode,
+                    total_questions,
+                    progress_message_id,
+                    current_question_message_id,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    id,
+                    telegram_user_id,
+                    family_homework_assignment_id,
+                    current_index,
+                    correct_answers,
+                    homework_correct_streak,
+                    homework_hard_mode,
+                    total_questions,
+                    progress_message_id,
+                    current_question_message_id,
+                    status,
+                    created_at,
+                    updated_at
+                FROM training_sessions
+                """
+            )
+            connection.execute("DROP TABLE training_sessions")
+            connection.execute("ALTER TABLE training_sessions_new RENAME TO training_sessions")
+            training_session_columns = get_table_columns(connection, "training_sessions")
         if "family_homework_assignment_id" not in training_session_columns:
             connection.execute(
                 """
@@ -1270,130 +1262,8 @@ def init_db() -> None:
             ON homework_assignment_items (homework_assignment_id, item_order)
             """
         )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS assignments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                workspace_id INTEGER,
-                teacher_user_id INTEGER NOT NULL,
-                student_user_id INTEGER NOT NULL,
-                title TEXT,
-                assignment_kind TEXT NOT NULL DEFAULT 'homework',
-                assignment_mode TEXT NOT NULL DEFAULT 'staged_default',
-                status TEXT NOT NULL DEFAULT 'active',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                completed_at TEXT,
-                FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
-                FOREIGN KEY (teacher_user_id) REFERENCES users (telegram_user_id),
-                FOREIGN KEY (student_user_id) REFERENCES users (telegram_user_id)
-            )
-            """
-        )
-        assignment_columns = get_table_columns(connection, "assignments")
-        if "completed_at" not in assignment_columns:
-            connection.execute(
-                """
-                ALTER TABLE assignments
-                ADD COLUMN completed_at TEXT
-                """
-            )
-        if "title" not in assignment_columns:
-            connection.execute(
-                """
-                ALTER TABLE assignments
-                ADD COLUMN title TEXT
-                """
-            )
-        if "workspace_id" not in assignment_columns:
-            connection.execute(
-                """
-                ALTER TABLE assignments
-                ADD COLUMN workspace_id INTEGER
-                REFERENCES workspaces (id)
-                """
-            )
-        if "assignment_kind" not in assignment_columns:
-            connection.execute(
-                """
-                ALTER TABLE assignments
-                ADD COLUMN assignment_kind TEXT NOT NULL DEFAULT 'homework'
-                """
-            )
-        if "assignment_mode" not in assignment_columns:
-            connection.execute(
-                """
-                ALTER TABLE assignments
-                ADD COLUMN assignment_mode TEXT NOT NULL DEFAULT 'staged_default'
-                """
-            )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS assignment_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                assignment_id INTEGER NOT NULL,
-                learning_item_id INTEGER NOT NULL,
-                item_order INTEGER NOT NULL,
-                FOREIGN KEY (assignment_id) REFERENCES assignments (id),
-                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id)
-            )
-            """
-        )
-        connection.execute(
-            """
-            UPDATE assignments
-            SET workspace_id = COALESCE(
-                (
-                    SELECT learning_items.workspace_id
-                    FROM assignment_items
-                    JOIN learning_items
-                      ON learning_items.id = assignment_items.learning_item_id
-                    WHERE assignment_items.assignment_id = assignments.id
-                    ORDER BY assignment_items.item_order
-                    LIMIT 1
-                ),
-                ?
-            )
-            WHERE workspace_id IS NULL
-            """,
-            (default_content_workspace_id,),
-        )
-        connection.execute(
-            """
-            UPDATE assignments
-            SET assignment_kind = 'homework'
-            WHERE assignment_kind IS NULL
-               OR TRIM(assignment_kind) = ''
-               OR LOWER(TRIM(assignment_kind)) != 'homework'
-            """
-        )
-        connection.execute(
-            """
-            UPDATE assignments
-            SET assignment_mode = 'staged_default'
-            WHERE assignment_mode IS NULL
-               OR TRIM(assignment_mode) = ''
-               OR LOWER(TRIM(assignment_mode)) != 'staged_default'
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_assignments_student_status
-            ON assignments (student_user_id, status)
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_assignments_workspace_student_status
-            ON assignments (workspace_id, student_user_id, status)
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_assignment_items_assignment_order
-            ON assignment_items (assignment_id, item_order)
-            """
-        )
+        connection.execute("DROP TABLE IF EXISTS assignment_items")
+        connection.execute("DROP TABLE IF EXISTS assignments")
         connection.execute("DROP TABLE IF EXISTS messages")
 
 
