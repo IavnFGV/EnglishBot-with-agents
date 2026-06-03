@@ -114,11 +114,11 @@ async def _open_bulk_edit(
     button: Button,
     dialog_manager: DialogManager,
 ) -> None:
-    if callback.message is None:
+    if callback.message is None or callback.from_user is None:
         return
     from .bulk_edit_handlers import start_bulk_edit_flow
 
-    await start_bulk_edit_flow(callback.message)
+    await start_bulk_edit_flow(callback.message, actor_user=callback.from_user)
 
 
 async def _open_create_item(

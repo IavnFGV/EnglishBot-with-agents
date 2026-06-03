@@ -5,7 +5,7 @@ from pathlib import Path
 
 from aiogram import F
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message, User
 
 from .bulk_edit import (
     BULK_EDIT_CALLBACK_PREFIX,
@@ -41,18 +41,18 @@ from .workbook_import import WorkbookImportValidationError, apply_family_workboo
 
 @router.message(Command(BULK_EDIT_COMMAND.name))
 async def start_bulk_edit(message: Message) -> None:
-    await start_bulk_edit_flow(message)
+    await start_bulk_edit_flow(message, actor_user=message.from_user)
 
 
-async def start_bulk_edit_flow(message: Message) -> None:
-    if message.from_user is None:
+async def start_bulk_edit_flow(message: Message, *, actor_user: User | None) -> None:
+    if actor_user is None:
         return
-    save_user(message.from_user)
-    family = get_user_family(message.from_user.id)
+    save_user(actor_user)
+    family = get_user_family(actor_user.id)
     if family is None:
         await message.answer(
             translate_for_user(
-                message.from_user.id,
+                actor_user.id,
                 "family.command_family_only",
                 command=BULK_EDIT_COMMAND.token,
             )
@@ -61,10 +61,10 @@ async def start_bulk_edit_flow(message: Message) -> None:
 
     active_session = get_active_bulk_edit_session()
     if active_session is not None:
-        if int(active_session["started_by_user_id"]) != message.from_user.id:
+        if int(active_session["started_by_user_id"]) != actor_user.id:
             await message.answer(
                 translate_for_user(
-                    message.from_user.id,
+                    actor_user.id,
                     "bulk_edit.gate.active_other",
                     command=BULK_EDIT_COMMAND_TOKEN,
                     remaining_time="",
@@ -73,7 +73,7 @@ async def start_bulk_edit_flow(message: Message) -> None:
             return
         await message.answer(
             translate_for_user(
-                message.from_user.id,
+                actor_user.id,
                 "bulk_edit.session.already_active",
             ),
             reply_markup=_build_controls_markup(active_session),
@@ -81,11 +81,11 @@ async def start_bulk_edit_flow(message: Message) -> None:
         return
 
     try:
-        session = create_bulk_edit_session(int(family["id"]), message.from_user.id)
+        session = create_bulk_edit_session(int(family["id"]), actor_user.id)
     except BulkEditSessionAlreadyActiveError:
         await message.answer(
             translate_for_user(
-                message.from_user.id,
+                actor_user.id,
                 "bulk_edit.gate.active_other",
                 command=BULK_EDIT_COMMAND_TOKEN,
                 remaining_time="",
@@ -102,14 +102,14 @@ async def start_bulk_edit_flow(message: Message) -> None:
 
     await message.answer(
         translate_for_user(
-            message.from_user.id,
+            actor_user.id,
             "bulk_edit.session.started",
         )
     )
     await message.answer_document(
         document=FSInputFile(export_result.file_path),
         caption=translate_for_user(
-            message.from_user.id,
+            actor_user.id,
             "bulk_edit.export.ready",
             learning_item_count=export_result.learning_item_count,
             topic_count=export_result.topic_count,
@@ -119,6 +119,7 @@ async def start_bulk_edit_flow(message: Message) -> None:
         message,
         session,
         "bulk_edit.session.await_upload",
+        actor_user_id=actor_user.id,
     )
 
 
@@ -151,6 +152,7 @@ async def upload_bulk_edit_workbook(message: Message) -> None:
         message,
         session,
         "bulk_edit.upload.received",
+        actor_user_id=message.from_user.id,
     )
 
 
@@ -170,7 +172,12 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
 
     if action == "extend":
         session = extend_bulk_edit_session(int(session["id"]))
-        await _upsert_control_message(callback.message, session, "bulk_edit.session.extended")
+        await _upsert_control_message(
+            callback.message,
+            session,
+            "bulk_edit.session.extended",
+            actor_user_id=callback.from_user.id,
+        )
         await callback.answer()
         return
 
@@ -181,6 +188,7 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
             session,
             "bulk_edit.session.cancelled",
             include_controls=False,
+            actor_user_id=callback.from_user.id,
         )
         await callback.answer()
         return
@@ -203,6 +211,7 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
             callback.message,
             session,
             "bulk_edit.apply.validation_failed",
+            actor_user_id=callback.from_user.id,
             error_lines="\n".join(exc.errors),
         )
         await callback.answer()
@@ -214,6 +223,7 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
             session,
             "bulk_edit.apply.failed",
             include_controls=False,
+            actor_user_id=callback.from_user.id,
         )
         await callback.answer()
         raise
@@ -225,6 +235,7 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
         session,
         "bulk_edit.apply.completed",
         include_controls=False,
+        actor_user_id=callback.from_user.id,
         created=summary.created,
         updated=summary.updated,
         archived=summary.archived,
@@ -265,11 +276,12 @@ async def _upsert_control_message(
     text_key: str,
     *,
     include_controls: bool = True,
+    actor_user_id: int,
     **params: object,
 ) -> None:
-    if source_message is None or source_message.from_user is None:
+    if source_message is None:
         return
-    text = translate_for_user(source_message.from_user.id, text_key, **params)
+    text = translate_for_user(actor_user_id, text_key, **params)
     reply_markup = _build_controls_markup(session) if include_controls else None
     chat_id, message_id = get_bulk_edit_control_message_target(session)
     if (

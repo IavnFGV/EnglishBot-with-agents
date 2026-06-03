@@ -230,10 +230,12 @@ def test_topics_screen_exposes_bulk_edit_entrypoint(tmp_path: Path, monkeypatch)
     family_id, _ = seed_topic(user)
     manager = FakeDialogManager(user)
     manager.dialog_data["family_id"] = family_id
-    topic_message = FakeMessage(user, bot=FakeBot(), message_id=manager.last_message_id)
+    bot_user = User(id=999999, is_bot=True, first_name="EnglishBot", username="englishbot")
+    topic_message = FakeMessage(bot_user, bot=FakeBot(), message_id=manager.last_message_id)
+    topic_message.chat = SimpleNamespace(id=user.id)
 
     topics_view = asyncio.run(get_topics_window_data(manager))
-    asyncio.run(_open_bulk_edit(SimpleNamespace(message=topic_message), None, manager))
+    asyncio.run(_open_bulk_edit(SimpleNamespace(message=topic_message, from_user=user), None, manager))
 
     assert topics_view["bulk_edit_label"] == "📄 Bulk edit"
     assert len(topic_message.document_calls) == 1
