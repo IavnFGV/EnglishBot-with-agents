@@ -1,6 +1,7 @@
 import logging
 
 from aiogram import Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import ErrorEvent, Message
 from aiogram_dialog import setup_dialogs
@@ -38,6 +39,10 @@ setup_dialogs(dispatcher)
 
 async def configure_bot_commands(bot) -> None:
     await bot.set_my_commands(BOT_COMMANDS)
+
+
+def _is_message_not_modified_error(exception: BaseException) -> bool:
+    return isinstance(exception, TelegramBadRequest) and "message is not modified" in str(exception)
 
 
 @router.message(Command(START_COMMAND.name))
@@ -136,6 +141,10 @@ async def on_error(event: ErrorEvent) -> None:
             else "Unknown"
         )
         logger.warning("Unknown dialog intent detected for user %s", user_id)
+        return
+
+    if _is_message_not_modified_error(event.exception):
+        logger.debug("Ignoring Telegram no-op edit: %s", event.exception)
         return
 
     logger.exception(

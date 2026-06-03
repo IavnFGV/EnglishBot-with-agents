@@ -19,6 +19,7 @@
 - Owner-managed local setups now also expose `/seed_demo`, which fills the owner family with a small idempotent demo dataset (2 topics, 10 basic words) so family-first learner and teacher UI flows can be exercised immediately after bootstrap.
 - A minimal `/help` command now shows the active family-first command set, so unsupported commands like `/help` no longer fall through as unhandled updates.
 - Added global observability for unhandled updates: fallback message handler and UnknownIntent error handler now log at WARNING level.
+- Bot-level error handling now also ignores Telegram's exact `message is not modified` no-op globally, so harmless repeated UI edits do not flood logs with stack traces.
 - The active family-first persistence layer is now the only live product model: SQLite bootstraps `families`, `family_members`, family-owned `learning_items`, family-owned `topics`, `topic_items`, `user_progress`, `homework_assignments`, and `homework_assignment_items`, with focused helpers in `englishbot/families.py`.
 - Plain `/learn` is now family-only on the active path: users train only on family-owned learning items, and users outside a family setup get the normal no-items response instead of a legacy workspace fallback.
 - Learner homework flows are now family-first end to end: active homework lists, start callbacks, progress snapshots, and training-session completion all run only on `homework_assignments`.

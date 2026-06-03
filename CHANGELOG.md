@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-03
+- Added a global no-op guard for Telegram `message is not modified` errors in the bot-level error handler, so repeated identical message edits no longer pollute runtime logs with stack traces while other Telegram bad requests still surface normally.
 - Fixed a Telegram teacher-content dialog regression where returning from an edit prompt could raise `message is not modified` while re-syncing the read-only overview card; overview edits now treat that exact Telegram no-op as safe, and focused teacher-content handler tests cover the case.
 - Added owner-only `/seed_demo` as a fast local UI bootstrap command: it is now part of the visible command list, fills the owner family with two demo topics (`Seasons`, `Colors`) and ten basic words, stays idempotent on repeated runs, and is covered by focused `bot` plus `families` tests.
 - Added `chain_of_commands/048-owner-managed-family-access.md`, a single replayable prompt for the owner-only family bootstrap and technical `/add_family <telegram_user_id>` access flow.
