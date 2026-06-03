@@ -46,7 +46,7 @@ def seed_family_with_topic(
     item_count: int = 1,
 ) -> tuple[int, int, int, list[int]]:
     user_id, family_id = seed_family_user(user_id)
-    workspace_id = 1_000_000_000 + family_id
+    workspace_id = family_id
     topic = create_teacher_topic(user_id, workspace_id, topic_title)
     item_ids: list[int] = []
     for index in range(item_count):
@@ -67,14 +67,14 @@ def test_teacher_content_uses_single_family_workspace(tmp_path: Path) -> None:
     created = create_teacher_workspace_for_user(user_id, "Ignored")
     workspaces = list_teacher_browsable_workspaces(user_id)
 
-    assert created == {"id": 1_000_000_000 + family_id, "name": "Home"}
-    assert workspaces == [{"id": 1_000_000_000 + family_id, "name": "Home"}]
+    assert created == {"id": family_id, "name": "Home"}
+    assert workspaces == [{"id": family_id, "name": "Home"}]
 
 
 def test_teacher_content_topics_and_items_work_inside_family_workspace(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id, family_id = seed_family_user(161)
-    workspace_id = 1_000_000_000 + family_id
+    workspace_id = family_id
 
     topic = create_teacher_topic(user_id, workspace_id, "Pets")
     item = create_teacher_topic_item(user_id, workspace_id, int(topic["id"]), "cat")
@@ -91,7 +91,7 @@ def test_teacher_content_topics_and_items_work_inside_family_workspace(tmp_path:
 def test_topic_editor_snapshot_paginates_and_wraps_inside_family_topic(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id, family_id = seed_family_user(301)
-    workspace_id = 1_000_000_000 + family_id
+    workspace_id = family_id
     topic = create_teacher_topic(user_id, workspace_id, "Long topic")
     item_ids: list[int] = []
     for index in range(27):
@@ -116,7 +116,7 @@ def test_topic_editor_snapshot_paginates_and_wraps_inside_family_topic(tmp_path:
 def test_field_editing_updates_text_translation_and_audio(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id, family_id = seed_family_user(401)
-    workspace_id = 1_000_000_000 + family_id
+    workspace_id = family_id
     topic = create_teacher_topic(user_id, workspace_id, "Fruits")
     item_id = int(create_teacher_topic_item(user_id, workspace_id, int(topic["id"]), "apple")["learning_item_id"])
 
@@ -139,7 +139,7 @@ def test_field_editing_updates_text_translation_and_audio(tmp_path: Path) -> Non
 def test_archive_hides_item_and_reselects_remaining_family_item(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id, family_id = seed_family_user(402)
-    workspace_id = 1_000_000_000 + family_id
+    workspace_id = family_id
     topic = create_teacher_topic(user_id, workspace_id, "Fruits")
     first_item_id = int(create_teacher_topic_item(user_id, workspace_id, int(topic["id"]), "apple")["learning_item_id"])
     second_item_id = int(create_teacher_topic_item(user_id, workspace_id, int(topic["id"]), "pear")["learning_item_id"])
@@ -154,7 +154,7 @@ def test_archive_hides_item_and_reselects_remaining_family_item(tmp_path: Path) 
 def test_topic_full_list_overview_returns_compact_family_rows(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user_id, family_id = seed_family_user(403)
-    workspace_id = 1_000_000_000 + family_id
+    workspace_id = family_id
     topic = create_teacher_topic(user_id, workspace_id, "Fruits")
     first_item_id = int(create_teacher_topic_item(user_id, workspace_id, int(topic["id"]), "apple")["learning_item_id"])
     second_item_id = int(create_teacher_topic_item(user_id, workspace_id, int(topic["id"]), "pear")["learning_item_id"])
@@ -176,7 +176,7 @@ def test_topic_full_list_overview_returns_compact_family_rows(tmp_path: Path) ->
 def test_teacher_content_access_rejects_users_outside_family(tmp_path: Path) -> None:
     setup_db(tmp_path)
     owner_id, family_id = seed_family_user(601)
-    workspace_id = 1_000_000_000 + family_id
+    workspace_id = family_id
     topic = create_teacher_topic(owner_id, workspace_id, "Fruits")
     item_id = int(create_teacher_topic_item(owner_id, workspace_id, int(topic["id"]), "apple")["learning_item_id"])
     outsider = type("User", (), {

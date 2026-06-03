@@ -30,16 +30,12 @@ def create_training_session(
     limit: int = DEFAULT_SESSION_SIZE,
 ) -> dict[str, object]:
     family = get_user_family(telegram_user_id)
-    if family is not None:
-        learning_item_ids = [
-            int(row["id"])
-            for row in list_family_learning_items(int(family["id"]))[:limit]
-        ]
-        if not learning_item_ids:
-            raise NoLearningItemsError
-        return create_training_session_for_learning_items(telegram_user_id, learning_item_ids)
-
-    learning_item_ids = [row["id"] for row in list_learning_items(limit)]
+    if family is None:
+        raise NoLearningItemsError
+    learning_item_ids = [
+        int(row["id"])
+        for row in list_family_learning_items(int(family["id"]))[:limit]
+    ]
     if not learning_item_ids:
         raise NoLearningItemsError
     return create_training_session_for_learning_items(telegram_user_id, learning_item_ids)
@@ -1155,8 +1151,10 @@ def _build_distractor_pool(
     content = get_learning_item_with_translations(learning_item.learning_item_id)
     if content is None:
         raise NoLearningItemsError
-    workspace_id = int(content["learning_item"]["workspace_id"])
-    for row in list_learning_items(workspace_id=workspace_id):
+    family_id = content["learning_item"]["family_id"]
+    if family_id is None:
+        return distractors
+    for row in list_learning_items(family_id=int(family_id)):
         distractor_id = int(row["id"])
         if distractor_id in seen_ids:
             continue

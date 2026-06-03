@@ -8,9 +8,8 @@
   2. configure logging
   3. load build info
   4. initialize and migrate SQLite
-  5. seed starter content
-  6. start the internal status server
-  7. build the bot, register commands, and start long polling
+  5. start the internal status server
+  6. build the bot, register commands, and start long polling
 
 ## Main modules
 - Runtime wiring: `bootstrap.py`, `runtime.py`, `bot.py`, `command_registry.py`
@@ -19,7 +18,6 @@
 - Family-first domain slice: `families.py`
 - Learning domain: `vocabulary.py`, `topics.py`, `assets.py`, `exercises.py`, `training.py`
 - Family-first workflows: `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`
-- Legacy workspace helpers still on disk during cleanup: `workspaces.py`
 - Telegram orchestration: `*_handlers.py`
 - Multi-step Telegram UI: `homework_dialog.py`, `teacher_assignment_dialog.py`, `teacher_content_dialog.py`
 - Operations: `logging_setup.py`, `build_info.py`, `status_server.py`
@@ -31,12 +29,12 @@
 - `topics` group learning items.
 - The new family-first persistence slice also supports family-owned `learning_items` and `topics`, plus dedicated family membership, personal progress, and family homework tables; active learner flows now read that family-owned content directly.
 - `assets` plus `learning_item_assets` store media metadata.
-- `workspaces` and related helpers now remain mostly as legacy cleanup baggage rather than active product foundations.
+- The active schema is family-first: content, homework, and progress no longer depend on `workspaces`, `workspace_members`, or starter-content bootstrap tables.
 
 ## Major flows
 - Family authoring: `/teacher_content` edits shared family topics, items, translations, and linked assets through aiogram-dialog.
 - Assignment creation: `/create_assignment` persists family homework assignments for family members.
-- During the family-first rebuild, the same dialogs can also target family-owned topics and family homework assignments without routing through teacher/student invite or simple-mode bootstrap flows.
+- The active authoring and assignment flows resolve directly through family membership without invite/join, grants, or workspace bootstrap.
 - Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`.
 - Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`.
 - Family homework uses `training_sessions.family_homework_assignment_id` as the only active homework session link, while the staged exercise engine remains shared.
@@ -52,8 +50,8 @@
 ## Persistence summary
 - Schema bootstrap and migrations live in `db.py`.
 - The repository uses SQLite through stdlib `sqlite3`.
-- Sessions, assignments, topic access, workspaces, and content all persist in SQLite.
-- The active family-first schema no longer bootstraps the old `student_topic_access`, `assignments`, or `assignment_items` tables.
+- Sessions, homework, topic access, and content all persist in SQLite.
+- The active family-first schema no longer bootstraps `workspaces`, `workspace_members`, `invites`, `student_topic_access`, `assignments`, or `assignment_items`.
 - Workbook files and Telegram message state are integration surfaces, not primary storage.
 
 ## Testing strategy

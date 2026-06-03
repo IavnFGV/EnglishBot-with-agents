@@ -1,7 +1,5 @@
 import logging
 import os
-
-from .basic_topics_seed import seed_basic_topics
 from .bot import configure_bot_commands, dispatcher
 from .build_info import format_startup_banner, load_build_info
 from .config import load_environment
@@ -34,7 +32,6 @@ async def run() -> None:
     logger.info(format_startup_banner(build_info))
 
     init_db()
-    seed_basic_topics()
     status_server = await start_status_server(build_info)
     logger.info(
         "EnglishBot status server listening on %s:%s",

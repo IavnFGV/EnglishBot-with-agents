@@ -7,16 +7,9 @@ from aiogram.types import User
 
 
 DB_PATH = Path(os.getenv("ENGLISHBOT_DB_PATH", "englishbot.sqlite3"))
-WORKBOOK_IMPORT_BACKUP_DIRNAME = "workbook_import_backups"
-WORKBOOK_IMPORT_BACKUP_LIMIT = 500
 DEFAULT_USER_ROLE = "student"
 DEFAULT_BOT_LANGUAGE = "en"
 DEFAULT_HINT_LANGUAGE = DEFAULT_BOT_LANGUAGE
-DEFAULT_CONTENT_WORKSPACE_NAME = "Starter Content"
-WORKSPACE_KIND_TEACHER = "teacher"
-WORKSPACE_KIND_STUDENT = "student"
-TOPIC_WORKBOOK_KEY_PREFIX = "topic"
-LEARNING_ITEM_WORKBOOK_KEY_PREFIX = "learning-item"
 ASSET_WORKBOOK_KEY_PREFIX = "asset"
 
 
@@ -29,40 +22,6 @@ def get_connection() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
-
-
-def get_workbook_import_backup_dir() -> Path:
-    return DB_PATH.parent / WORKBOOK_IMPORT_BACKUP_DIRNAME
-
-
-def create_workbook_import_backup() -> Path:
-    backup_dir = get_workbook_import_backup_dir()
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    backup_path = backup_dir / (
-        f"{DB_PATH.stem}__workbook_import__"
-        f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.sqlite3"
-    )
-    with sqlite3.connect(DB_PATH) as source_connection:
-        with sqlite3.connect(backup_path) as backup_connection:
-            source_connection.backup(backup_connection)
-    prune_workbook_import_backups()
-    return backup_path
-
-
-def prune_workbook_import_backups(limit: int = WORKBOOK_IMPORT_BACKUP_LIMIT) -> list[Path]:
-    backup_dir = get_workbook_import_backup_dir()
-    if not backup_dir.exists():
-        return []
-    backups = sorted(
-        backup_dir.glob("*.sqlite3"),
-        key=lambda path: path.name,
-        reverse=True,
-    )
-    pruned: list[Path] = []
-    for backup_path in backups[limit:]:
-        backup_path.unlink(missing_ok=True)
-        pruned.append(backup_path)
-    return pruned
 
 
 def get_table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
@@ -322,42 +281,121 @@ def _rebuild_learning_items_without_legacy_media_columns(connection: sqlite3.Con
     connection.execute("PRAGMA foreign_keys = ON")
 
 
-def _ensure_default_content_workspace(connection: sqlite3.Connection) -> int:
-    workspace = connection.execute(
+def _rebuild_learning_items_for_family_schema(connection: sqlite3.Connection) -> None:
+    learning_item_columns = get_table_columns(connection, "learning_items")
+    expected_columns = {
+        "id",
+        "family_id",
+        "lexeme_id",
+        "text",
+        "is_archived",
+        "created_at",
+        "updated_at",
+    }
+    if learning_item_columns == expected_columns:
+        return
+
+    connection.execute("DROP TRIGGER IF EXISTS trg_learning_items_set_workbook_key")
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute("ALTER TABLE learning_items RENAME TO learning_items_legacy")
+    connection.execute(
         """
-        SELECT id
-        FROM workspaces
-        WHERE name = ?
-        ORDER BY id
-        LIMIT 1
-        """,
-        (DEFAULT_CONTENT_WORKSPACE_NAME,),
-    ).fetchone()
-    if workspace is not None:
-        connection.execute(
-            """
-            UPDATE workspaces
-            SET kind = ?
-            WHERE id = ?
-            """,
-            (WORKSPACE_KIND_TEACHER, int(workspace["id"])),
+        CREATE TABLE learning_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            family_id INTEGER,
+            lexeme_id INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            is_archived INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (family_id) REFERENCES families (id),
+            FOREIGN KEY (lexeme_id) REFERENCES lexemes (id)
         )
-        return int(workspace["id"])
-
-    cursor = connection.execute(
         """
-        INSERT INTO workspaces (name, kind, created_at)
-        VALUES (?, ?, ?)
-        """,
-        (DEFAULT_CONTENT_WORKSPACE_NAME, WORKSPACE_KIND_TEACHER, utc_now()),
     )
-    return int(cursor.lastrowid)
+    connection.execute(
+        """
+        INSERT INTO learning_items (
+            id,
+            family_id,
+            lexeme_id,
+            text,
+            is_archived,
+            created_at,
+            updated_at
+        )
+        SELECT
+            id,
+            family_id,
+            lexeme_id,
+            text,
+            COALESCE(is_archived, 0),
+            created_at,
+            COALESCE(updated_at, created_at)
+        FROM learning_items_legacy
+        ORDER BY id
+        """
+    )
+    connection.execute("DROP TABLE learning_items_legacy")
+    connection.execute("PRAGMA foreign_keys = ON")
 
 
-def get_default_content_workspace_id() -> int:
-    init_db()
-    with get_connection() as connection:
-        return _ensure_default_content_workspace(connection)
+def _rebuild_topics_for_family_schema(connection: sqlite3.Connection) -> None:
+    topic_columns = get_table_columns(connection, "topics")
+    expected_columns = {
+        "id",
+        "family_id",
+        "name",
+        "title",
+        "is_archived",
+        "created_at",
+        "updated_at",
+    }
+    if topic_columns == expected_columns:
+        return
+
+    connection.execute("DROP TRIGGER IF EXISTS trg_topics_set_workbook_key")
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute("ALTER TABLE topics RENAME TO topics_legacy")
+    connection.execute(
+        """
+        CREATE TABLE topics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            family_id INTEGER,
+            name TEXT NOT NULL,
+            title TEXT NOT NULL,
+            is_archived INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (family_id) REFERENCES families (id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO topics (
+            id,
+            family_id,
+            name,
+            title,
+            is_archived,
+            created_at,
+            updated_at
+        )
+        SELECT
+            id,
+            family_id,
+            name,
+            title,
+            COALESCE(is_archived, 0),
+            created_at,
+            COALESCE(updated_at, created_at)
+        FROM topics_legacy
+        ORDER BY id
+        """
+    )
+    connection.execute("DROP TABLE topics_legacy")
+    connection.execute("PRAGMA foreign_keys = ON")
 
 
 def init_db() -> None:
@@ -494,24 +532,6 @@ def init_db() -> None:
         )
         connection.execute(
             """
-            CREATE TABLE IF NOT EXISTS workspaces (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
-                kind TEXT NOT NULL DEFAULT 'teacher',
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        workspace_columns = get_table_columns(connection, "workspaces")
-        if "kind" not in workspace_columns:
-            connection.execute(
-                """
-                ALTER TABLE workspaces
-                ADD COLUMN kind TEXT NOT NULL DEFAULT 'teacher'
-                """
-            )
-        connection.execute(
-            """
             CREATE TABLE IF NOT EXISTS families (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -548,59 +568,10 @@ def init_db() -> None:
             ON family_members (family_id)
             """
         )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS workspace_members (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                workspace_id INTEGER NOT NULL,
-                telegram_user_id INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
-                FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id),
-                UNIQUE (workspace_id, telegram_user_id)
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id
-            ON workspace_members (workspace_id)
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id
-            ON workspace_members (telegram_user_id)
-            """
-        )
-        default_content_workspace_id = _ensure_default_content_workspace(connection)
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS invites (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                code TEXT NOT NULL UNIQUE,
-                teacher_user_id INTEGER NOT NULL,
-                used_by_user_id INTEGER,
-                created_at TEXT NOT NULL,
-                used_at TEXT,
-                FOREIGN KEY (teacher_user_id) REFERENCES users (telegram_user_id),
-                FOREIGN KEY (used_by_user_id) REFERENCES users (telegram_user_id)
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_invites_teacher_user_id
-            ON invites (teacher_user_id)
-            """
-        )
-        connection.execute(
-            """
-            DROP TABLE IF EXISTS teacher_student_links
-            """
-        )
+        connection.execute("DROP TABLE IF EXISTS workspaces")
+        connection.execute("DROP TABLE IF EXISTS workspace_members")
+        connection.execute("DROP TABLE IF EXISTS invites")
+        connection.execute("DROP TABLE IF EXISTS teacher_student_links")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS lexemes (
@@ -615,90 +586,21 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS learning_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                workspace_id INTEGER NOT NULL,
-                workbook_key TEXT,
-                source_learning_item_id INTEGER,
+                family_id INTEGER,
                 lexeme_id INTEGER NOT NULL,
                 text TEXT NOT NULL,
                 is_archived INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
-                FOREIGN KEY (source_learning_item_id) REFERENCES learning_items (id),
+                FOREIGN KEY (family_id) REFERENCES families (id),
                 FOREIGN KEY (lexeme_id) REFERENCES lexemes (id)
             )
             """
         )
-        learning_item_columns = get_table_columns(connection, "learning_items")
-        if "workspace_id" not in learning_item_columns:
-            connection.execute(
-                """
-                ALTER TABLE learning_items
-                ADD COLUMN workspace_id INTEGER
-                REFERENCES workspaces (id)
-                """
-            )
-        if "workbook_key" not in learning_item_columns:
-            connection.execute(
-                """
-                ALTER TABLE learning_items
-                ADD COLUMN workbook_key TEXT
-                """
-            )
-        connection.execute(
-            """
-            UPDATE learning_items
-            SET workspace_id = ?
-            WHERE workspace_id IS NULL
-            """,
-            (default_content_workspace_id,),
-        )
-        legacy_learning_items = connection.execute(
-            """
-            SELECT id
-            FROM learning_items
-            WHERE workbook_key IS NULL OR TRIM(workbook_key) = ''
-            ORDER BY id
-            """
-        ).fetchall()
-        for row in legacy_learning_items:
-            connection.execute(
-                """
-                UPDATE learning_items
-                SET workbook_key = ?
-                WHERE id = ?
-                """,
-                (
-                    build_workbook_key(LEARNING_ITEM_WORKBOOK_KEY_PREFIX, int(row["id"])),
-                    int(row["id"]),
-                ),
-            )
-        if "is_archived" not in learning_item_columns:
-            connection.execute(
-                """
-                ALTER TABLE learning_items
-                ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0
-                """
-            )
-        if "source_learning_item_id" not in learning_item_columns:
-            connection.execute(
-                """
-                ALTER TABLE learning_items
-                ADD COLUMN source_learning_item_id INTEGER
-                REFERENCES learning_items (id)
-                """
-            )
-        if "family_id" not in learning_item_columns:
-            connection.execute(
-                """
-                ALTER TABLE learning_items
-                ADD COLUMN family_id INTEGER
-                REFERENCES families (id)
-                """
-            )
         _ensure_assets_schema(connection, include_learning_item_links=False)
         pending_asset_links = _collect_legacy_learning_item_assets(connection)
         _rebuild_learning_items_without_legacy_media_columns(connection)
+        _rebuild_learning_items_for_family_schema(connection)
         _ensure_assets_schema(connection)
         _insert_migrated_learning_item_assets(connection, pending_asset_links)
         connection.execute(
@@ -722,39 +624,8 @@ def init_db() -> None:
         )
         connection.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_learning_items_workspace_id
-            ON learning_items (workspace_id)
-            """
-        )
-        connection.execute(
-            """
             CREATE INDEX IF NOT EXISTS idx_learning_items_family_id
             ON learning_items (family_id)
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_learning_items_workspace_source
-            ON learning_items (workspace_id, source_learning_item_id)
-            """
-        )
-        connection.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_items_workspace_workbook_key_unique
-            ON learning_items (workspace_id, workbook_key)
-            """
-        )
-        connection.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS trg_learning_items_set_workbook_key
-            AFTER INSERT ON learning_items
-            FOR EACH ROW
-            WHEN NEW.workbook_key IS NULL OR TRIM(NEW.workbook_key) = ''
-            BEGIN
-                UPDATE learning_items
-                SET workbook_key = 'learning-item-' || NEW.id
-                WHERE id = NEW.id;
-            END
             """
         )
         connection.execute(
@@ -767,165 +638,21 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS topics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                workspace_id INTEGER NOT NULL,
-                workbook_key TEXT,
-                source_topic_id INTEGER,
+                family_id INTEGER,
                 name TEXT NOT NULL,
                 title TEXT NOT NULL,
                 is_archived INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY (workspace_id) REFERENCES workspaces (id),
-                FOREIGN KEY (source_topic_id) REFERENCES topics (id)
+                FOREIGN KEY (family_id) REFERENCES families (id)
             )
             """
         )
-        topic_columns = get_table_columns(connection, "topics")
-        if "workspace_id" not in topic_columns:
-            connection.execute(
-                """
-                ALTER TABLE topics
-                ADD COLUMN workspace_id INTEGER
-                REFERENCES workspaces (id)
-                """
-            )
-        if "workbook_key" not in topic_columns:
-            connection.execute(
-                """
-                ALTER TABLE topics
-                ADD COLUMN workbook_key TEXT
-                """
-            )
-        if "is_archived" not in topic_columns:
-            connection.execute(
-                """
-                ALTER TABLE topics
-                ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0
-                """
-            )
-        if "updated_at" not in topic_columns:
-            connection.execute(
-                """
-                ALTER TABLE topics
-                ADD COLUMN updated_at TEXT
-                """
-            )
-        if "source_topic_id" not in topic_columns:
-            connection.execute(
-                """
-                ALTER TABLE topics
-                ADD COLUMN source_topic_id INTEGER
-                REFERENCES topics (id)
-                """
-            )
-        if "family_id" not in topic_columns:
-            connection.execute(
-                """
-                ALTER TABLE topics
-                ADD COLUMN family_id INTEGER
-                REFERENCES families (id)
-                """
-            )
-        connection.execute(
-            """
-            UPDATE topics
-            SET workspace_id = ?
-            WHERE workspace_id IS NULL
-            """,
-            (default_content_workspace_id,),
-        )
-        legacy_topics = connection.execute(
-            """
-            SELECT id
-            FROM topics
-            WHERE workbook_key IS NULL OR TRIM(workbook_key) = ''
-            ORDER BY id
-            """
-        ).fetchall()
-        for row in legacy_topics:
-            connection.execute(
-                """
-                UPDATE topics
-                SET workbook_key = ?
-                WHERE id = ?
-                """,
-                (
-                    build_workbook_key(TOPIC_WORKBOOK_KEY_PREFIX, int(row["id"])),
-                    int(row["id"]),
-                ),
-            )
-        connection.execute(
-            """
-            UPDATE topics
-            SET updated_at = COALESCE(updated_at, created_at)
-            WHERE updated_at IS NULL
-            """,
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS topic_learning_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                topic_id INTEGER NOT NULL,
-                learning_item_id INTEGER NOT NULL,
-                FOREIGN KEY (topic_id) REFERENCES topics (id),
-                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id),
-                UNIQUE (topic_id, learning_item_id)
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_topics_name
-            ON topics (workspace_id, name)
-            """
-        )
-        connection.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_topics_workspace_name_unique
-            ON topics (workspace_id, name)
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_topics_workspace_id
-            ON topics (workspace_id)
-            """
-        )
+        _rebuild_topics_for_family_schema(connection)
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_topics_family_id
             ON topics (family_id)
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_topics_workspace_source
-            ON topics (workspace_id, source_topic_id)
-            """
-        )
-        connection.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_topics_workspace_workbook_key_unique
-            ON topics (workspace_id, workbook_key)
-            """
-        )
-        connection.execute(
-            """
-            CREATE TRIGGER IF NOT EXISTS trg_topics_set_workbook_key
-            AFTER INSERT ON topics
-            FOR EACH ROW
-            WHEN NEW.workbook_key IS NULL OR TRIM(NEW.workbook_key) = ''
-            BEGIN
-                UPDATE topics
-                SET workbook_key = 'topic-' || NEW.id
-                WHERE id = NEW.id;
-            END
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_topic_learning_items_topic_id
-            ON topic_learning_items (topic_id)
             """
         )
         connection.execute(
@@ -946,6 +673,22 @@ def init_db() -> None:
             ON topic_items (topic_id)
             """
         )
+        legacy_topic_links_exists = connection.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'topic_learning_items'
+            """
+        ).fetchone()
+        if legacy_topic_links_exists is not None:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO topic_items (topic_id, learning_item_id)
+                SELECT topic_id, learning_item_id
+                FROM topic_learning_items
+                """
+            )
+        connection.execute("DROP TABLE IF EXISTS topic_learning_items")
         connection.execute("DROP TABLE IF EXISTS student_topic_access")
         connection.execute(
             """

@@ -142,7 +142,7 @@ def seed_topic(
     from englishbot.teacher_content import create_teacher_topic, create_teacher_topic_item
 
     family_id = seed_family_user(user)
-    workspace_id = 1_000_000_000 + family_id
+    workspace_id = family_id
     topic = create_teacher_topic(user.id, workspace_id, topic_title)
     for index in range(item_count):
         create_teacher_topic_item(
@@ -165,7 +165,12 @@ def test_teacher_content_command_starts_dialog_for_family_member(tmp_path: Path)
 
     assert message.answers == []
     assert manager.start_calls == [
-        {"state": TeacherContentDialogSG.workspaces, "mode": StartMode.RESET_STACK, "data": None, "kwargs": {}}
+        {
+            "state": TeacherContentDialogSG.topics,
+            "mode": StartMode.RESET_STACK,
+            "data": {"workspace_id": 1},
+            "kwargs": {},
+        }
     ]
 
 

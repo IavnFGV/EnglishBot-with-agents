@@ -20,7 +20,6 @@ from .vocabulary import get_learning_item, list_learning_item_translations, list
 SOURCE_MODE_TOPIC = "topic"
 SOURCE_MODE_WORDS = "words"
 SUMMARY_PREVIEW_LIMIT = 5
-FAMILY_WORKSPACE_ID_OFFSET = 1_000_000_000
 
 
 class TeacherAssignmentError(Exception):
@@ -39,24 +38,11 @@ class TeacherAssignmentRecipientsRequiredError(TeacherAssignmentDraftError):
     pass
 
 
-def list_assignment_workspaces(teacher_user_id: int) -> list[dict[str, object]]:
-    family = get_user_family(teacher_user_id)
-    if family is None:
-        return []
-    family_id = int(family["id"])
-    return [
-        {
-            "workspace_id": _family_workspace_id(family_id),
-            "name": str(family["name"] or "Family"),
-        }
-    ]
-
-
 def list_assignment_topics(
     teacher_user_id: int,
     workspace_id: int,
 ) -> list[dict[str, object]]:
-    family_id = _workspace_family_id(workspace_id)
+    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or family_id != int(family["id"]):
         raise TeacherAssignmentAccessError
@@ -76,7 +62,7 @@ def build_topic_selection_summary(
     workspace_id: int,
     topic_id: int,
 ) -> dict[str, object]:
-    family_id = _workspace_family_id(workspace_id)
+    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or family_id != int(family["id"]):
         raise TeacherAssignmentDraftError
@@ -105,7 +91,7 @@ def build_word_selection_snapshot(
     *,
     current_learning_item_id: int | None = None,
 ) -> dict[str, object]:
-    family_id = _workspace_family_id(workspace_id)
+    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or family_id != int(family["id"]):
         raise TeacherAssignmentDraftError
@@ -182,7 +168,7 @@ def build_assignment_confirm_snapshot(
 ) -> dict[str, object]:
     normalized_kind = normalize_assignment_kind(assignment_kind)
     normalized_mode = normalize_assignment_mode(assignment_mode)
-    family_id = _workspace_family_id(workspace_id)
+    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or int(family["id"]) != family_id:
         raise TeacherAssignmentAccessError
@@ -246,7 +232,7 @@ def persist_assignment_draft(
 ) -> list[dict[str, object]]:
     if not recipient_user_ids:
         raise TeacherAssignmentRecipientsRequiredError
-    family_id = _workspace_family_id(workspace_id)
+    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or int(family["id"]) != family_id:
         raise TeacherAssignmentDraftError
@@ -333,16 +319,6 @@ def _build_user_display_name(user: sqlite3.Row | None, fallback_user_id: int) ->
         if value:
             return str(value)
     return f"User {fallback_user_id}"
-
-
-def _family_workspace_id(family_id: int) -> int:
-    return FAMILY_WORKSPACE_ID_OFFSET + family_id
-
-
-def _workspace_family_id(workspace_id: int) -> int | None:
-    if workspace_id >= FAMILY_WORKSPACE_ID_OFFSET:
-        return workspace_id - FAMILY_WORKSPACE_ID_OFFSET
-    return None
 
 
 def _get_family_topic(topic_id: int, family_id: int) -> sqlite3.Row | None:

@@ -131,6 +131,26 @@
 - в `context/current-state.md` и `docs/architecture.md` явно пометь их как legacy/offline/cleanup baggage
 - не притворяйся, что они часть новой core модели
 
+Шаг 11. Отдельная deferred cleanup-wave для workbook/workspace legacy:
+
+- не удаляй `workbook_export.py`, `workbook_import.py`, `workbook_admin.py`, `workspaces.py` автоматически в этой же волне только потому, что active family-first path уже очищен
+- сначала отдельно зафиксируй решение:
+  - workbook/workspace слой остается как offline maintenance tool
+  - или workbook/workspace слой удаляется полностью
+- если будет принято решение на удаление:
+  - сначала сверь реальные зависимости в `db.py`, `workbook_export.py`, `workbook_import.py`, `workbook_admin.py`, `workspaces.py` и связанных focused tests
+  - потом удаляй workspace-first schema/helpers только отдельным cleanup slice, а не вперемешку с active runtime changes
+  - обнови `docs/module-map.md`, `docs/architecture.md`, `context/current-state.md`, `CHANGELOG.md`
+- обязательно добавь или перепиши focused tests под выбранный исход:
+  - если workbook flow остается, тесты должны явно подтверждать его offline/legacy статус и отсутствие влияния на active family-first runtime
+  - если workbook flow удаляется, тесты и schema assertions должны подтвердить, что соответствующие legacy tables/helpers/entrypoints исчезли без регресса в active family-first path
+
+Текущее продолжение этой волны уже ужесточило итог:
+
+- startup больше не сидит на starter-content seed
+- active SQLite schema больше не поднимает `workspaces`, `workspace_members` и `invites`
+- focused runtime tests больше не строят family-first path через default workspace scaffolding
+
 Ожидаемое финальное состояние:
 
 - learner path family-first
@@ -153,9 +173,12 @@
 - названия коммитов должны описывать конкретный slice, например:
   - `Add family-first persistence foundation`
   - `Prefer family content for learn sessions`
-  - `Delete simple mode bootstrap`
-  - `Delete legacy topic and homework paths`
-  - `Make teacher content family-only`
+- `Delete simple mode bootstrap`
+- `Delete legacy topic and homework paths`
+- `Make teacher content family-only`
+- для следующей deferred wave, если она случится:
+  - `Decide workbook legacy fate`
+  - `Delete offline workbook and workspace baggage`
 
 По тестам:
 

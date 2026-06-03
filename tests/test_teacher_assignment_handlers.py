@@ -26,7 +26,6 @@ from englishbot.teacher_assignment_dialog import (
     go_to_confirm,
     next_word,
     on_topic_selected,
-    on_workspace_selected,
     toggle_current_word,
     toggle_recipient,
 )
@@ -204,20 +203,15 @@ def test_topic_path_shows_summary_then_confirm_without_persisting_before_confirm
     parent = make_user(803, "Parent")
     child = make_user(804, "Child")
     family_id, _, topic_id = seed_family_content(parent, child)
-    workspace_id = 1_000_000_000 + family_id
     manager = FakeDialogManager(parent)
-    manager.dialog_data["source_mode"] = "topic"
+    manager.dialog_data.update({"source_mode": "topic", "workspace_id": family_id})
     bot = FakeBot()
     message = FakeMessage(parent, bot=bot, message_id=55)
 
-    asyncio.run(on_workspace_selected(SimpleNamespace(message=message), None, manager, str(workspace_id)))
     asyncio.run(on_topic_selected(SimpleNamespace(message=message), None, manager, str(topic_id)))
     confirm_view = asyncio.run(get_confirm_window_data(manager))
 
-    assert manager.switch_calls == [
-        {"state": TeacherAssignmentDialogSG.topic, "show_mode": None},
-        {"state": TeacherAssignmentDialogSG.recipients, "show_mode": ShowMode.SEND},
-    ]
+    assert manager.switch_calls == [{"state": TeacherAssignmentDialogSG.recipients, "show_mode": ShowMode.SEND}]
     assert "Assignment draft" in bot.edit_calls[0]["text"]
     assert "Topic: Family Topic" in bot.edit_calls[0]["text"]
     assert "not selected yet" in confirm_view["screen_text"]
@@ -230,22 +224,18 @@ def test_words_path_uses_summary_and_current_item_browser(tmp_path: Path) -> Non
     parent = make_user(805, "Parent")
     child = make_user(806, "Child")
     family_id, _, _ = seed_family_content(parent, child)
-    workspace_id = 1_000_000_000 + family_id
     manager = FakeDialogManager(parent)
-    manager.dialog_data["source_mode"] = "words"
+    manager.dialog_data.update({"source_mode": "words", "workspace_id": family_id})
     bot = FakeBot()
     message = FakeMessage(parent, bot=bot, message_id=77)
 
-    asyncio.run(on_workspace_selected(SimpleNamespace(message=message), None, manager, str(workspace_id)))
     first_view = asyncio.run(get_words_window_data(manager))
     asyncio.run(toggle_current_word(SimpleNamespace(message=message), None, manager))
     edit_call_count_after_toggle = len(bot.edit_calls)
     asyncio.run(next_word(SimpleNamespace(message=message), None, manager))
     second_view = asyncio.run(get_words_window_data(manager))
 
-    assert manager.switch_calls == [
-        {"state": TeacherAssignmentDialogSG.words, "show_mode": ShowMode.SEND},
-    ]
+    assert manager.switch_calls == []
     assert "Selected: no" in first_view["screen_text"]
     assert "Selected: no" in second_view["screen_text"]
     assert "Selected: 1" in bot.edit_calls[-1]["text"]
@@ -258,12 +248,11 @@ def test_recipient_skip_keeps_confirm_non_persistent_until_recipient_selected(tm
     parent = make_user(807, "Parent")
     child = make_user(808, "Child")
     family_id, _, _ = seed_family_content(parent, child)
-    workspace_id = 1_000_000_000 + family_id
     manager = FakeDialogManager(parent)
     manager.dialog_data.update(
         {
             "source_mode": "words",
-            "workspace_id": workspace_id,
+            "workspace_id": family_id,
             "selected_learning_item_ids": [],
         }
     )
@@ -284,12 +273,11 @@ def test_confirm_creates_expected_assignments_after_recipient_selection(tmp_path
     first_child = make_user(810, "First")
     second_child = make_user(811, "Second")
     family_id, _, _ = seed_family_content(parent, first_child, second_child)
-    workspace_id = 1_000_000_000 + family_id
     manager = FakeDialogManager(parent)
     manager.dialog_data.update(
         {
             "source_mode": "words",
-            "workspace_id": workspace_id,
+            "workspace_id": family_id,
             "selected_learning_item_ids": [],
         }
     )
@@ -314,14 +302,14 @@ def test_family_confirm_creates_family_homework_assignments(tmp_path: Path) -> N
     setup_db(tmp_path)
     parent = make_user(818, "Parent")
     child = make_user(819, "Child")
-    _, _, topic_id = seed_family_content(parent, child)
+    family_id, _, topic_id = seed_family_content(parent, child)
     manager = FakeDialogManager(parent)
     bot = FakeBot()
     message = FakeMessage(parent, bot=bot, message_id=111)
     manager.dialog_data.update(
         {
             "source_mode": "topic",
-            "workspace_id": 1_000_000_001,
+            "workspace_id": family_id,
             "topic_id": topic_id,
             "selected_recipient_user_ids": [child.id],
         }

@@ -3,10 +3,6 @@ import sqlite3
 from . import db
 
 
-def _get_family_workspace_id() -> int:
-    return db.get_default_content_workspace_id()
-
-
 class FamilyMembershipError(ValueError):
     pass
 
@@ -145,20 +141,16 @@ def create_family_learning_item(
         cursor = connection.execute(
             """
             INSERT INTO learning_items (
-                workspace_id,
                 family_id,
-                workbook_key,
-                source_learning_item_id,
                 lexeme_id,
                 text,
                 is_archived,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, NULL, NULL, ?, ?, 0, ?, ?)
+            VALUES (?, ?, ?, 0, ?, ?)
             """,
             (
-                _get_family_workspace_id(),
                 family_id,
                 lexeme_id,
                 text,
@@ -189,20 +181,16 @@ def create_family_topic(family_id: int, name: str, title: str) -> int:
         cursor = connection.execute(
             """
             INSERT INTO topics (
-                workspace_id,
                 family_id,
-                workbook_key,
-                source_topic_id,
                 name,
                 title,
                 is_archived,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, NULL, NULL, ?, ?, 0, ?, ?)
+            VALUES (?, ?, ?, 0, ?, ?)
             """,
             (
-                _get_family_workspace_id(),
                 family_id,
                 name.strip(),
                 title.strip(),

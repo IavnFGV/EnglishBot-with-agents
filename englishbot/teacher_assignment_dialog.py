@@ -8,6 +8,7 @@ from aiogram_dialog import Dialog, DialogManager, ShowMode, Window
 from aiogram_dialog.widgets.kbd import Button, Row, ScrollingGroup, Select
 from aiogram_dialog.widgets.text import Format
 
+from .families import get_user_family
 from .homework import ASSIGNMENT_KIND_HOMEWORK, ASSIGNMENT_MODE_STAGED_DEFAULT
 from .homework_handlers import build_homework_button
 from .i18n import translate_for_user
@@ -21,7 +22,6 @@ from .teacher_assignments import (
     build_word_selection_snapshot,
     list_assignment_recipients,
     list_assignment_topics,
-    list_assignment_workspaces,
     persist_assignment_draft,
 )
 
@@ -31,7 +31,6 @@ LIST_PAGE_SIZE = 8
 
 class TeacherAssignmentDialogSG(StatesGroup):
     source_mode = State()
-    workspace = State()
     topic = State()
     words = State()
     recipients = State()
@@ -45,7 +44,12 @@ async def _choose_topic_mode(
 ) -> None:
     _reset_content_state(dialog_manager)
     dialog_manager.dialog_data["source_mode"] = SOURCE_MODE_TOPIC
-    await dialog_manager.switch_to(TeacherAssignmentDialogSG.workspace)
+    family = get_user_family(_get_user_id(dialog_manager))
+    if family is None:
+        await dialog_manager.update({})
+        return
+    dialog_manager.dialog_data["workspace_id"] = int(family["id"])
+    await dialog_manager.switch_to(TeacherAssignmentDialogSG.topic)
 
 
 async def _choose_words_mode(
@@ -55,36 +59,23 @@ async def _choose_words_mode(
 ) -> None:
     _reset_content_state(dialog_manager)
     dialog_manager.dialog_data["source_mode"] = SOURCE_MODE_WORDS
-    await dialog_manager.switch_to(TeacherAssignmentDialogSG.workspace)
-
-
-async def _on_workspace_selected(
-    callback: CallbackQuery,
-    widget: Select,
-    dialog_manager: DialogManager,
-    workspace_id: str,
-) -> None:
-    dialog_manager.dialog_data["workspace_id"] = int(workspace_id)
+    family = get_user_family(_get_user_id(dialog_manager))
+    if family is None:
+        await dialog_manager.update({})
+        return
+    dialog_manager.dialog_data["workspace_id"] = int(family["id"])
     dialog_manager.dialog_data["topic_page"] = 0
     dialog_manager.dialog_data["recipient_page"] = 0
-    source_mode = str(dialog_manager.dialog_data.get("source_mode", ""))
-    if source_mode == SOURCE_MODE_TOPIC:
-        dialog_manager.dialog_data.pop("topic_id", None)
-        await _delete_summary_message(dialog_manager, callback.message)
-        await dialog_manager.switch_to(TeacherAssignmentDialogSG.topic)
-        return
-
     snapshot = build_word_selection_snapshot(
         _get_user_id(dialog_manager),
-        int(workspace_id),
+        int(family["id"]),
         _get_selected_learning_item_ids(dialog_manager),
     )
     current_item = snapshot["current_item"]
     dialog_manager.dialog_data["current_learning_item_id"] = (
         int(current_item["id"]) if current_item is not None else None
     )
-    await _sync_summary_message(dialog_manager, callback.message)
-    await dialog_manager.switch_to(TeacherAssignmentDialogSG.words, show_mode=ShowMode.SEND)
+    await dialog_manager.switch_to(TeacherAssignmentDialogSG.words)
 
 
 async def _on_topic_selected(
@@ -218,7 +209,7 @@ async def _go_back_to_workspace(
     dialog_manager.dialog_data.pop("workspace_id", None)
     dialog_manager.dialog_data.pop("topic_id", None)
     dialog_manager.dialog_data.pop("current_learning_item_id", None)
-    await dialog_manager.switch_to(TeacherAssignmentDialogSG.workspace)
+    await dialog_manager.switch_to(TeacherAssignmentDialogSG.source_mode)
 
 
 async def _go_back_to_source_mode(
@@ -320,29 +311,6 @@ async def get_source_mode_window_data(dialog_manager: DialogManager, **_: object
         "screen_text": translate_for_user(user_id, "teacher.assignment.screen.source_mode"),
         "topic_label": translate_for_user(user_id, "teacher.assignment.action.topic"),
         "words_label": translate_for_user(user_id, "teacher.assignment.action.words"),
-        "cancel_label": translate_for_user(user_id, "teacher.assignment.action.cancel"),
-    }
-
-
-async def get_workspace_window_data(dialog_manager: DialogManager, **_: object) -> dict[str, object]:
-    user_id = _get_user_id(dialog_manager)
-    workspace_items = list_assignment_workspaces(user_id)
-    current_page = _clamp_page(dialog_manager, "workspace_page", len(workspace_items))
-    paged_items = _slice_page(workspace_items, current_page)
-    source_mode = str(dialog_manager.dialog_data.get("source_mode", ""))
-    return {
-        "screen_text": translate_for_user(
-            user_id,
-            "teacher.assignment.screen.workspace",
-            source_mode_label=translate_for_user(user_id, f"teacher.assignment.source_mode.{source_mode}"),
-        ),
-        "workspace_items": paged_items,
-        "has_prev_page": current_page > 0,
-        "has_next_page": (current_page + 1) * LIST_PAGE_SIZE < len(workspace_items),
-        "workspace_page": "workspace_page",
-        "prev_label": translate_for_user(user_id, "teacher.assignment.action.prev"),
-        "next_label": translate_for_user(user_id, "teacher.assignment.action.next"),
-        "back_label": translate_for_user(user_id, "teacher.assignment.action.back"),
         "cancel_label": translate_for_user(user_id, "teacher.assignment.action.cancel"),
     }
 
@@ -697,31 +665,6 @@ teacher_assignment_dialog = Dialog(
         Format("{screen_text}"),
         ScrollingGroup(
             Select(
-                Format("{item[name]}"),
-                id="workspace_select",
-                item_id_getter=lambda item: item["id"],
-                items="workspace_items",
-                on_click=_on_workspace_selected,
-            ),
-            id="workspace_scroll",
-            width=1,
-            height=LIST_PAGE_SIZE,
-        ),
-        Row(
-            Button(Format("{prev_label}"), id="workspace_page", on_click=_prev_page, when="has_prev_page"),
-            Button(Format("{next_label}"), id="workspace_page", on_click=_next_page, when="has_next_page"),
-        ),
-        Row(
-            Button(Format("{back_label}"), id="workspace_back", on_click=_go_back_to_source_mode),
-            Button(Format("{cancel_label}"), id="workspace_cancel", on_click=_cancel_dialog),
-        ),
-        state=TeacherAssignmentDialogSG.workspace,
-        getter=get_workspace_window_data,
-    ),
-    Window(
-        Format("{screen_text}"),
-        ScrollingGroup(
-            Select(
                 Format("{item[title]} ({item[item_count]})"),
                 id="topic_select",
                 item_id_getter=lambda item: item["id"],
@@ -754,7 +697,7 @@ teacher_assignment_dialog = Dialog(
         ),
         Row(
             Button(Format("{done_label}"), id="words_done", on_click=_go_to_recipients_from_words, when="has_selected_items"),
-            Button(Format("{back_label}"), id="words_back", on_click=_go_back_to_workspace),
+            Button(Format("{back_label}"), id="words_back", on_click=_go_back_to_source_mode),
             Button(Format("{cancel_label}"), id="words_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherAssignmentDialogSG.words,
@@ -804,8 +747,6 @@ teacher_assignment_dialog = Dialog(
     ),
 )
 
-
-on_workspace_selected = _on_workspace_selected
 on_topic_selected = _on_topic_selected
 prev_word = _prev_word
 next_word = _next_word

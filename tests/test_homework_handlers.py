@@ -25,7 +25,6 @@ from englishbot.homework_handlers import (
     start_homework,
 )
 from englishbot.vocabulary import (
-    create_learning_item,
     create_learning_item_translation,
     create_lexeme,
 )
@@ -79,13 +78,6 @@ def make_user(user_id: int, first_name: str) -> User:
 def setup_db(tmp_path: Path) -> None:
     db.DB_PATH = tmp_path / "homework_handlers.sqlite3"
     db.init_db()
-
-
-def seed_learning_item() -> int:
-    lexeme_id = create_lexeme("apple")
-    learning_item_id = create_learning_item(lexeme_id, "apple")
-    create_learning_item_translation(learning_item_id, "ru", "яблоко")
-    return learning_item_id
 
 
 def seed_family_parent_and_child() -> tuple[sqlite3.Row, User, User]:

@@ -10,12 +10,7 @@ from .assets import (
     resolve_asset_ref_for_role,
     store_remote_asset,
 )
-from .db import (
-    get_connection,
-    get_default_content_workspace_id,
-    utc_now,
-)
-from .workspaces import ensure_teacher_can_edit_workspace_content
+from .db import get_connection, utc_now
 
 
 def create_lexeme(lemma: str) -> int:
@@ -46,61 +41,30 @@ def get_lexeme(lexeme_id: int) -> sqlite3.Row | None:
 def create_learning_item(
     lexeme_id: int,
     text: str,
-    workspace_id: int | None = None,
+    *,
+    family_id: int | None = None,
     image_ref: str | None = None,
     audio_ref: str | None = None,
-    source_learning_item_id: int | None = None,
-    workbook_key: str | None = None,
 ) -> int:
     timestamp = utc_now()
-    stored_workspace_id = (
-        get_default_content_workspace_id() if workspace_id is None else int(workspace_id)
-    )
     with get_connection() as connection:
         cursor = connection.execute(
             """
             INSERT INTO learning_items (
-                workspace_id,
-                workbook_key,
-                source_learning_item_id,
+                family_id,
                 lexeme_id,
                 text,
+                is_archived,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 0, ?, ?)
             """,
-            (
-                stored_workspace_id,
-                workbook_key,
-                source_learning_item_id,
-                lexeme_id,
-                text,
-                timestamp,
-                timestamp,
-            ),
+            (family_id, lexeme_id, text, timestamp, timestamp),
         )
     learning_item_id = int(cursor.lastrowid)
     _replace_media_assets(learning_item_id, image_ref=image_ref, audio_ref=audio_ref)
     return learning_item_id
-
-
-def create_learning_item_for_teacher_workspace(
-    teacher_user_id: int,
-    workspace_id: int,
-    lexeme_id: int,
-    text: str,
-    image_ref: str | None = None,
-    audio_ref: str | None = None,
-) -> int:
-    ensure_teacher_can_edit_workspace_content(workspace_id, teacher_user_id)
-    return create_learning_item(
-        lexeme_id,
-        text,
-        workspace_id=workspace_id,
-        image_ref=image_ref,
-        audio_ref=audio_ref,
-    )
 
 
 def get_learning_item(learning_item_id: int) -> dict[str, object] | None:
@@ -109,9 +73,7 @@ def get_learning_item(learning_item_id: int) -> dict[str, object] | None:
             """
             SELECT
                 id,
-                workspace_id,
-                workbook_key,
-                source_learning_item_id,
+                family_id,
                 lexeme_id,
                 text,
                 is_archived,
@@ -127,36 +89,36 @@ def get_learning_item(learning_item_id: int) -> dict[str, object] | None:
 
 def list_learning_items(
     limit: int | None = None,
-    workspace_id: int | None = None,
+    *,
+    family_id: int | None = None,
     include_archived: bool = False,
 ) -> list[dict[str, object]]:
-    stored_workspace_id = (
-        get_default_content_workspace_id() if workspace_id is None else int(workspace_id)
-    )
     query = """
         SELECT
-            learning_items.id,
-            learning_items.workspace_id,
-            learning_items.workbook_key,
-            learning_items.source_learning_item_id,
-            learning_items.lexeme_id,
-            learning_items.text,
-            learning_items.is_archived,
-            learning_items.created_at,
-            learning_items.updated_at
+            id,
+            family_id,
+            lexeme_id,
+            text,
+            is_archived,
+            created_at,
+            updated_at
         FROM learning_items
-        WHERE learning_items.workspace_id = ?
     """
-    parameters: tuple[int, ...] | tuple[int, int] = (stored_workspace_id,)
+    parameters: list[object] = []
+    clauses: list[str] = []
+    if family_id is not None:
+        clauses.append("family_id = ?")
+        parameters.append(family_id)
     if not include_archived:
-        query = f"{query}\nAND learning_items.is_archived = 0"
-    query = f"{query}\nORDER BY learning_items.id"
+        clauses.append("is_archived = 0")
+    if clauses:
+        query = f"{query}\nWHERE " + " AND ".join(clauses)
+    query = f"{query}\nORDER BY id"
     if limit is not None:
         query = f"{query}\nLIMIT ?"
-        parameters = (stored_workspace_id, limit)
-
+        parameters.append(limit)
     with get_connection() as connection:
-        rows = connection.execute(query, parameters).fetchall()
+        rows = connection.execute(query, tuple(parameters)).fetchall()
         return [_serialize_learning_item_row(row, connection) for row in rows]
 
 
@@ -178,13 +140,7 @@ def create_learning_item_translation(
             )
             VALUES (?, ?, ?, ?, ?)
             """,
-            (
-                learning_item_id,
-                language_code,
-                translation_text,
-                timestamp,
-                timestamp,
-            ),
+            (learning_item_id, language_code, translation_text, timestamp, timestamp),
         )
     return int(cursor.lastrowid)
 
@@ -202,9 +158,7 @@ def list_learning_item_translations(learning_item_id: int) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def get_learning_item_with_translations(
-    learning_item_id: int,
-) -> dict[str, object] | None:
+def get_learning_item_with_translations(learning_item_id: int) -> dict[str, object] | None:
     learning_item = get_learning_item(learning_item_id)
     if learning_item is None:
         return None
@@ -214,93 +168,7 @@ def get_learning_item_with_translations(
     }
 
 
-def update_learning_item(
-    teacher_user_id: int,
-    learning_item_id: int,
-    *,
-    text: str | None = None,
-    image_ref: str | None = None,
-    audio_ref: str | None = None,
-) -> None:
-    learning_item = get_learning_item(learning_item_id)
-    if learning_item is None:
-        return
-    ensure_teacher_can_edit_workspace_content(int(learning_item["workspace_id"]), teacher_user_id)
-    with get_connection() as connection:
-        connection.execute(
-            """
-            UPDATE learning_items
-            SET text = COALESCE(?, text),
-                is_archived = 0,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (text, utc_now(), learning_item_id),
-        )
-    _replace_media_assets(learning_item_id, image_ref=image_ref, audio_ref=audio_ref)
-
-
-def upsert_learning_item_translation(
-    teacher_user_id: int,
-    learning_item_id: int,
-    language_code: str,
-    translation_text: str,
-) -> None:
-    learning_item = get_learning_item(learning_item_id)
-    if learning_item is None:
-        return
-    ensure_teacher_can_edit_workspace_content(int(learning_item["workspace_id"]), teacher_user_id)
-    timestamp = utc_now()
-    with get_connection() as connection:
-        existing = connection.execute(
-            """
-            SELECT id
-            FROM learning_item_translations
-            WHERE learning_item_id = ? AND language_code = ?
-            ORDER BY id
-            LIMIT 1
-            """,
-            (learning_item_id, language_code),
-        ).fetchone()
-        if existing is None:
-            connection.execute(
-                """
-                INSERT INTO learning_item_translations (
-                    learning_item_id,
-                    language_code,
-                    translation_text,
-                    created_at,
-                    updated_at
-                )
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    learning_item_id,
-                    language_code,
-                    translation_text,
-                    timestamp,
-                    timestamp,
-                ),
-            )
-        else:
-            connection.execute(
-                """
-                UPDATE learning_item_translations
-                SET translation_text = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (translation_text, timestamp, int(existing["id"])),
-            )
-
-
-def archive_learning_item(
-    teacher_user_id: int,
-    learning_item_id: int,
-) -> None:
-    learning_item = get_learning_item(learning_item_id)
-    if learning_item is None:
-        return
-    ensure_teacher_can_edit_workspace_content(int(learning_item["workspace_id"]), teacher_user_id)
+def archive_learning_item(learning_item_id: int) -> None:
     with get_connection() as connection:
         connection.execute(
             """
@@ -318,13 +186,7 @@ def _serialize_learning_item_row(
 ) -> dict[str, object]:
     return {
         "id": int(row["id"]),
-        "workspace_id": int(row["workspace_id"]),
-        "workbook_key": str(row["workbook_key"]) if row["workbook_key"] is not None else None,
-        "source_learning_item_id": (
-            int(row["source_learning_item_id"])
-            if row["source_learning_item_id"] is not None
-            else None
-        ),
+        "family_id": int(row["family_id"]) if row["family_id"] is not None else None,
         "lexeme_id": int(row["lexeme_id"]),
         "text": str(row["text"]),
         "image_ref": resolve_asset_ref_for_role(int(row["id"]), PRIMARY_IMAGE_ROLE),
@@ -332,7 +194,10 @@ def _serialize_learning_item_row(
         "is_archived": int(row["is_archived"]),
         "created_at": str(row["created_at"]),
         "updated_at": str(row["updated_at"]),
-        "assets": [dict(asset_row) for asset_row in list_learning_item_assets(int(row["id"]), connection=connection)],
+        "assets": [
+            dict(asset_row)
+            for asset_row in list_learning_item_assets(int(row["id"]), connection=connection)
+        ],
     }
 
 
@@ -355,13 +220,11 @@ def _replace_media_assets(
         replace_learning_item_assets_for_role(
             learning_item_id,
             PRIMARY_IMAGE_ROLE,
-            assets=[
-                {
-                    "asset_type": ASSET_TYPE_IMAGE,
-                    "source_url": source_url,
-                    "local_path": image_ref,
-                }
-            ] if image_ref else [],
+            assets=[] if not image_ref else [{
+                "asset_type": ASSET_TYPE_IMAGE,
+                "source_url": source_url,
+                "local_path": image_ref,
+            }],
         )
     if audio_ref is not None:
         source_url = None
@@ -376,11 +239,9 @@ def _replace_media_assets(
         replace_learning_item_assets_for_role(
             learning_item_id,
             PRIMARY_AUDIO_ROLE,
-            assets=[
-                {
-                    "asset_type": ASSET_TYPE_AUDIO,
-                    "source_url": source_url,
-                    "local_path": audio_ref,
-                }
-            ] if audio_ref else [],
+            assets=[] if not audio_ref else [{
+                "asset_type": ASSET_TYPE_AUDIO,
+                "source_url": source_url,
+                "local_path": audio_ref,
+            }],
         )

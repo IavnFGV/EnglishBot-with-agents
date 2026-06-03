@@ -36,9 +36,6 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
     def fake_init_db() -> None:
         calls.append("init_db")
 
-    def fake_seed_basic_topics() -> None:
-        calls.append("seed_basic_topics")
-
     class FakeStatusServer:
         def close(self) -> None:
             closed_servers.append("close")
@@ -67,7 +64,6 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
-    monkeypatch.setattr(bootstrap, "seed_basic_topics", fake_seed_basic_topics)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -80,7 +76,6 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
         "configure_logging",
         "load_build_info",
         "init_db",
-        "seed_basic_topics",
         "start_status_server",
         "build_bot",
         "configure_bot_commands",
@@ -112,9 +107,6 @@ def test_bootstrap_run_logs_compact_startup_banner(monkeypatch) -> None:
     def fake_init_db() -> None:
         return None
 
-    def fake_seed_basic_topics() -> None:
-        return None
-
     class FakeStatusServer:
         def close(self) -> None:
             return None
@@ -143,7 +135,6 @@ def test_bootstrap_run_logs_compact_startup_banner(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
-    monkeypatch.setattr(bootstrap, "seed_basic_topics", fake_seed_basic_topics)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -184,9 +175,6 @@ def test_bootstrap_run_logs_status_server_startup(monkeypatch) -> None:
     def fake_init_db() -> None:
         return None
 
-    def fake_seed_basic_topics() -> None:
-        return None
-
     class FakeStatusServer:
         def close(self) -> None:
             return None
@@ -215,7 +203,6 @@ def test_bootstrap_run_logs_status_server_startup(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
-    monkeypatch.setattr(bootstrap, "seed_basic_topics", fake_seed_basic_topics)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -249,9 +236,6 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
     def fake_init_db() -> None:
         return None
 
-    def fake_seed_basic_topics() -> None:
-        return None
-
     class FakeStatusServer:
         def close(self) -> None:
             return None
@@ -283,7 +267,6 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
-    monkeypatch.setattr(bootstrap, "seed_basic_topics", fake_seed_basic_topics)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)

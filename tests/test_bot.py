@@ -11,8 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from englishbot import db
 from englishbot.bot import BOT_COMMANDS, configure_bot_commands, dispatcher, help_command, me
 from englishbot.command_registry import get_registered_commands
+from englishbot.families import create_family, create_family_learning_item
 from englishbot.training import create_training_session, get_active_training_session
-from englishbot.vocabulary import create_learning_item, create_learning_item_translation, create_lexeme
+from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
 
 class FakeMessage:
@@ -97,8 +98,9 @@ def test_me_command_is_not_swallowed_by_active_training_session(
     setup_db(tmp_path)
     user = make_user(902, "Nika")
     db.save_user(user)
+    family = create_family("Home", user.id)
     lexeme_id = create_lexeme("apple")
-    learning_item_id = create_learning_item(lexeme_id, "apple")
+    learning_item_id = create_family_learning_item(int(family["id"]), lexeme_id, "apple")
     create_learning_item_translation(learning_item_id, "ru", "яблоко")
     create_training_session(user.id)
     answers: list[str] = []
@@ -132,8 +134,9 @@ def test_cancel_command_stops_active_training_session(
     setup_db(tmp_path)
     user = make_user(903, "Lina")
     db.save_user(user)
+    family = create_family("Home", user.id)
     lexeme_id = create_lexeme("apple")
-    learning_item_id = create_learning_item(lexeme_id, "apple")
+    learning_item_id = create_family_learning_item(int(family["id"]), lexeme_id, "apple")
     create_learning_item_translation(learning_item_id, "ru", "яблоко")
     create_training_session(user.id)
     answers: list[str] = []

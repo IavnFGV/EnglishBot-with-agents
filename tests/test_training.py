@@ -20,11 +20,9 @@ from englishbot.training import (
 )
 from englishbot.user_profiles import set_user_hint_language
 from englishbot.vocabulary import (
-    create_learning_item,
     create_learning_item_translation,
     create_lexeme,
 )
-from englishbot.workspaces import add_workspace_member
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -39,10 +37,14 @@ def setup_db(tmp_path: Path) -> None:
 def seed_user_with_learning_items(item_count: int) -> int:
     user = make_user(301, "Learner")
     db.save_user(user)
-    add_workspace_member(db.get_default_content_workspace_id(), user.id, "teacher")
+    family = create_family("Home", user.id)
     for index in range(item_count):
         lexeme_id = create_lexeme(f"word-{index + 1}")
-        learning_item_id = create_learning_item(lexeme_id, f"text-{index + 1}")
+        learning_item_id = create_family_learning_item(
+            int(family["id"]),
+            lexeme_id,
+            f"text-{index + 1}",
+        )
         create_learning_item_translation(learning_item_id, "ru", f"слово-{index + 1}")
     return user.id
 
@@ -140,17 +142,13 @@ def test_new_sessions_initialize_easy_stage_and_zero_counters(tmp_path: Path) ->
     assert first_item["expected_answer"] == "word-1"
 
 
-def test_create_training_session_prefers_family_first_items_over_legacy_workspace_content(
+def test_create_training_session_uses_family_items_only(
     tmp_path: Path,
 ) -> None:
     setup_db(tmp_path)
     user = make_user(303, "Family")
     db.save_user(user)
     family = create_family("Home", user.id)
-
-    legacy_lexeme_id = create_lexeme("legacy-word")
-    legacy_item_id = create_learning_item(legacy_lexeme_id, "legacy-text")
-    create_learning_item_translation(legacy_item_id, "ru", "старый")
 
     family_lexeme_id = create_lexeme("family-word")
     family_item_id = create_family_learning_item(
@@ -174,9 +172,16 @@ def test_create_training_session_raises_when_family_exists_but_has_no_family_ite
     db.save_user(user)
     create_family("Home", user.id)
 
-    legacy_lexeme_id = create_lexeme("legacy-word")
-    legacy_item_id = create_learning_item(legacy_lexeme_id, "legacy-text")
-    create_learning_item_translation(legacy_item_id, "ru", "старый")
+    with pytest.raises(NoLearningItemsError):
+        create_training_session(user.id)
+
+
+def test_create_training_session_raises_without_family_membership(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(305, "Solo")
+    db.save_user(user)
 
     with pytest.raises(NoLearningItemsError):
         create_training_session(user.id)

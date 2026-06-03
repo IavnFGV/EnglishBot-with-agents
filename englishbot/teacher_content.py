@@ -31,7 +31,6 @@ EDITOR_PAGE_SIZE = 25
 VISIBLE_ITEM_WINDOW_SIZE = 10
 SHOW_ALL_THRESHOLD = 10
 TRANSLATION_LANGUAGE_CODES = ("ru", "uk", "bg")
-FAMILY_WORKSPACE_ID_OFFSET = 1_000_000_000
 
 
 class TeacherContentAccessError(Exception):
@@ -42,13 +41,7 @@ def list_teacher_browsable_workspaces(teacher_user_id: int) -> list[dict[str, ob
     family = get_user_family(teacher_user_id)
     if family is None:
         return []
-    family_id = int(family["id"])
-    return [
-        {
-            "id": _family_workspace_id(family_id),
-            "name": str(family["name"] or "Family"),
-        }
-    ]
+    return [{"id": int(family["id"]), "name": str(family["name"] or "Family")}]
 
 
 def create_teacher_workspace_for_user(
@@ -58,17 +51,14 @@ def create_teacher_workspace_for_user(
     family = get_user_family(teacher_user_id)
     if family is None:
         raise TeacherContentAccessError
-    return {
-        "id": _family_workspace_id(int(family["id"])),
-        "name": str(family["name"] or "Family"),
-    }
+    return {"id": int(family["id"]), "name": str(family["name"] or "Family")}
 
 
 def list_teacher_workspace_topics(
     teacher_user_id: int,
     workspace_id: int,
 ) -> list[dict[str, object]]:
-    family_id = _workspace_family_id(workspace_id)
+    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family_id is None or family is None or int(family["id"]) != family_id:
         raise TeacherContentAccessError
@@ -88,7 +78,7 @@ def create_teacher_topic(
     workspace_id: int,
     title: str,
 ) -> dict[str, object]:
-    family_id = _workspace_family_id(workspace_id)
+    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family_id is None or family is None or int(family["id"]) != family_id:
         raise TeacherContentAccessError
@@ -239,9 +229,7 @@ def create_teacher_topic_item(
     if not normalized_text:
         raise ValueError("item text is required")
     lexeme_id = create_lexeme(normalized_text)
-    family_id = _workspace_family_id(workspace_id)
-    if family_id is None:
-        raise TeacherContentAccessError
+    family_id = workspace_id
     learning_item_id = create_family_learning_item(family_id, lexeme_id, normalized_text)
     learning_item_ids = _get_family_topic_learning_item_ids(topic_id)
     learning_item_ids.append(learning_item_id)
@@ -463,9 +451,9 @@ def get_teacher_topic_preview(
 
 
 def _ensure_teacher_workspace_access(teacher_user_id: int, workspace_id: int):
-    family_id = _workspace_family_id(workspace_id)
+    family_id = workspace_id
     family = get_user_family(teacher_user_id)
-    if family_id is None or family is None or int(family["id"]) != family_id:
+    if family is None or int(family["id"]) != family_id:
         raise TeacherContentAccessError
     return {"id": workspace_id, "name": str(family["name"] or "Family")}
 
@@ -477,7 +465,7 @@ def _ensure_teacher_topic_access(
 ):
     workspace = _ensure_teacher_workspace_access(teacher_user_id, workspace_id)
     topic = get_topic(topic_id)
-    family_id = _workspace_family_id(workspace_id)
+    family_id = workspace_id
     if topic is None or topic["family_id"] is None or int(topic["family_id"]) != family_id:
         raise TeacherContentAccessError
     return workspace, topic
@@ -510,16 +498,6 @@ def _build_unique_family_topic_name(family_id: int, title: str) -> str:
         candidate = f"{base_name}-{suffix}"
         suffix += 1
     return candidate
-
-
-def _family_workspace_id(family_id: int) -> int:
-    return FAMILY_WORKSPACE_ID_OFFSET + family_id
-
-
-def _workspace_family_id(workspace_id: int) -> int | None:
-    if workspace_id >= FAMILY_WORKSPACE_ID_OFFSET:
-        return workspace_id - FAMILY_WORKSPACE_ID_OFFSET
-    return None
 
 
 def _get_family_topic_learning_item_ids(topic_id: int) -> list[int]:

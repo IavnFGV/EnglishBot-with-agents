@@ -14,7 +14,8 @@ async def teacher_content(message: Message, dialog_manager: DialogManager) -> No
         return
 
     save_user(message.from_user)
-    if get_user_family(message.from_user.id) is None:
+    family = get_user_family(message.from_user.id)
+    if family is None:
         await message.answer(
             translate_for_user(
                 message.from_user.id,
@@ -25,6 +26,7 @@ async def teacher_content(message: Message, dialog_manager: DialogManager) -> No
         return
 
     await dialog_manager.start(
-        TeacherContentDialogSG.workspaces,
+        TeacherContentDialogSG.topics,
         mode=StartMode.RESET_STACK,
+        data={"workspace_id": int(family["id"])},
     )

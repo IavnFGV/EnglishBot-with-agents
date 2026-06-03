@@ -32,8 +32,7 @@ from englishbot.training_handlers import (
     render_started_training_session,
 )
 from englishbot.user_profiles import set_user_hint_language
-from englishbot.vocabulary import create_learning_item, create_learning_item_translation, create_lexeme
-from englishbot.workspaces import add_workspace_member
+from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
 
 class FakeBot:
@@ -128,14 +127,19 @@ def setup_db(tmp_path: Path) -> None:
     db.init_db()
 
 
-def seed_learning_items(item_count: int) -> None:
-    teacher = make_user(499, "Teacher")
+def seed_learning_items(item_count: int, *, user: User | None = None) -> User:
+    teacher = user or make_user(499, "Teacher")
     db.save_user(teacher)
-    add_workspace_member(db.get_default_content_workspace_id(), teacher.id, "teacher")
+    family = create_family("Home", teacher.id)
     for index in range(item_count):
         lexeme_id = create_lexeme(f"word-{index + 1}")
-        learning_item_id = create_learning_item(lexeme_id, f"text-{index + 1}")
+        learning_item_id = create_family_learning_item(
+            int(family["id"]),
+            lexeme_id,
+            f"text-{index + 1}",
+        )
         create_learning_item_translation(learning_item_id, "ru", f"слово-{index + 1}")
+    return teacher
 
 
 def seed_family_parent_and_child() -> tuple[User, User, int]:
@@ -157,8 +161,8 @@ def _find_keyboard_index_by_label(keyboard, label: str) -> int:
 
 def test_learn_renders_one_progress_message_and_one_easy_question(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(3)
     user = make_user(401, "Learner")
+    seed_learning_items(3, user=user)
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
@@ -233,8 +237,8 @@ def test_easy_callback_delegates_selected_option_to_training_logic(tmp_path: Pat
 
 def test_easy_callback_reuses_progress_message_and_replaces_question_message(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(3)
     user = make_user(403, "Learner")
+    seed_learning_items(3, user=user)
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
@@ -263,8 +267,8 @@ def test_easy_callback_reuses_progress_message_and_replaces_question_message(tmp
 
 def test_question_deletion_failures_are_tolerated_safely(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(3)
     user = make_user(404, "Learner")
+    seed_learning_items(3, user=user)
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
@@ -284,8 +288,8 @@ def test_question_deletion_failures_are_tolerated_safely(tmp_path: Path) -> None
 
 def test_text_answers_are_ignored_for_medium_stage(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(1)
     user = make_user(405, "Learner")
+    seed_learning_items(1, user=user)
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
@@ -301,8 +305,8 @@ def test_text_answers_are_ignored_for_medium_stage(tmp_path: Path) -> None:
 
 def test_medium_callbacks_assemble_and_remove_letters(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(1)
     user = make_user(409, "Learner")
+    seed_learning_items(1, user=user)
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
@@ -360,8 +364,8 @@ def test_medium_callbacks_assemble_and_remove_letters(tmp_path: Path) -> None:
 
 def test_medium_check_uses_assembled_answer_and_advances(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(1)
     user = make_user(410, "Learner")
+    seed_learning_items(1, user=user)
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
@@ -395,8 +399,8 @@ def test_medium_check_uses_assembled_answer_and_advances(tmp_path: Path) -> None
 
 def test_text_answers_render_hint_and_first_letter_for_hard_stage(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(1)
     user = make_user(406, "Learner")
+    seed_learning_items(1, user=user)
     start_message = FakeMessage(user)
 
     asyncio.run(learn(start_message))
@@ -407,8 +411,8 @@ def test_text_answers_render_hint_and_first_letter_for_hard_stage(tmp_path: Path
 
 def test_session_completion_sends_summary_and_stops_question_rendering(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(1)
     user = make_user(408, "Learner")
+    seed_learning_items(1, user=user)
     start_message = FakeMessage(user)
 
     asyncio.run(learn(start_message))
@@ -436,9 +440,8 @@ def test_session_completion_sends_summary_and_stops_question_rendering(tmp_path:
 
 def test_learn_renders_hint_prompt_from_persisted_hint_language(tmp_path: Path) -> None:
     setup_db(tmp_path)
-    seed_learning_items(3)
     user = make_user(407, "Learner")
-    db.save_user(user)
+    seed_learning_items(3, user=user)
     set_user_hint_language(user.id, "bg")
     create_learning_item_translation(1, "bg", "дума-1")
     message = FakeMessage(user)
