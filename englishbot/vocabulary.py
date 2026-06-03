@@ -5,7 +5,6 @@ from .assets import (
     ASSET_TYPE_IMAGE,
     PRIMARY_AUDIO_ROLE,
     PRIMARY_IMAGE_ROLE,
-    clone_learning_item_assets,
     list_learning_item_assets,
     replace_learning_item_assets_for_role,
     resolve_asset_ref_for_role,
@@ -311,69 +310,6 @@ def archive_learning_item(
             """,
             (utc_now(), learning_item_id),
         )
-
-
-def publish_learning_item_to_workspace(
-    learning_item_id: int,
-    target_workspace_id: int,
-) -> int:
-    content = get_learning_item_with_translations(learning_item_id)
-    if content is None:
-        raise sqlite3.IntegrityError("learning_item not found")
-
-    learning_item = content["learning_item"]
-    translations = content["translations"]
-    with get_connection() as connection:
-        existing = connection.execute(
-            """
-            SELECT id
-            FROM learning_items
-            WHERE workspace_id = ? AND source_learning_item_id = ?
-            ORDER BY id
-            LIMIT 1
-            """,
-            (target_workspace_id, learning_item_id),
-        ).fetchone()
-        if existing is None:
-            published_learning_item_id = create_learning_item(
-                int(learning_item["lexeme_id"]),
-                str(learning_item["text"]),
-                workspace_id=target_workspace_id,
-                source_learning_item_id=learning_item_id,
-            )
-        else:
-            published_learning_item_id = int(existing["id"])
-            connection.execute(
-                """
-                UPDATE learning_items
-                SET lexeme_id = ?,
-                    text = ?,
-                    is_archived = 0,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    int(learning_item["lexeme_id"]),
-                    str(learning_item["text"]),
-                    utc_now(),
-                    published_learning_item_id,
-                ),
-            )
-            connection.execute(
-                """
-                DELETE FROM learning_item_translations
-                WHERE learning_item_id = ?
-                """,
-                (published_learning_item_id,),
-            )
-    for translation in translations:
-        create_learning_item_translation(
-            published_learning_item_id,
-            str(translation["language_code"]),
-            str(translation["translation_text"]),
-        )
-    clone_learning_item_assets(learning_item_id, published_learning_item_id)
-    return published_learning_item_id
 
 
 def _serialize_learning_item_row(

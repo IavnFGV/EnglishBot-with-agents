@@ -24,7 +24,6 @@ from englishbot.topics import (
     get_topic_learning_item_ids,
     link_learning_item_to_topic,
     list_topics,
-    publish_topic_to_workspace,
     rename_topic,
     replace_topic_learning_items,
 )
@@ -206,36 +205,6 @@ def test_archive_topic_hides_it_from_discovery(tmp_path: Path) -> None:
     assert get_topic(topic_id) is None
     assert get_topic(topic_id, include_archived=True)["is_archived"] == 1
     assert list_topics(workspace["workspace_id"]) == []
-
-
-def test_publish_topic_to_student_workspace_copies_and_updates_membership(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    source_workspace = create_workspace("Authoring", kind="teacher")
-    target_workspace = create_workspace("Learning", kind="student")
-    add_workspace_member(source_workspace["workspace_id"], 401, "teacher")
-    topic_id = create_topic_for_teacher_workspace(401, source_workspace["workspace_id"], "animals", "Животные")
-    first_item_id = seed_learning_item("cat", workspace_id=source_workspace["workspace_id"])
-    second_item_id = seed_learning_item("dog", workspace_id=source_workspace["workspace_id"])
-    replace_topic_learning_items(401, topic_id, [first_item_id, second_item_id])
-
-    first_publish = publish_topic_to_workspace(topic_id, target_workspace["workspace_id"])
-    published_topic = get_topic(int(first_publish["topic_id"]))
-    source_topic = get_topic(topic_id)
-
-    assert published_topic is not None
-    assert source_topic is not None
-    assert published_topic["workspace_id"] == target_workspace["workspace_id"]
-    assert int(published_topic["source_topic_id"]) == topic_id
-    assert published_topic["workbook_key"].startswith(f"{TOPIC_WORKBOOK_KEY_PREFIX}-")
-    assert published_topic["workbook_key"] != source_topic["workbook_key"]
-    assert first_publish["learning_item_ids"] != [first_item_id, second_item_id]
-
-    replace_topic_learning_items(401, topic_id, [second_item_id])
-    second_publish = publish_topic_to_workspace(topic_id, target_workspace["workspace_id"])
-
-    assert second_publish["topic_id"] == first_publish["topic_id"]
-    assert get_topic_learning_item_ids(int(second_publish["topic_id"])) == second_publish["learning_item_ids"]
-    assert len(second_publish["learning_item_ids"]) == 1
 
 
 def test_find_topic_by_name_for_teacher_workspace_is_workspace_scoped(tmp_path: Path) -> None:

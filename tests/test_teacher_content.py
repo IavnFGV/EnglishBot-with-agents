@@ -15,9 +15,7 @@ from englishbot.teacher_content import (
     create_teacher_topic_item,
     create_teacher_workspace_for_user,
     list_teacher_browsable_workspaces,
-    list_teacher_publish_targets,
     list_teacher_workspace_topics,
-    publish_teacher_topic_to_workspace,
     update_teacher_topic_item_field,
     archive_teacher_topic_item,
 )
@@ -173,17 +171,6 @@ def test_topic_full_list_overview_returns_compact_family_rows(tmp_path: Path) ->
             {"headword": "pear", "has_image": False},
         ],
     }
-
-
-def test_publish_targets_are_empty_and_publish_is_disabled(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    user_id, family_id = seed_family_user(501)
-    workspace_id = 1_000_000_000 + family_id
-    topic = create_teacher_topic(user_id, workspace_id, "Fruits")
-
-    assert list_teacher_publish_targets(user_id) == []
-    with pytest.raises(Exception):
-        publish_teacher_topic_to_workspace(user_id, workspace_id, int(topic["id"]), 1)
 
 
 def test_teacher_content_access_rejects_users_outside_family(tmp_path: Path) -> None:

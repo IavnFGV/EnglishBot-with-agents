@@ -10,7 +10,6 @@ from englishbot import db
 from englishbot.assets import (
     PRIMARY_AUDIO_ROLE,
     PRIMARY_IMAGE_ROLE,
-    clone_learning_item_assets,
     create_asset,
     get_learning_item_asset,
     link_asset_to_learning_item,
@@ -30,7 +29,6 @@ from englishbot.vocabulary import (
     get_lexeme,
     list_learning_item_translations,
     list_learning_items,
-    publish_learning_item_to_workspace,
     update_learning_item,
     upsert_learning_item_translation,
 )
@@ -310,41 +308,6 @@ def test_archive_learning_item_hides_it_from_lists(tmp_path: Path) -> None:
     assert get_learning_item(learning_item_id)["is_archived"] == 1
     assert list_learning_items(workspace_id=workspace["workspace_id"]) == []
     assert len(list_learning_items(workspace_id=workspace["workspace_id"], include_archived=True)) == 1
-
-
-def test_publish_learning_item_to_student_workspace_clones_assets(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    source_workspace = create_workspace("Authoring", kind="teacher")
-    target_workspace = create_workspace("Learning", kind="student")
-    lexeme_id = create_lexeme("tree")
-    source_learning_item_id = create_learning_item(lexeme_id, "tree", workspace_id=source_workspace["workspace_id"])
-    create_learning_item_translation(source_learning_item_id, "ru", "дерево")
-    _add_primary_assets(source_learning_item_id)
-
-    first_published_id = publish_learning_item_to_workspace(source_learning_item_id, target_workspace["workspace_id"])
-    published_learning_item = get_learning_item(first_published_id)
-    source_learning_item = get_learning_item(source_learning_item_id)
-
-    assert published_learning_item is not None
-    assert source_learning_item is not None
-    assert published_learning_item["workspace_id"] == target_workspace["workspace_id"]
-    assert int(published_learning_item["source_learning_item_id"]) == source_learning_item_id
-    assert published_learning_item["workbook_key"].startswith(f"{LEARNING_ITEM_WORKBOOK_KEY_PREFIX}-")
-    assert published_learning_item["workbook_key"] != source_learning_item["workbook_key"]
-    assert resolve_asset_ref_for_role(first_published_id, PRIMARY_IMAGE_ROLE) == "assets/images/run-fast.png"
-    assert get_learning_item_asset(first_published_id, role=PRIMARY_IMAGE_ROLE)["asset_id"] != get_learning_item_asset(source_learning_item_id, role=PRIMARY_IMAGE_ROLE)["asset_id"]
-
-    create_learning_item_translation(source_learning_item_id, "uk", "дерево-uk")
-    replace_learning_item_assets_for_role(
-        source_learning_item_id,
-        PRIMARY_IMAGE_ROLE,
-        assets=[{"asset_type": "image", "local_path": "assets/images/tree-new.png"}],
-    )
-    second_published_id = publish_learning_item_to_workspace(source_learning_item_id, target_workspace["workspace_id"])
-
-    assert first_published_id == second_published_id
-    assert [row["language_code"] for row in list_learning_item_translations(second_published_id)] == ["ru", "uk"]
-    assert resolve_asset_ref_for_role(second_published_id, PRIMARY_IMAGE_ROLE) == "assets/images/tree-new.png"
 
 
 def test_learning_item_workbook_keys_are_unique_within_workspace(tmp_path: Path) -> None:

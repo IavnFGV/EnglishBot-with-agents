@@ -25,7 +25,6 @@ from .i18n import translate_for_user
 from .runtime import router
 from .teacher_content import (
     TeacherContentAccessError,
-    TeacherContentPublishTargetError,
     archive_teacher_topic_item,
     build_teacher_topic_full_list_overview,
     build_teacher_topic_editor_snapshot,
@@ -33,9 +32,7 @@ from .teacher_content import (
     create_teacher_topic_item,
     create_teacher_workspace_for_user,
     list_teacher_browsable_workspaces,
-    list_teacher_publish_targets,
     list_teacher_workspace_topics,
-    publish_teacher_topic_to_workspace,
     update_teacher_topic_item_field,
 )
 
@@ -50,7 +47,6 @@ class TeacherContentDialogSG(StatesGroup):
     topics = State()
     browser = State()
     prompt = State()
-    publish = State()
 
 
 class PromptKind(StrEnum):
@@ -125,34 +121,6 @@ async def _on_topic_selected(
     await _show_browser_with_overview(dialog_manager, callback.message)
 
 
-async def _on_publish_target_selected(
-    callback: CallbackQuery,
-    widget: Select,
-    dialog_manager: DialogManager,
-    target_workspace_id: str,
-) -> None:
-    user_id = _get_user_id(dialog_manager)
-    workspace_id = int(dialog_manager.dialog_data["workspace_id"])
-    topic_id = int(dialog_manager.dialog_data["topic_id"])
-    try:
-        result = publish_teacher_topic_to_workspace(
-            user_id,
-            workspace_id,
-            topic_id,
-            int(target_workspace_id),
-        )
-    except (TeacherContentAccessError, TeacherContentPublishTargetError, ValueError):
-        await _handle_unavailable(dialog_manager)
-        return
-    dialog_manager.dialog_data["status_text"] = translate_for_user(
-        user_id,
-        "teacher.content.publish.success",
-        workspace_name=result["target_workspace_name"],
-        learning_item_count=result["learning_item_count"],
-    )
-    await dialog_manager.switch_to(TeacherContentDialogSG.browser)
-
-
 async def _open_create_workspace(
     callback: CallbackQuery,
     button: Button,
@@ -183,15 +151,6 @@ async def _open_edit_prompt(
     dialog_manager: DialogManager,
 ) -> None:
     await _enter_prompt(dialog_manager, PromptKind.EDIT_FIELD)
-
-
-async def _open_publish_targets(
-    callback: CallbackQuery,
-    button: Button,
-    dialog_manager: DialogManager,
-) -> None:
-    await _reset_prompt_state(dialog_manager)
-    await dialog_manager.switch_to(TeacherContentDialogSG.publish)
 
 
 async def _go_to_browser(
@@ -584,7 +543,6 @@ async def get_browser_window_data(
         "edit_label": translate_for_user(user_id, "teacher.content.action.edit"),
         "archive_label": translate_for_user(user_id, "teacher.content.action.archive"),
         "create_label": translate_for_user(user_id, "teacher.content.action.create"),
-        "publish_label": translate_for_user(user_id, "teacher.content.action.publish"),
         "show_all_label": translate_for_user(user_id, "teacher.content.action.show_all"),
         "topics_label": translate_for_user(user_id, "teacher.content.action.topics"),
         "workspaces_label": translate_for_user(user_id, "teacher.content.action.workspaces"),
@@ -641,27 +599,6 @@ async def get_prompt_window_data(
             for field_name in EDITABLE_FIELDS
         ],
         "show_field_picker": prompt_kind == PromptKind.EDIT_FIELD and edit_field is None,
-    }
-
-
-async def get_publish_window_data(
-    dialog_manager: DialogManager,
-    **_: object,
-) -> dict[str, object]:
-    user_id = _get_user_id(dialog_manager)
-    try:
-        targets = list_teacher_publish_targets(user_id)
-    except TeacherContentAccessError:
-        return _build_unavailable_view(user_id)
-    return {
-        "screen_text": _build_publish_screen_text(
-            user_id=user_id,
-            targets=targets,
-            status_text=_get_status_text(dialog_manager),
-        ),
-        "target_items": targets,
-        "back_label": translate_for_user(user_id, "teacher.content.action.back"),
-        "cancel_label": translate_for_user(user_id, "teacher.content.action.cancel"),
     }
 
 
@@ -831,24 +768,6 @@ def _build_full_list_message_text(
     return "\n".join(lines)
 
 
-def _build_publish_screen_text(
-    *,
-    user_id: int,
-    targets: list[dict[str, object]],
-    status_text: str | None,
-) -> str:
-    lines = [translate_for_user(user_id, "teacher.content.screen.publish")]
-    if status_text:
-        lines.extend(("", status_text))
-    if not targets:
-        lines.extend(("", translate_for_user(user_id, "teacher.content.publish.no_targets")))
-        return "\n".join(lines)
-    lines.extend(("", translate_for_user(user_id, "teacher.content.publish.choose_target")))
-    for index, target in enumerate(targets, start=1):
-        lines.append(f"{index}. {target['name']}")
-    return "\n".join(lines)
-
-
 def _build_unavailable_view(user_id: int) -> dict[str, object]:
     return {
         "screen_text": translate_for_user(user_id, "teacher.content.unavailable"),
@@ -864,7 +783,6 @@ def _build_unavailable_view(user_id: int) -> dict[str, object]:
         "next_label": translate_for_user(user_id, "teacher.content.action.next"),
         "edit_label": translate_for_user(user_id, "teacher.content.action.edit"),
         "archive_label": translate_for_user(user_id, "teacher.content.action.archive"),
-        "publish_label": translate_for_user(user_id, "teacher.content.action.publish"),
         "show_all_label": translate_for_user(user_id, "teacher.content.action.show_all"),
         "topics_label": translate_for_user(user_id, "teacher.content.action.topics"),
         "workspaces_label": translate_for_user(user_id, "teacher.content.action.workspaces"),
@@ -1183,7 +1101,6 @@ teacher_content_dialog = Dialog(
         ),
         Row(
             Button(Format("{create_label}"), id="create_item", on_click=_open_create_item),
-            Button(Format("{publish_label}"), id="publish_topic", on_click=_open_publish_targets),
         ),
         Row(
             Button(Format("{show_all_label}"), id="show_all_items", on_click=_show_all_items, when="show_all_available"),
@@ -1217,27 +1134,6 @@ teacher_content_dialog = Dialog(
         state=TeacherContentDialogSG.prompt,
         getter=get_prompt_window_data,
     ),
-    Window(
-        Format("{screen_text}"),
-        ScrollingGroup(
-            Select(
-                Format("{item[name]}"),
-                id="publish_select",
-                item_id_getter=lambda item: item["id"],
-                items="target_items",
-                on_click=_on_publish_target_selected,
-            ),
-            id="publish_scroll",
-            width=1,
-            height=LIST_PAGE_SIZE,
-        ),
-        Row(
-            Button(Format("{back_label}"), id="publish_back", on_click=_go_to_browser),
-            Button(Format("{cancel_label}"), id="publish_cancel", on_click=_cancel_dialog),
-        ),
-        state=TeacherContentDialogSG.publish,
-        getter=get_publish_window_data,
-    ),
 )
 
 
@@ -1251,6 +1147,5 @@ on_topic_selected = _on_topic_selected
 on_workspace_selected = _on_workspace_selected
 open_create_topic = _open_create_topic
 open_edit_prompt = _open_edit_prompt
-open_publish_targets = _open_publish_targets
 prev_item = _prev_item
 show_all_items = _show_all_items

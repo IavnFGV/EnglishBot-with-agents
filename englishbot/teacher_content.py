@@ -38,10 +38,6 @@ class TeacherContentAccessError(Exception):
     pass
 
 
-class TeacherContentPublishTargetError(Exception):
-    pass
-
-
 def list_teacher_browsable_workspaces(teacher_user_id: int) -> list[dict[str, object]]:
     family = get_user_family(teacher_user_id)
     if family is None:
@@ -428,21 +424,6 @@ def archive_teacher_topic_item(
             """,
             (utc_now(), learning_item_id),
         )
-
-
-def list_teacher_publish_targets(teacher_user_id: int) -> list[dict[str, object]]:
-    return []
-
-
-def publish_teacher_topic_to_workspace(
-    teacher_user_id: int,
-    workspace_id: int,
-    topic_id: int,
-    target_workspace_id: int,
-) -> dict[str, object]:
-    raise TeacherContentPublishTargetError
-
-
 def get_teacher_topic_preview(
     teacher_user_id: int,
     workspace_id: int,

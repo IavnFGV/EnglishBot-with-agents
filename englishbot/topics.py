@@ -5,7 +5,7 @@ from .db import (
     get_default_content_workspace_id,
     utc_now,
 )
-from .vocabulary import get_learning_item, publish_learning_item_to_workspace
+from .vocabulary import get_learning_item
 from .workspaces import ensure_teacher_can_edit_workspace_content
 
 
@@ -110,32 +110,6 @@ def get_topic_by_name(
         query = f"{query}\nAND is_archived = 0"
     with get_connection() as connection:
         return connection.execute(query, (stored_workspace_id, name.strip())).fetchone()
-
-
-def get_published_topic(
-    source_topic_id: int,
-    target_workspace_id: int,
-) -> sqlite3.Row | None:
-    with get_connection() as connection:
-        return connection.execute(
-            """
-            SELECT
-                id,
-                workspace_id,
-                workbook_key,
-                source_topic_id,
-                name,
-                title,
-                is_archived,
-                created_at,
-                updated_at
-            FROM topics
-            WHERE workspace_id = ? AND source_topic_id = ?
-            ORDER BY id
-            LIMIT 1
-            """,
-            (target_workspace_id, source_topic_id),
-        ).fetchone()
 
 
 def find_topic_by_name_for_teacher_workspace(
@@ -348,67 +322,3 @@ def get_learning_items_for_topic(
             learning_items.append(learning_item)
     return learning_items
 
-
-def publish_topic_to_workspace(
-    source_topic_id: int,
-    target_workspace_id: int,
-) -> dict[str, object]:
-    source_topic = get_topic(source_topic_id)
-    if source_topic is None:
-        raise sqlite3.IntegrityError("topic not found")
-
-    published_topic = get_published_topic(source_topic_id, target_workspace_id)
-    published_item_ids = [
-        publish_learning_item_to_workspace(learning_item_id, target_workspace_id)
-        for learning_item_id in get_topic_learning_item_ids(source_topic_id)
-    ]
-    if published_topic is None:
-        published_topic_id = create_topic(
-            str(source_topic["name"]),
-            str(source_topic["title"]),
-            workspace_id=target_workspace_id,
-            source_topic_id=source_topic_id,
-        )
-    else:
-        published_topic_id = int(published_topic["id"])
-        with get_connection() as connection:
-            connection.execute(
-                """
-                UPDATE topics
-                SET name = ?,
-                    title = ?,
-                    is_archived = 0,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    str(source_topic["name"]),
-                    str(source_topic["title"]),
-                    utc_now(),
-                    published_topic_id,
-                ),
-            )
-            connection.execute(
-                """
-                DELETE FROM topic_learning_items
-                WHERE topic_id = ?
-                """,
-                (published_topic_id,),
-            )
-    with get_connection() as connection:
-        connection.executemany(
-            """
-            INSERT INTO topic_learning_items (topic_id, learning_item_id)
-            VALUES (?, ?)
-            """,
-            [
-                (published_topic_id, learning_item_id)
-                for learning_item_id in published_item_ids
-            ],
-        )
-    return {
-        "topic_id": published_topic_id,
-        "name": str(source_topic["name"]),
-        "title": str(source_topic["title"]),
-        "learning_item_ids": published_item_ids,
-    }
