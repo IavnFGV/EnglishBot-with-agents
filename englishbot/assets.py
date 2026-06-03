@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import urlopen
 from uuid import uuid4
+
+from PIL import Image, UnidentifiedImageError
 
 from . import db
 
@@ -410,6 +413,8 @@ def store_remote_asset(
         content = response.read()
     if not content:
         raise ValueError(f"{asset_type} content is required")
+    if asset_type == ASSET_TYPE_IMAGE:
+        _validate_image_content(content, source_url=source_url)
 
     suffix = Path(parsed_url.path).suffix.lower() or default_extension
     relative_dir = preferred_dir or REMOTE_ASSET_SUBDIR_BY_TYPE[asset_type]
@@ -421,6 +426,18 @@ def store_remote_asset(
     output_path = asset_dir / filename
     output_path.write_bytes(content)
     return str((relative_dir / filename).as_posix())
+
+
+def is_valid_local_image_path(image_path: str | Path) -> bool:
+    candidate_path = Path(db.DB_PATH).resolve().parent / Path(str(image_path))
+    if not candidate_path.exists() or not candidate_path.is_file():
+        return False
+    try:
+        with Image.open(candidate_path) as image:
+            image.verify()
+    except (OSError, SyntaxError, UnidentifiedImageError):
+        return False
+    return True
 
 
 def store_workbook_import_asset(
@@ -470,3 +487,11 @@ def _delete_orphaned_assets(connection, asset_ids: list[int]) -> None:
             """,
             (asset_id,),
         )
+
+
+def _validate_image_content(content: bytes, *, source_url: str) -> None:
+    try:
+        with Image.open(BytesIO(content)) as image:
+            image.verify()
+    except (OSError, SyntaxError, UnidentifiedImageError) as exc:
+        raise ValueError(f"image content from {source_url} is not a valid image") from exc

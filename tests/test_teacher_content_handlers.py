@@ -1,12 +1,14 @@
 import asyncio
 import sys
 from io import BytesIO
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
 from aiogram.exceptions import TelegramBadRequest
 from aiogram_dialog import ShowMode, StartMode
 from aiogram.types import User
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -310,7 +312,10 @@ def test_image_field_upload_persists_local_image_and_saves_local_ref(tmp_path: P
     user = make_user(109, "Family")
     family_id, topic_id = seed_topic(user)
     manager = FakeDialogManager(user)
-    bot = FakeBot(download_payload=b"fake-image-bytes")
+    buffer = BytesIO()
+    Image.new("RGB", (1, 1), color=(255, 0, 0)).save(buffer, format="PNG")
+    png_payload = buffer.getvalue()
+    bot = FakeBot(download_payload=png_payload)
     manager.dialog_data.update(
         {
             "family_id": family_id,
@@ -334,8 +339,35 @@ def test_image_field_upload_persists_local_image_and_saves_local_ref(tmp_path: P
     media = browser_view["current_item_media"]
     assert media is not None
     assert str(media.path).startswith("assets/images/teacher-content/learning-item-")
-    assert Path(tmp_path / str(media.path)).read_bytes() == b"fake-image-bytes"
+    assert Path(tmp_path / str(media.path)).read_bytes() == png_payload
     assert image_message.deleted is True
+
+
+def test_invalid_local_image_falls_back_to_placeholder_media(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(119, "Family")
+    family_id, topic_id = seed_topic(user)
+    from englishbot.teacher_content import update_teacher_topic_item_field
+
+    manager = FakeDialogManager(user)
+    manager.dialog_data.update({"family_id": family_id, "topic_id": topic_id})
+    snapshot = asyncio.run(get_browser_window_data(manager))
+    item_id = int(manager.dialog_data["item_id"])
+    update_teacher_topic_item_field(
+        user.id,
+        family_id,
+        topic_id,
+        item_id,
+        "image_ref",
+        "assets/images/not-a-real-image.jpg",
+    )
+
+    browser_view = asyncio.run(get_browser_window_data(manager))
+    media = browser_view["current_item_media"]
+
+    assert snapshot["current_item_media"] is not None
+    assert media is not None
+    assert str(media.path) == "assets/images/no-image.png"
 
 
 def test_show_all_sends_plain_read_only_message_and_keeps_browser_state(tmp_path: Path) -> None:

@@ -19,7 +19,7 @@ from aiogram_dialog.widgets.media import DynamicMedia
 from aiogram_dialog.widgets.text import Format
 
 from .command_registry import TEACHER_CONTENT_COMMAND
-from .assets import NO_IMAGE_PLACEHOLDER_PATH, store_teacher_content_image
+from .assets import NO_IMAGE_PLACEHOLDER_PATH, is_valid_local_image_path, store_teacher_content_image
 from .db import save_user
 from .families import get_user_family
 from .i18n import translate_for_user
@@ -783,6 +783,8 @@ def _build_current_item_media(snapshot: dict[str, object]) -> MediaAttachment | 
     image_ref = str(image_ref)
     if image_ref.startswith(("http://", "https://")):
         return MediaAttachment(ContentType.PHOTO, url=image_ref)
+    if not is_valid_local_image_path(image_ref):
+        return MediaAttachment(ContentType.PHOTO, path=NO_IMAGE_PLACEHOLDER_PATH)
     return MediaAttachment(ContentType.PHOTO, path=Path(image_ref))
 
 
