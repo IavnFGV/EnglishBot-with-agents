@@ -560,6 +560,14 @@ def _parse_boolish(value: str) -> bool:
         return False
     if normalized in {"1", "true", "yes"}:
         return True
+    try:
+        numeric_value = float(normalized)
+    except ValueError:
+        numeric_value = None
+    if numeric_value == 0.0:
+        return False
+    if numeric_value == 1.0:
+        return True
     raise ValueError("invalid boolean value")
 
 

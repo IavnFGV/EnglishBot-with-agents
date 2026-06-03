@@ -139,3 +139,18 @@ def test_import_runs_in_one_transaction(tmp_path: Path, monkeypatch) -> None:
         apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
 
     assert get_learning_item(first_item_id)["text"] == "apple"
+
+
+def test_import_accepts_excel_style_float_archive_flags(tmp_path: Path, monkeypatch) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    first_item_id, _ = seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-floats.xlsx").file_path
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["learning_items"]
+    sheet["J2"] = 0.0
+    workbook.save(workbook_path)
+
+    summary = apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
+
+    assert summary.updated == 0
+    assert get_learning_item(first_item_id)["is_archived"] == 0
