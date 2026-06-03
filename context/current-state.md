@@ -50,6 +50,7 @@
 - Training sessions with staged `easy`, `medium`, and optional `hard` exercises.
 - Centralized i18n for bot-facing text with `en`, `ru`, `uk`, and `bg`.
 - Asset registry for linked image/audio metadata, with runtime media stored locally on disk even when entered as remote URLs; the original URL may still be kept in asset metadata for traceability, and deploy now copies the repo-owned `assets/images/no-image.png` placeholder into the host-mounted runtime assets tree so fresh VPS installs keep the teacher-content image fallback without extra startup logic.
+- That runtime placeholder is now tracked directly in git at `assets/images/no-image.png`, and deploy fails closed with an explicit error if the checked-out repo on the VPS ever lacks that source file.
 - Deployment support with Docker Compose and GitHub Actions.
 - The service repo now deploys as a Dockge stack in `/opt/dockge/stacks/englishbot`, while runtime `data`, `logs`, `assets`, and app-created SQLite backup files live in `/srv/services/englishbot/...` bind mounts on the host.
 - The deploy workflow now bootstraps privileged host paths under `/opt/dockge` and `/srv/...` with `sudo`, then keeps repo git operations and `docker compose` in the stack directory as the normal SSH user.

@@ -126,8 +126,16 @@ jobs:
             show_dir_state "${SYNC_ROOT}/backups"
 
             echo "[deploy] syncing placeholder assets into host runtime storage"
+            PLACEHOLDER_SOURCE="${SERVICE_DIR}/assets/images/no-image.png"
+            if [ ! -f "${PLACEHOLDER_SOURCE}" ]; then
+              echo "ERROR: placeholder asset is missing from the checked-out repo: ${PLACEHOLDER_SOURCE}"
+              ls -la "${SERVICE_DIR}/assets" || true
+              ls -la "${SERVICE_DIR}/assets/images" || true
+              exit 1
+            fi
             sudo mkdir -p "${DATA_ROOT}/assets/images"
-            sudo install -m 644 "${SERVICE_DIR}/assets/images/no-image.png" "${DATA_ROOT}/assets/images/no-image.png"
+            sudo cp "${PLACEHOLDER_SOURCE}" "${DATA_ROOT}/assets/images/no-image.png"
+            sudo chmod 644 "${DATA_ROOT}/assets/images/no-image.png"
             sudo chown "${USER}:${USER}" "${DATA_ROOT}/assets/images/no-image.png" || true
             ls -l "${DATA_ROOT}/assets/images/no-image.png"
 

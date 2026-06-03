@@ -38,6 +38,11 @@ data/
 ai_file_state.txt
 ai_state.md
 assets/
+!assets/
+assets/*
+!assets/images/
+assets/images/*
+!assets/images/no-image.png
 
 
 
