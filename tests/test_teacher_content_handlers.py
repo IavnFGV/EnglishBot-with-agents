@@ -21,6 +21,7 @@ from englishbot.teacher_content_dialog import (
     go_to_prompt_return,
     hide_show_all,
     next_item,
+    _open_bulk_edit,
     on_prompt_input,
     on_topic_selected,
     open_create_topic,
@@ -71,11 +72,16 @@ class FakeMessage:
         self.message_id = message_id
         self.answers: list[str] = []
         self.answer_calls: list[dict[str, object]] = []
+        self.document_calls: list[dict[str, object]] = []
         self.deleted = False
 
     async def answer(self, text: str, **kwargs) -> None:
         self.answers.append(text)
         self.answer_calls.append({"text": text, "kwargs": kwargs})
+        return self.bot.build_sent_message(self.from_user)
+
+    async def answer_document(self, document, **kwargs):
+        self.document_calls.append({"document": document, "kwargs": kwargs})
         return self.bot.build_sent_message(self.from_user)
 
     async def delete(self) -> None:
@@ -216,6 +222,22 @@ def test_dialog_navigation_renders_family_topic_and_item_screens(tmp_path: Path)
     assert "Topic: Fruits" in browser_view["screen_text"]
     assert "Item 1/2" in browser_view["screen_text"]
     assert "👉 • 1. <b>item-1</b>" in topic_message.bot.edit_calls[0]["text"]
+
+
+def test_topics_screen_exposes_bulk_edit_entrypoint(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(118, "Family")
+    family_id, _ = seed_topic(user)
+    manager = FakeDialogManager(user)
+    manager.dialog_data["family_id"] = family_id
+    topic_message = FakeMessage(user, bot=FakeBot(), message_id=manager.last_message_id)
+
+    topics_view = asyncio.run(get_topics_window_data(manager))
+    asyncio.run(_open_bulk_edit(SimpleNamespace(message=topic_message), None, manager))
+
+    assert topics_view["bulk_edit_label"] == "📄 Bulk edit"
+    assert len(topic_message.document_calls) == 1
+    assert topic_message.answers[-1].startswith("Edit the workbook locally")
 
 
 def test_prev_next_item_navigation_updates_family_selection_in_place(tmp_path: Path) -> None:

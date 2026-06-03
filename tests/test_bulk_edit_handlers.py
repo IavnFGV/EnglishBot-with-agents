@@ -95,6 +95,7 @@ def test_upload_then_apply_flow_works_through_handler_layer(tmp_path: Path, monk
     assert len(start_message.documents) == 1
     session = get_active_bulk_edit_session()
     assert session is not None
+    assert Path(str(session["export_file_path"])).parent == tmp_path / "bulk-edit" / "exports"
 
     export_file = Path(str(session["export_file_path"]))
     upload_message = FakeMessage(

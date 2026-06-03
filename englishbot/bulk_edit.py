@@ -12,7 +12,8 @@ from typing import Any
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 
-from .db import DB_PATH, get_connection, utc_now
+from . import db
+from .db import get_connection, utc_now
 from .i18n import translate_for_user
 
 
@@ -51,7 +52,7 @@ class BulkEditGateDecision:
 
 
 def get_bulk_edit_runtime_dir() -> Path:
-    runtime_dir = Path(DB_PATH).resolve().parent / "bulk-edit"
+    runtime_dir = Path(db.DB_PATH).resolve().parent / "bulk-edit"
     runtime_dir.mkdir(parents=True, exist_ok=True)
     return runtime_dir
 
@@ -313,7 +314,7 @@ def create_bulk_edit_backup(*, family_id: int, user_id: int) -> Path:
     backup_path = get_backup_dir() / (
         f"before-bulk-edit__family-{family_id}__user-{user_id}__{timestamp}.sqlite3"
     )
-    source = sqlite3.connect(DB_PATH)
+    source = sqlite3.connect(db.DB_PATH)
     try:
         destination = sqlite3.connect(backup_path)
         try:

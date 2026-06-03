@@ -109,6 +109,18 @@ async def _open_create_topic(
     await _enter_prompt(dialog_manager, PromptKind.CREATE_TOPIC)
 
 
+async def _open_bulk_edit(
+    callback: CallbackQuery,
+    button: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    if callback.message is None:
+        return
+    from .bulk_edit_handlers import start_bulk_edit_flow
+
+    await start_bulk_edit_flow(callback.message)
+
+
 async def _open_create_item(
     callback: CallbackQuery,
     button: Button,
@@ -448,6 +460,7 @@ async def get_topics_window_data(
         "topic_items": page_items,
         "create_label": translate_for_user(user_id, "teacher.content.action.create"),
         "back_label": translate_for_user(user_id, "teacher.content.action.back"),
+        "bulk_edit_label": translate_for_user(user_id, "teacher.content.action.bulk_edit"),
         "cancel_label": translate_for_user(user_id, "teacher.content.action.cancel"),
         "prev_label": translate_for_user(user_id, "teacher.content.action.prev"),
         "next_label": translate_for_user(user_id, "teacher.content.action.next"),
@@ -973,6 +986,9 @@ teacher_content_dialog = Dialog(
         ),
         Row(
             Button(Format("{create_label}"), id="create_topic", on_click=_open_create_topic),
+            Button(Format("{bulk_edit_label}"), id="open_bulk_edit", on_click=_open_bulk_edit),
+        ),
+        Row(
             Button(Format("{cancel_label}"), id="topics_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherContentDialogSG.topics,
