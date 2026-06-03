@@ -65,6 +65,12 @@ CREATE_ASSIGNMENT_COMMAND = CommandDefinition(
     scope="teacher",
     register_after_startup=True,
 )
+ADD_FAMILY_COMMAND = CommandDefinition(
+    name="add_family",
+    description_key="command.add_family",
+    scope="owner",
+    register_after_startup=False,
+)
 TOPICS_COMMAND = CommandDefinition(
     name="topics",
     description_key="command.topics",
@@ -86,6 +92,7 @@ ALL_COMMANDS = (
     SETTINGS_COMMAND,
     CANCEL_COMMAND,
     CREATE_ASSIGNMENT_COMMAND,
+    ADD_FAMILY_COMMAND,
     TOPICS_COMMAND,
     TEACHER_CONTENT_COMMAND,
 )

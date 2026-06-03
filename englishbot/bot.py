@@ -7,8 +7,9 @@ from aiogram_dialog import setup_dialogs
 from aiogram_dialog.api.exceptions import UnknownIntent
 
 from .command_registry import BOT_COMMANDS, HELP_COMMAND, ME_COMMAND, START_COMMAND
+from .config import get_owner_telegram_user_id
 from .db import count_text_interactions, get_user, save_user
-from .families import create_family, get_user_family
+from .families import ensure_user_family, get_user_family
 from .homework_dialog import homework_dialog
 from .i18n import translate_for_user
 from .runtime import dispatcher, router
@@ -17,6 +18,7 @@ from .teacher_content_dialog import teacher_content_dialog
 from .user_profiles import get_user_role
 from . import cancel_handlers  # noqa: F401
 from . import homework_handlers  # noqa: F401
+from . import owner_handlers  # noqa: F401
 from . import settings_handlers  # noqa: F401
 from . import teacher_assignment_handlers  # noqa: F401
 from . import teacher_content_handlers  # noqa: F401
@@ -45,9 +47,19 @@ async def start_command(message: Message) -> None:
 
     save_user(message.from_user)
     family = get_user_family(message.from_user.id)
+    owner_user_id = get_owner_telegram_user_id()
     created_family = False
     if family is None:
-        family = create_family("Home", message.from_user.id)
+        if owner_user_id is not None and message.from_user.id != owner_user_id:
+            await message.answer(
+                translate_for_user(
+                    message.from_user.id,
+                    "bot.start.pending_access",
+                    telegram_user_id=message.from_user.id,
+                )
+            )
+            return
+        family = ensure_user_family(message.from_user.id)
         created_family = True
 
     await message.answer(

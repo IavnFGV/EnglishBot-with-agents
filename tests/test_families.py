@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from englishbot import db
 from englishbot.families import (
     FamilyMembershipError,
+    add_user_to_owner_family,
     create_family,
     create_family_learning_item,
     create_family_topic,
@@ -23,6 +24,7 @@ from englishbot.families import (
     replace_topic_items,
     upsert_user_progress,
     add_family_member,
+    ensure_user_family,
 )
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
@@ -94,6 +96,23 @@ def test_add_family_member_rejects_second_family_membership(tmp_path: Path) -> N
 
     with pytest.raises(FamilyMembershipError):
         add_family_member(int(other_family["id"]), child.id)
+
+
+def test_owner_family_helpers_create_and_extend_owner_family(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    owner = make_user(820, "Owner")
+    child = make_user(821, "Child")
+    db.save_user(owner)
+    db.save_user(child)
+
+    family = ensure_user_family(owner.id)
+    same_family, status = add_user_to_owner_family(owner.id, child.id)
+    repeated_family, repeated_status = add_user_to_owner_family(owner.id, child.id)
+
+    assert int(family["id"]) == int(same_family["id"]) == int(repeated_family["id"])
+    assert status == "added"
+    assert repeated_status == "already_member"
+    assert get_user_family(child.id)["id"] == family["id"]
 
 
 def test_family_learning_items_and_topics_are_scoped_to_one_family(tmp_path: Path) -> None:

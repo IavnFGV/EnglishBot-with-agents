@@ -15,7 +15,7 @@
 
 ## Implemented product slices
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
-- `/start` now also bootstraps the simplest family-first local setup: if the user does not belong to a family yet, the bot creates a `Home` family for that Telegram user and points them straight to `/teacher_content`, `/create_assignment`, `/topics`, and `/learn`.
+- `/start` now supports an owner-managed privacy mode for local bots: if `ENGLISHBOT_OWNER_TELEGRAM_USER_ID` is set, only that owner account auto-bootstraps a `Home` family, while other users are merely registered and can be added later with the technical `/add_family <telegram_user_id>` command.
 - A minimal `/help` command now shows the active family-first command set, so unsupported commands like `/help` no longer fall through as unhandled updates.
 - Added global observability for unhandled updates: fallback message handler and UnknownIntent error handler now log at WARNING level.
 - The active family-first persistence layer is now the only live product model: SQLite bootstraps `families`, `family_members`, family-owned `learning_items`, family-owned `topics`, `topic_items`, `user_progress`, `homework_assignments`, and `homework_assignment_items`, with focused helpers in `englishbot/families.py`.

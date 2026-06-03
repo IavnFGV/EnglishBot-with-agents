@@ -1,15 +1,11 @@
-from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram_dialog import DialogManager, StartMode
 
-from .command_registry import LEARN_COMMAND
-from .db import save_user
 from .homework_dialog import HomeworkDialogSG
 from .homework import (
     AssignmentNotFoundError,
     EmptyAssignmentError,
     start_assignment_training_session,
-    student_has_active_homework,
 )
 from .i18n import translate_for_user
 from .runtime import router
@@ -31,29 +27,6 @@ def build_homework_button(telegram_user_id: int) -> InlineKeyboardMarkup:
             ]
         ]
     )
-
-
-@router.message(CommandStart())
-async def start(message: Message) -> None:
-    if message.from_user is None:
-        return
-
-    save_user(message.from_user)
-    if student_has_active_homework(message.from_user.id):
-        await message.answer(
-            translate_for_user(message.from_user.id, "homework.has_active"),
-            reply_markup=build_homework_button(message.from_user.id),
-        )
-        return
-
-    await message.answer(
-        translate_for_user(
-            message.from_user.id,
-            "homework.none",
-            learn_command=LEARN_COMMAND.token,
-        )
-    )
-
 
 @router.callback_query(lambda callback: callback.data == HOMEWORK_OPEN_CALLBACK)
 async def open_homework(callback: CallbackQuery, dialog_manager: DialogManager) -> None:

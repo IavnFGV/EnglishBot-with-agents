@@ -116,6 +116,24 @@ def add_family_member(family_id: int, telegram_user_id: int) -> None:
         )
 
 
+def ensure_user_family(owner_user_id: int, default_family_name: str = "Home") -> sqlite3.Row:
+    family = get_user_family(owner_user_id)
+    if family is not None:
+        return family
+    return create_family(default_family_name, owner_user_id)
+
+
+def add_user_to_owner_family(owner_user_id: int, target_user_id: int) -> tuple[sqlite3.Row, str]:
+    owner_family = ensure_user_family(owner_user_id)
+    target_family = get_user_family(target_user_id)
+    if target_family is not None:
+        if int(target_family["id"]) == int(owner_family["id"]):
+            return owner_family, "already_member"
+        raise FamilyMembershipError("user already belongs to another family")
+    add_family_member(int(owner_family["id"]), target_user_id)
+    return owner_family, "added"
+
+
 def list_family_members(family_id: int) -> list[sqlite3.Row]:
     with db.get_connection() as connection:
         return connection.execute(

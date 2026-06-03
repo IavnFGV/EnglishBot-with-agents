@@ -16,3 +16,15 @@ def load_config() -> str:
         )
 
     return token
+
+
+def get_owner_telegram_user_id() -> int | None:
+    raw_value = os.getenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID")
+    if raw_value is None or not raw_value.strip():
+        return None
+    try:
+        return int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(
+            "ENGLISHBOT_OWNER_TELEGRAM_USER_ID must be an integer Telegram user id."
+        ) from exc

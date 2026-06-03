@@ -5,6 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot.command_registry import (
     ALL_COMMANDS,
+    ADD_FAMILY_COMMAND,
     BOT_COMMANDS,
     CANCEL_COMMAND,
     CREATE_ASSIGNMENT_COMMAND,
@@ -30,6 +31,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "settings",
         "cancel",
         "create_assignment",
+        "add_family",
         "topics",
         "teacher_content",
     ]
@@ -58,6 +60,10 @@ def test_bot_commands_use_centralized_i18n_descriptions() -> None:
     assert BOT_COMMANDS[0].description == translate("command.start", "en")
     assert CREATE_ASSIGNMENT_COMMAND.to_bot_command("en").description == translate(
         "command.create_assignment",
+        "en",
+    )
+    assert ADD_FAMILY_COMMAND.to_bot_command("en").description == translate(
+        "command.add_family",
         "en",
     )
     assert TEACHER_CONTENT_COMMAND.to_bot_command("en").description == translate(

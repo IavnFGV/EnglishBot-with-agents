@@ -58,8 +58,9 @@ def test_me_handler_shows_profile_role_and_text_count(tmp_path: Path) -> None:
     ]
 
 
-def test_start_handler_bootstraps_family_for_new_user(tmp_path: Path) -> None:
+def test_start_handler_bootstraps_family_for_new_user_when_owner_is_not_configured(tmp_path: Path, monkeypatch) -> None:
     setup_db(tmp_path)
+    monkeypatch.delenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", raising=False)
     user = make_user(905, "Nora")
     message = FakeMessage(user)
 
@@ -79,8 +80,9 @@ def test_start_handler_bootstraps_family_for_new_user(tmp_path: Path) -> None:
     ]
 
 
-def test_start_handler_reuses_existing_family(tmp_path: Path) -> None:
+def test_start_handler_reuses_existing_family(tmp_path: Path, monkeypatch) -> None:
     setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", "906")
     user = make_user(906, "Mila")
     db.save_user(user)
     create_family("Home", user.id)
@@ -96,6 +98,65 @@ def test_start_handler_reuses_existing_family(tmp_path: Path) -> None:
         "/create_assignment - assign homework\n"
         "/topics - open family topics\n"
         "/learn - start training"
+    ]
+
+
+def test_start_command_via_dispatcher_bootstraps_family_in_runtime(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    monkeypatch.delenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", raising=False)
+    user = make_user(907, "Roma")
+    answers: list[str] = []
+
+    async def fake_answer(self: Message, text: str, **_: object) -> None:
+        answers.append(text)
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+
+    async def run() -> None:
+        chat = Chat(id=user.id, type="private")
+        message = Message(message_id=1, date=0, chat=chat, from_user=user, text="/start")
+        update = Update(update_id=1, message=message)
+        bot = Bot("123456:TESTTOKEN")
+        try:
+            await dispatcher.feed_update(bot, update)
+        finally:
+            await bot.session.close()
+
+    asyncio.run(run())
+
+    family = get_user_family(user.id)
+    assert family is not None
+    assert answers == [
+        "Main menu\n"
+        "Family: Home\n\n"
+        "Family setup created for you.\n\n"
+        "Next steps:\n"
+        "/teacher_content - add words and topics\n"
+        "/create_assignment - assign homework\n"
+        "/topics - open family topics\n"
+        "/learn - start training"
+    ]
+
+
+def test_start_handler_registers_non_owner_without_bootstrapping_family_when_owner_is_configured(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", "999")
+    user = make_user(908, "Guest")
+    message = FakeMessage(user)
+
+    asyncio.run(start_command(message))
+
+    assert get_user_family(user.id) is None
+    assert message.answers == [
+        "You are registered.\n"
+        "telegram_user_id: 908\n"
+        "Ask the owner to add you to the family."
     ]
 
 
@@ -119,6 +180,71 @@ def test_help_handler_shows_family_first_command_list(tmp_path: Path) -> None:
         "/teacher_content - edit family content\n"
         "/create_assignment - assign homework inside the family"
     ]
+
+
+def test_add_family_command_adds_registered_user_to_owner_family_via_dispatcher(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", "910")
+    owner = make_user(910, "Owner")
+    guest = make_user(911, "Guest")
+    answers: list[str] = []
+
+    async def fake_answer(self: Message, text: str, **_: object) -> None:
+        answers.append(text)
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+
+    async def feed_text(user: User, text: str, update_id: int) -> None:
+        chat = Chat(id=user.id, type="private")
+        message = Message(message_id=update_id, date=0, chat=chat, from_user=user, text=text)
+        update = Update(update_id=update_id, message=message)
+        bot = Bot("123456:TESTTOKEN")
+        try:
+            await dispatcher.feed_update(bot, update)
+        finally:
+            await bot.session.close()
+
+    asyncio.run(feed_text(guest, "/start", 1))
+    asyncio.run(feed_text(owner, "/add_family 911", 2))
+
+    family = get_user_family(guest.id)
+    assert family is not None
+    assert answers == [
+        "You are registered.\n"
+        "telegram_user_id: 911\n"
+        "Ask the owner to add you to the family.",
+        "User added to family Home.\n"
+        "telegram_user_id: 911",
+    ]
+
+
+def test_add_family_command_rejects_non_owner_user(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", "910")
+    guest = make_user(912, "Guest")
+    answers: list[str] = []
+
+    async def fake_answer(self: Message, text: str, **_: object) -> None:
+        answers.append(text)
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+
+    async def run() -> None:
+        chat = Chat(id=guest.id, type="private")
+        message = Message(message_id=1, date=0, chat=chat, from_user=guest, text="/add_family 999")
+        update = Update(update_id=1, message=message)
+        bot = Bot("123456:TESTTOKEN")
+        try:
+            await dispatcher.feed_update(bot, update)
+        finally:
+            await bot.session.close()
+
+    asyncio.run(run())
+
+    assert answers == ["Command /add_family is available only to the configured owner user."]
 
 
 def test_configure_bot_commands_registers_expected_commands() -> None:

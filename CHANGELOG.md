@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-03
+- Added owner-managed privacy controls for local family-first setups: `ENGLISHBOT_OWNER_TELEGRAM_USER_ID` now gates automatic family bootstrap on `/start`, non-owner users are only registered until approved, and the new hidden technical `/add_family <telegram_user_id>` command lets the configured owner attach registered users to the owner's family.
 - Added the missing family bootstrap UX for the simplified local flow: `/start` now auto-creates a `Home` family for first-time users, replies with the next family-first steps, and is covered by focused `tests/test_bot.py` assertions for both new and existing-family users.
 - Finished the family-first authoring cleanup for the active runtime path: `teacher_content` and `create_assignment` dialogs now keep `family_id` in dialog state instead of workspace-shaped UI state, removed the dead teacher-space creation/chooser helpers, and updated the focused handler tests to assert the direct family-only flow.
 - Deleted the last dead teacher-content i18n keys and stale navigation/docs for removed workspace chooser screens: `englishbot/i18n.py`, `docs/module-map.md`, `docs/family-first-rebuild.md`, and `context/current-state.md` now describe only the current family-first authoring/runtime shape.
