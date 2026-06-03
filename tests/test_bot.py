@@ -11,7 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from englishbot import db
 from englishbot.bot import BOT_COMMANDS, configure_bot_commands, dispatcher, help_command, me, start_command
 from englishbot.command_registry import get_registered_commands
-from englishbot.families import create_family, create_family_learning_item, get_user_family
+from englishbot.families import (
+    create_family,
+    create_family_learning_item,
+    get_user_family,
+    list_family_learning_items,
+    list_family_topics,
+)
 from englishbot.training import create_training_session, get_active_training_session
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
@@ -73,6 +79,7 @@ def test_start_handler_bootstraps_family_for_new_user_when_owner_is_not_configur
         "Family: Home\n\n"
         "Family setup created for you.\n\n"
         "Next steps:\n"
+        "/seed_demo - fill test content\n"
         "/teacher_content - add words and topics\n"
         "/create_assignment - assign homework\n"
         "/topics - open family topics\n"
@@ -94,6 +101,7 @@ def test_start_handler_reuses_existing_family(tmp_path: Path, monkeypatch) -> No
         "Main menu\n"
         "Family: Home\n\n"
         "Next steps:\n"
+        "/seed_demo - fill test content\n"
         "/teacher_content - add words and topics\n"
         "/create_assignment - assign homework\n"
         "/topics - open family topics\n"
@@ -134,6 +142,7 @@ def test_start_command_via_dispatcher_bootstraps_family_in_runtime(
         "Family: Home\n\n"
         "Family setup created for you.\n\n"
         "Next steps:\n"
+        "/seed_demo - fill test content\n"
         "/teacher_content - add words and topics\n"
         "/create_assignment - assign homework\n"
         "/topics - open family topics\n"
@@ -178,7 +187,8 @@ def test_help_handler_shows_family_first_command_list(tmp_path: Path) -> None:
         "/settings - open settings\n"
         "/cancel - stop the current flow\n"
         "/teacher_content - edit family content\n"
-        "/create_assignment - assign homework inside the family"
+        "/create_assignment - assign homework inside the family\n"
+        "/seed_demo - fill family with test content"
     ]
 
 
@@ -245,6 +255,79 @@ def test_add_family_command_rejects_non_owner_user(tmp_path: Path, monkeypatch) 
     asyncio.run(run())
 
     assert answers == ["Command /add_family is available only to the configured owner user."]
+
+
+def test_seed_demo_command_creates_test_content_for_owner_family(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", "913")
+    owner = make_user(913, "Owner")
+    answers: list[str] = []
+
+    async def fake_answer(self: Message, text: str, **_: object) -> None:
+        answers.append(text)
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+
+    async def run() -> None:
+        chat = Chat(id=owner.id, type="private")
+        message = Message(message_id=1, date=0, chat=chat, from_user=owner, text="/seed_demo")
+        update = Update(update_id=1, message=message)
+        bot = Bot("123456:TESTTOKEN")
+        try:
+            await dispatcher.feed_update(bot, update)
+        finally:
+            await bot.session.close()
+
+    asyncio.run(run())
+
+    family = get_user_family(owner.id)
+    assert family is not None
+    assert len(list_family_topics(int(family["id"]))) == 2
+    assert len(list_family_learning_items(int(family["id"]))) == 10
+    assert answers == [
+        "Demo content is ready in family Home.\n"
+        "Topics created: 2\n"
+        "Items created: 10\n"
+        "Total topics in seed: 2\n"
+        "Total items in seed: 10"
+    ]
+
+
+def test_seed_demo_command_is_idempotent_for_existing_demo_content(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", "914")
+    owner = make_user(914, "Owner")
+    answers: list[str] = []
+
+    async def fake_answer(self: Message, text: str, **_: object) -> None:
+        answers.append(text)
+
+    monkeypatch.setattr(Message, "answer", fake_answer)
+
+    async def feed_seed(update_id: int) -> None:
+        chat = Chat(id=owner.id, type="private")
+        message = Message(message_id=update_id, date=0, chat=chat, from_user=owner, text="/seed_demo")
+        update = Update(update_id=update_id, message=message)
+        bot = Bot("123456:TESTTOKEN")
+        try:
+            await dispatcher.feed_update(bot, update)
+        finally:
+            await bot.session.close()
+
+    asyncio.run(feed_seed(1))
+    asyncio.run(feed_seed(2))
+
+    family = get_user_family(owner.id)
+    assert family is not None
+    assert len(list_family_topics(int(family["id"]))) == 2
+    assert len(list_family_learning_items(int(family["id"]))) == 10
+    assert answers[-1] == (
+        "Demo content is ready in family Home.\n"
+        "Topics created: 0\n"
+        "Items created: 0\n"
+        "Total topics in seed: 2\n"
+        "Total items in seed: 10"
+    )
 
 
 def test_configure_bot_commands_registers_expected_commands() -> None:

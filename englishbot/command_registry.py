@@ -65,6 +65,12 @@ CREATE_ASSIGNMENT_COMMAND = CommandDefinition(
     scope="teacher",
     register_after_startup=True,
 )
+SEED_DEMO_COMMAND = CommandDefinition(
+    name="seed_demo",
+    description_key="command.seed_demo",
+    scope="owner",
+    register_after_startup=True,
+)
 ADD_FAMILY_COMMAND = CommandDefinition(
     name="add_family",
     description_key="command.add_family",
@@ -92,6 +98,7 @@ ALL_COMMANDS = (
     SETTINGS_COMMAND,
     CANCEL_COMMAND,
     CREATE_ASSIGNMENT_COMMAND,
+    SEED_DEMO_COMMAND,
     ADD_FAMILY_COMMAND,
     TOPICS_COMMAND,
     TEACHER_CONTENT_COMMAND,
@@ -107,6 +114,7 @@ def get_registered_commands() -> tuple[CommandDefinition, ...]:
         SETTINGS_COMMAND,
         CANCEL_COMMAND,
         CREATE_ASSIGNMENT_COMMAND,
+        SEED_DEMO_COMMAND,
         TOPICS_COMMAND,
         TEACHER_CONTENT_COMMAND,
     )

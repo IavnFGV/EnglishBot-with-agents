@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from englishbot import db
 from englishbot.families import (
     FamilyMembershipError,
+    DEMO_FAMILY_TOPICS,
     add_user_to_owner_family,
     create_family,
     create_family_learning_item,
@@ -25,6 +26,7 @@ from englishbot.families import (
     upsert_user_progress,
     add_family_member,
     ensure_user_family,
+    seed_demo_family_content,
 )
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
@@ -113,6 +115,25 @@ def test_owner_family_helpers_create_and_extend_owner_family(tmp_path: Path) -> 
     assert status == "added"
     assert repeated_status == "already_member"
     assert get_user_family(child.id)["id"] == family["id"]
+
+
+def test_seed_demo_family_content_creates_expected_topics_items_and_is_idempotent(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    owner = make_user(822, "Owner")
+    db.save_user(owner)
+
+    first_result = seed_demo_family_content(owner.id)
+    second_result = seed_demo_family_content(owner.id)
+    family_id = int(first_result["family_id"])
+    topics = list_family_topics(family_id)
+    items = list_family_learning_items(family_id)
+
+    assert first_result["created_topics"] == len(DEMO_FAMILY_TOPICS)
+    assert first_result["created_items"] == sum(len(topic["items"]) for topic in DEMO_FAMILY_TOPICS)
+    assert second_result["created_topics"] == 0
+    assert second_result["created_items"] == 0
+    assert [topic["title"] for topic in topics] == ["Colors", "Seasons"]
+    assert len(items) == 10
 
 
 def test_family_learning_items_and_topics_are_scoped_to_one_family(tmp_path: Path) -> None:

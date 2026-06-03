@@ -12,6 +12,7 @@ from englishbot.command_registry import (
     HELP_COMMAND,
     LEARN_COMMAND,
     ME_COMMAND,
+    SEED_DEMO_COMMAND,
     SETTINGS_COMMAND,
     START_COMMAND,
     TEACHER_CONTENT_COMMAND,
@@ -31,6 +32,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "settings",
         "cancel",
         "create_assignment",
+        "seed_demo",
         "add_family",
         "topics",
         "teacher_content",
@@ -49,6 +51,7 @@ def test_bot_command_collection_stays_consistent_with_registry() -> None:
         SETTINGS_COMMAND,
         CANCEL_COMMAND,
         CREATE_ASSIGNMENT_COMMAND,
+        SEED_DEMO_COMMAND,
         TOPICS_COMMAND,
         TEACHER_CONTENT_COMMAND,
     )
@@ -60,6 +63,10 @@ def test_bot_commands_use_centralized_i18n_descriptions() -> None:
     assert BOT_COMMANDS[0].description == translate("command.start", "en")
     assert CREATE_ASSIGNMENT_COMMAND.to_bot_command("en").description == translate(
         "command.create_assignment",
+        "en",
+    )
+    assert SEED_DEMO_COMMAND.to_bot_command("en").description == translate(
+        "command.seed_demo",
         "en",
     )
     assert ADD_FAMILY_COMMAND.to_bot_command("en").description == translate(

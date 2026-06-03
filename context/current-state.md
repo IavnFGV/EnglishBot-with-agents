@@ -16,6 +16,7 @@
 ## Implemented product slices
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
 - `/start` now supports an owner-managed privacy mode for local bots: if `ENGLISHBOT_OWNER_TELEGRAM_USER_ID` is set, only that owner account auto-bootstraps a `Home` family, while other users are merely registered and can be added later with the technical `/add_family <telegram_user_id>` command.
+- Owner-managed local setups now also expose `/seed_demo`, which fills the owner family with a small idempotent demo dataset (2 topics, 10 basic words) so family-first learner and teacher UI flows can be exercised immediately after bootstrap.
 - A minimal `/help` command now shows the active family-first command set, so unsupported commands like `/help` no longer fall through as unhandled updates.
 - Added global observability for unhandled updates: fallback message handler and UnknownIntent error handler now log at WARNING level.
 - The active family-first persistence layer is now the only live product model: SQLite bootstraps `families`, `family_members`, family-owned `learning_items`, family-owned `topics`, `topic_items`, `user_progress`, `homework_assignments`, and `homework_assignment_items`, with focused helpers in `englishbot/families.py`.
@@ -30,7 +31,7 @@
 - The active teacher content and assignment dialogs now store family ids directly in dialog state instead of carrying the old workspace-shaped UI flow.
 - The focused assignment-dialog handler tests now also run the main topic/words/recipient/confirm path on family content directly, and the family confirm snapshot bug in `teacher_assignments.py` has been fixed.
 - The old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are now deleted.
-- The active registered command list is now family-first only: `/start`, `/help`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/topics`, and `/teacher_content`.
+- The active registered command list is now family-first plus owner bootstrap support: `/start`, `/help`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/seed_demo`, `/topics`, and `/teacher_content`.
 - Legacy admin, invite/join, assign/grant, and workbook Telegram handlers have been deleted from the active bot runtime and from the codebase.
 - The old `/admin` env config tail is gone too: `.env.example` no longer documents `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID`, and `englishbot/config.py` no longer exposes an admin-id helper.
 - The old publish shell is now gone from the active teacher UI too: `teacher_content` no longer exposes publish buttons or publish target screens, and the dead publish/granttopic i18n strings have been removed.

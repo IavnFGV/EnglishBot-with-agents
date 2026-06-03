@@ -1,10 +1,10 @@
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from .command_registry import ADD_FAMILY_COMMAND
+from .command_registry import ADD_FAMILY_COMMAND, SEED_DEMO_COMMAND
 from .config import get_owner_telegram_user_id
 from .db import get_user, save_user
-from .families import FamilyMembershipError, add_user_to_owner_family
+from .families import FamilyMembershipError, add_user_to_owner_family, seed_demo_family_content
 from .i18n import translate_for_user
 from .runtime import router
 
@@ -77,5 +77,36 @@ async def add_family(message: Message) -> None:
             f"family.add.{status}",
             family_name=str(family["name"] or "Home"),
             telegram_user_id=target_user_id,
+        )
+    )
+
+
+@router.message(Command(SEED_DEMO_COMMAND.name))
+async def seed_demo(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    save_user(message.from_user)
+    owner_user_id = get_owner_telegram_user_id()
+    if owner_user_id is None or message.from_user.id != owner_user_id:
+        await message.answer(
+            translate_for_user(
+                message.from_user.id,
+                "owner.command_owner_only",
+                command=SEED_DEMO_COMMAND.token,
+            )
+        )
+        return
+
+    result = seed_demo_family_content(message.from_user.id)
+    await message.answer(
+        translate_for_user(
+            message.from_user.id,
+            "family.seed_demo.done",
+            family_name=str(result["family_name"]),
+            created_topics=int(result["created_topics"]),
+            created_items=int(result["created_items"]),
+            total_topics=int(result["total_topics"]),
+            total_items=int(result["total_items"]),
         )
     )

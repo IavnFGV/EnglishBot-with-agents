@@ -11,6 +11,32 @@ class FamilyOwnershipError(ValueError):
     pass
 
 
+DEMO_FAMILY_TOPICS: tuple[dict[str, object], ...] = (
+    {
+        "name": "seasons",
+        "title": "Seasons",
+        "items": (
+            {"text": "spring", "translations": {"ru": "весна", "uk": "весна", "bg": "пролет"}},
+            {"text": "summer", "translations": {"ru": "лето", "uk": "літо", "bg": "лято"}},
+            {"text": "autumn", "translations": {"ru": "осень", "uk": "осінь", "bg": "есен"}},
+            {"text": "winter", "translations": {"ru": "зима", "uk": "зима", "bg": "зима"}},
+        ),
+    },
+    {
+        "name": "colors",
+        "title": "Colors",
+        "items": (
+            {"text": "red", "translations": {"ru": "красный", "uk": "червоний", "bg": "червен"}},
+            {"text": "blue", "translations": {"ru": "синий", "uk": "синій", "bg": "син"}},
+            {"text": "green", "translations": {"ru": "зеленый", "uk": "зелений", "bg": "зелен"}},
+            {"text": "yellow", "translations": {"ru": "желтый", "uk": "жовтий", "bg": "жълт"}},
+            {"text": "black", "translations": {"ru": "черный", "uk": "чорний", "bg": "черен"}},
+            {"text": "white", "translations": {"ru": "белый", "uk": "білий", "bg": "бял"}},
+        ),
+    },
+)
+
+
 def create_family(name: str, created_by_user_id: int) -> sqlite3.Row:
     db.ensure_user_exists(created_by_user_id)
     timestamp = db.utc_now()
@@ -132,6 +158,76 @@ def add_user_to_owner_family(owner_user_id: int, target_user_id: int) -> tuple[s
         raise FamilyMembershipError("user already belongs to another family")
     add_family_member(int(owner_family["id"]), target_user_id)
     return owner_family, "added"
+
+
+def seed_demo_family_content(owner_user_id: int) -> dict[str, object]:
+    from .topics import get_topic
+    from .vocabulary import (
+        create_learning_item_translation,
+        create_lexeme,
+        list_learning_item_translations,
+    )
+
+    family = ensure_user_family(owner_user_id)
+    family_id = int(family["id"])
+    existing_items = {
+        str(item["text"]).strip().lower(): int(item["id"])
+        for item in list_family_learning_items(family_id)
+    }
+    existing_topics = {
+        str(topic["name"]).strip().lower(): int(topic["id"])
+        for topic in list_family_topics(family_id)
+    }
+    created_topics = 0
+    created_items = 0
+
+    for topic_seed in DEMO_FAMILY_TOPICS:
+        topic_name = str(topic_seed["name"]).strip().lower()
+        topic_id = existing_topics.get(topic_name)
+        if topic_id is None:
+            topic_id = create_family_topic(family_id, topic_name, str(topic_seed["title"]))
+            existing_topics[topic_name] = topic_id
+            created_topics += 1
+
+        topic_item_ids: list[int] = []
+        for item_seed in topic_seed["items"]:
+            item_text = str(item_seed["text"]).strip()
+            item_key = item_text.lower()
+            learning_item_id = existing_items.get(item_key)
+            if learning_item_id is None:
+                learning_item_id = create_family_learning_item(
+                    family_id,
+                    create_lexeme(item_text),
+                    item_text,
+                )
+                existing_items[item_key] = learning_item_id
+                created_items += 1
+
+            existing_translations = {
+                str(row["language_code"]): str(row["translation_text"])
+                for row in list_learning_item_translations(learning_item_id)
+            }
+            for language_code, translation_text in dict(item_seed["translations"]).items():
+                if existing_translations.get(language_code) != translation_text:
+                    create_learning_item_translation(
+                        learning_item_id,
+                        language_code,
+                        str(translation_text),
+                    )
+            topic_item_ids.append(learning_item_id)
+
+        replace_topic_items(topic_id, topic_item_ids)
+
+    total_topics = len(DEMO_FAMILY_TOPICS)
+    total_items = sum(len(topic_seed["items"]) for topic_seed in DEMO_FAMILY_TOPICS)
+    return {
+        "family_id": family_id,
+        "family_name": str(family["name"] or "Home"),
+        "created_topics": created_topics,
+        "created_items": created_items,
+        "total_topics": total_topics,
+        "total_items": total_items,
+    }
 
 
 def list_family_members(family_id: int) -> list[sqlite3.Row]:
