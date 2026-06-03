@@ -52,6 +52,7 @@
 - `chain_of_commands/` now includes a dedicated history prompt for the local-media persistence change so that asset-storage decisions can be replayed from one concise brief.
 - `chain_of_commands/` also includes a dedicated history prompt for the student-workspace access-model cleanup so the teacher-student refactor can be replayed from one concise brief.
 - `chain_of_commands/047-family-first-rebuild.md` now captures the full family-first rebuild brief so the whole simplification wave can be replayed from one prompt instead of reconstructing it from many commits.
+- `chain_of_commands/048-owner-managed-family-access.md` now captures the owner-only privacy layer for local family bootstrap and the technical `/add_family <telegram_user_id>` flow.
 - `docs/family-first-rebuild.md` records the approved direction: keep this repository and deploy path, but replace the old workspace/publish-centric product model with a family-first core built around shared family content plus personal progress and homework.
 
 ## Data and ownership constraints
