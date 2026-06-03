@@ -4,6 +4,7 @@ from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram_dialog import ShowMode, StartMode
 from aiogram.types import User
 
@@ -82,8 +83,9 @@ class FakeMessage:
 
 
 class FakeBot:
-    def __init__(self, download_payload: bytes | None = None) -> None:
+    def __init__(self, download_payload: bytes | None = None, *, reject_unchanged_edit: bool = False) -> None:
         self.download_payload = download_payload or b""
+        self.reject_unchanged_edit = reject_unchanged_edit
         self.sent_messages: list[SimpleNamespace] = []
         self.edit_calls: list[dict[str, object]] = []
         self.delete_calls: list[dict[str, object]] = []
@@ -101,6 +103,18 @@ class FakeBot:
         return sent
 
     async def edit_message_text(self, *, text: str, chat_id: int, message_id: int, parse_mode=None, reply_markup=None):
+        if self.reject_unchanged_edit and self.edit_calls:
+            previous_call = self.edit_calls[-1]
+            if (
+                previous_call["text"] == text
+                and previous_call["chat_id"] == chat_id
+                and previous_call["message_id"] == message_id
+                and previous_call["reply_markup"] == reply_markup
+            ):
+                raise TelegramBadRequest(
+                    method="editMessageText",
+                    message="Telegram server says - Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message",
+                )
         self.edit_calls.append(
             {
                 "text": text,
@@ -324,6 +338,22 @@ def test_show_all_sends_plain_read_only_message_and_keeps_browser_state(tmp_path
     assert "🖼 item-1" in show_all_text
     assert "перевод" not in show_all_text
     assert browser_before["screen_text"] == browser_after["screen_text"]
+
+
+def test_prompt_return_ignores_unchanged_overview_edit_error(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(114, "Family")
+    family_id, topic_id = seed_topic(user, item_count=2)
+    bot = FakeBot(reject_unchanged_edit=True)
+    manager = FakeDialogManager(user)
+    manager.dialog_data.update({"family_id": family_id})
+    callback_message = FakeMessage(user, bot=bot, message_id=manager.last_message_id)
+
+    asyncio.run(on_topic_selected(SimpleNamespace(message=callback_message), None, manager, str(topic_id)))
+    manager.dialog_data.update({"prompt_kind": "edit_field", "edit_field": "ru"})
+    asyncio.run(go_to_prompt_return(SimpleNamespace(message=callback_message), None, manager))
+
+    assert manager.switch_calls[-1] == {"state": TeacherContentDialogSG.browser, "show_mode": None}
 
 
 def test_hide_show_all_deletes_temporary_message(tmp_path: Path) -> None:

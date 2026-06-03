@@ -29,6 +29,7 @@
 - `/teacher_content` and `/create_assignment` are now family-first on the active runtime path: both entrypoints require family membership and work only against family-owned topics/items.
 - The teacher content and assignment flows no longer need starter-content bootstrap or virtual offset ids to reach family data; the focused dialog and handler tests now seed family content directly.
 - The active teacher content and assignment dialogs now store family ids directly in dialog state instead of carrying the old workspace-shaped UI flow.
+- The teacher-content overview card now safely ignores Telegram's exact `message is not modified` no-op when returning from prompt screens, so family authoring no longer throws on unchanged overview resyncs.
 - The focused assignment-dialog handler tests now also run the main topic/words/recipient/confirm path on family content directly, and the family confirm snapshot bug in `teacher_assignments.py` has been fixed.
 - The old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are now deleted.
 - The active registered command list is now family-first plus owner bootstrap support: `/start`, `/help`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/seed_demo`, `/topics`, and `/teacher_content`.

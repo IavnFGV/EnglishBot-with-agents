@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-03
+- Fixed a Telegram teacher-content dialog regression where returning from an edit prompt could raise `message is not modified` while re-syncing the read-only overview card; overview edits now treat that exact Telegram no-op as safe, and focused teacher-content handler tests cover the case.
 - Added owner-only `/seed_demo` as a fast local UI bootstrap command: it is now part of the visible command list, fills the owner family with two demo topics (`Seasons`, `Colors`) and ten basic words, stays idempotent on repeated runs, and is covered by focused `bot` plus `families` tests.
 - Added `chain_of_commands/048-owner-managed-family-access.md`, a single replayable prompt for the owner-only family bootstrap and technical `/add_family <telegram_user_id>` access flow.
 - Added owner-managed privacy controls for local family-first setups: `ENGLISHBOT_OWNER_TELEGRAM_USER_ID` now gates automatic family bootstrap on `/start`, non-owner users are only registered until approved, and the new hidden technical `/add_family <telegram_user_id>` command lets the configured owner attach registered users to the owner's family.

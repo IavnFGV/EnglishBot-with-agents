@@ -7,6 +7,7 @@ from pathlib import Path
 
 from aiogram import F
 from aiogram.enums import ContentType
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -791,12 +792,11 @@ async def _show_browser_with_overview(
     chat_id = _get_chat_id(source_message, dialog_manager)
     current_message_id = dialog_manager.current_stack().last_message_id
     if current_message_id is not None and chat_id is not None:
-        await source_message.bot.edit_message_text(
+        await _safe_edit_browser_overview_message(
+            source_message=source_message,
             text=_build_browser_overview_text(user_id=user_id, snapshot=snapshot),
-            chat_id=chat_id,
-            message_id=current_message_id,
-            parse_mode="HTML",
-            reply_markup=None,
+            chat_id=int(chat_id),
+            message_id=int(current_message_id),
         )
         dialog_manager.dialog_data["browser_overview_message_id"] = int(current_message_id)
         dialog_manager.dialog_data["browser_overview_chat_id"] = int(chat_id)
@@ -815,12 +815,11 @@ async def _sync_browser_overview_message(
         return
     user_id = _get_user_id(dialog_manager)
     snapshot = _load_browser_snapshot(dialog_manager)
-    await source_message.bot.edit_message_text(
+    await _safe_edit_browser_overview_message(
+        source_message=source_message,
         text=_build_browser_overview_text(user_id=user_id, snapshot=snapshot),
         chat_id=int(chat_id),
         message_id=int(overview_message_id),
-        parse_mode="HTML",
-        reply_markup=None,
     )
 
 
@@ -836,6 +835,27 @@ async def _delete_browser_overview_message(
         chat_id=int(chat_id),
         message_id=int(overview_message_id),
     )
+
+
+async def _safe_edit_browser_overview_message(
+    *,
+    source_message: Message,
+    text: str,
+    chat_id: int,
+    message_id: int,
+) -> None:
+    try:
+        await source_message.bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode="HTML",
+            reply_markup=None,
+        )
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc):
+            return
+        raise
 
 
 async def _delete_user_message(message: Message) -> None:
