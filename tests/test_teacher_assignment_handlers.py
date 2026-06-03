@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
 from englishbot.teacher_assignments import list_assignment_recipients
+from englishbot.teacher_assignments import list_assignment_topics
 from englishbot.families import (
     add_family_member,
     create_family,
@@ -217,6 +218,25 @@ def test_topic_path_shows_summary_then_confirm_without_persisting_before_confirm
     assert "not selected yet" in confirm_view["screen_text"]
     assert confirm_view["can_confirm"] is False
     assert count_family_assignments() == 0
+
+
+def test_topic_list_exposes_dialog_select_id_shape(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    parent = make_user(820, "Parent")
+    child = make_user(821, "Child")
+    family_id, _, topic_id = seed_family_content(parent, child)
+
+    topics = list_assignment_topics(parent.id, family_id)
+
+    assert topics == [
+        {
+            "id": topic_id,
+            "topic_id": topic_id,
+            "name": "family-topic",
+            "title": "Family Topic",
+            "item_count": 2,
+        }
+    ]
 
 
 def test_words_path_uses_summary_and_current_item_browser(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-03
+- Fixed a family-first assignment dialog regression in `/create_assignment`: topic list rows now include the dialog-compatible `id` field expected by `aiogram-dialog` selects, so opening the topic picker no longer crashes with `KeyError: 'id'`, and focused assignment handler coverage now locks that shape in.
 - Added `chain_of_commands/049-local-demo-seeding-and-noop-ui-guard.md`, a single replayable prompt for the local-owner polish slice around `/seed_demo`, teacher-content unchanged-edit resilience, and the global Telegram no-op edit guard.
 - Added a global no-op guard for Telegram `message is not modified` errors in the bot-level error handler, so repeated identical message edits no longer pollute runtime logs with stack traces while other Telegram bad requests still surface normally.
 - Fixed a Telegram teacher-content dialog regression where returning from an edit prompt could raise `message is not modified` while re-syncing the read-only overview card; overview edits now treat that exact Telegram no-op as safe, and focused teacher-content handler tests cover the case.

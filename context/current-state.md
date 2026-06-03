@@ -28,6 +28,7 @@
 - `/topics` is now family-first end to end: family learners open shared family topics directly, without grants, published runtime copies, or `student_topic_access`.
 - The focused `/topics` handler tests now also run on family topics directly, so the Telegram topic-picker coverage no longer relies on invite/join scaffolding.
 - `/teacher_content` and `/create_assignment` are now family-first on the active runtime path: both entrypoints require family membership and work only against family-owned topics/items.
+- The assignment topic picker now exposes dialog-compatible topic ids again, so `/create_assignment` no longer crashes on the topic-selection screen with `KeyError: 'id'` during `aiogram-dialog` select rendering.
 - The teacher content and assignment flows no longer need starter-content bootstrap or virtual offset ids to reach family data; the focused dialog and handler tests now seed family content directly.
 - The active teacher content and assignment dialogs now store family ids directly in dialog state instead of carrying the old workspace-shaped UI flow.
 - The teacher-content overview card now safely ignores Telegram's exact `message is not modified` no-op when returning from prompt screens, so family authoring no longer throws on unchanged overview resyncs.

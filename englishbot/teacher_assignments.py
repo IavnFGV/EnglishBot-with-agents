@@ -47,6 +47,7 @@ def list_assignment_topics(
         raise TeacherAssignmentAccessError
     return [
         {
+            "id": int(topic["id"]),
             "topic_id": int(topic["id"]),
             "name": str(topic["name"]),
             "title": str(topic["title"]),
