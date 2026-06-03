@@ -106,11 +106,13 @@ jobs:
             log_dir_state "${DATA_ROOT}/data"
             log_dir_state "${DATA_ROOT}/logs"
             log_dir_state "${DATA_ROOT}/backups"
+            log_dir_state "${DATA_ROOT}/assets"
             log_dir_state "${SYNC_ROOT}"
             log_dir_state "${SYNC_ROOT}/backups"
             sudo mkdir -p "${DATA_ROOT}/data"
             sudo mkdir -p "${DATA_ROOT}/logs"
             sudo mkdir -p "${DATA_ROOT}/backups"
+            sudo mkdir -p "${DATA_ROOT}/assets"
             sudo mkdir -p "${SYNC_ROOT}/backups"
             sudo chown -R "${USER}:${USER}" "${DATA_ROOT}" || true
             sudo chown -R "${USER}:${USER}" "${SYNC_ROOT}" || true
@@ -119,6 +121,7 @@ jobs:
             show_dir_state "${DATA_ROOT}/data"
             show_dir_state "${DATA_ROOT}/logs"
             show_dir_state "${DATA_ROOT}/backups"
+            show_dir_state "${DATA_ROOT}/assets"
             show_dir_state "${SYNC_ROOT}"
             show_dir_state "${SYNC_ROOT}/backups"
 

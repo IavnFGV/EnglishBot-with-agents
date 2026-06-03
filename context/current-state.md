@@ -49,9 +49,9 @@
 - Learner `/topics` launch flow over shared family topics.
 - Training sessions with staged `easy`, `medium`, and optional `hard` exercises.
 - Centralized i18n for bot-facing text with `en`, `ru`, `uk`, and `bg`.
-- Asset registry for linked image/audio metadata, with runtime media stored locally on disk even when entered as remote URLs; the original URL may still be kept in asset metadata for traceability.
+- Asset registry for linked image/audio metadata, with runtime media stored locally on disk even when entered as remote URLs; the original URL may still be kept in asset metadata for traceability, and startup now copies the packaged `no-image.png` placeholder into the runtime assets tree so fresh deployments keep the teacher-content image fallback.
 - Deployment support with Docker Compose and GitHub Actions.
-- The service repo now deploys as a Dockge stack in `/opt/dockge/stacks/englishbot`, while runtime `data`, `logs`, and app-created SQLite backup files live in `/srv/services/englishbot/...` bind mounts on the host.
+- The service repo now deploys as a Dockge stack in `/opt/dockge/stacks/englishbot`, while runtime `data`, `logs`, `assets`, and app-created SQLite backup files live in `/srv/services/englishbot/...` bind mounts on the host.
 - The deploy workflow now bootstraps privileged host paths under `/opt/dockge` and `/srv/...` with `sudo`, then keeps repo git operations and `docker compose` in the stack directory as the normal SSH user.
 - The deploy workflow also emits explicit directory-state logs for the stack, data, and sync paths so failed VPS runs show whether directories already existed, were created, and what ownership they ended up with.
 - Scheduled-task registration now relies only on `SERVICE_NAME` and `SERVICE_DIR` when calling `/usr/local/bin/infra-vps-register-service-scheduled-tasks`; the helper resolves the service-owned `scheduled-tasks/` source from the stack directory itself.

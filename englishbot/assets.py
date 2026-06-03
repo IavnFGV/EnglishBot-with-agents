@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+import shutil
 from urllib.parse import urlparse
 from urllib.request import urlopen
 from uuid import uuid4
@@ -12,6 +13,7 @@ from . import db
 
 TEACHER_CONTENT_IMAGE_DIR = Path("assets/images/teacher-content")
 NO_IMAGE_PLACEHOLDER_PATH = Path("assets/images/no-image.png")
+PACKAGED_NO_IMAGE_PLACEHOLDER_PATH = Path(__file__).resolve().parent / "runtime_assets" / "no-image.png"
 WORKBOOK_IMPORT_ASSET_DIR = Path("assets/workbook-import")
 ASSET_TYPE_IMAGE = "image"
 ASSET_TYPE_AUDIO = "audio"
@@ -63,6 +65,18 @@ def create_asset(
             (workbook_key, asset_type, source_url, local_path, db.utc_now()),
         )
     return int(cursor.lastrowid)
+
+
+def ensure_runtime_assets() -> None:
+    target_path = Path(db.DB_PATH).resolve().parent / NO_IMAGE_PLACEHOLDER_PATH
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if not PACKAGED_NO_IMAGE_PLACEHOLDER_PATH.exists():
+        raise RuntimeError(
+            f"Packaged placeholder asset is missing: {PACKAGED_NO_IMAGE_PLACEHOLDER_PATH}"
+        )
+    if target_path.exists() and target_path.read_bytes() == PACKAGED_NO_IMAGE_PLACEHOLDER_PATH.read_bytes():
+        return
+    shutil.copyfile(PACKAGED_NO_IMAGE_PLACEHOLDER_PATH, target_path)
 
 
 def link_asset_to_learning_item(
