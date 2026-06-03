@@ -9,9 +9,9 @@ from aiogram.types import Chat, Message, Update
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.bot import BOT_COMMANDS, configure_bot_commands, dispatcher, help_command, me
+from englishbot.bot import BOT_COMMANDS, configure_bot_commands, dispatcher, help_command, me, start_command
 from englishbot.command_registry import get_registered_commands
-from englishbot.families import create_family, create_family_learning_item
+from englishbot.families import create_family, create_family_learning_item, get_user_family
 from englishbot.training import create_training_session, get_active_training_session
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
@@ -55,6 +55,47 @@ def test_me_handler_shows_profile_role_and_text_count(tmp_path: Path) -> None:
 
     assert message.answers == [
         "Mira\ntelegram_user_id: 901\nrole: student\nsaved_text_messages: 2"
+    ]
+
+
+def test_start_handler_bootstraps_family_for_new_user(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(905, "Nora")
+    message = FakeMessage(user)
+
+    asyncio.run(start_command(message))
+
+    family = get_user_family(user.id)
+    assert family is not None
+    assert message.answers == [
+        "Main menu\n"
+        "Family: Home\n\n"
+        "Family setup created for you.\n\n"
+        "Next steps:\n"
+        "/teacher_content - add words and topics\n"
+        "/create_assignment - assign homework\n"
+        "/topics - open family topics\n"
+        "/learn - start training"
+    ]
+
+
+def test_start_handler_reuses_existing_family(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(906, "Mila")
+    db.save_user(user)
+    create_family("Home", user.id)
+    message = FakeMessage(user)
+
+    asyncio.run(start_command(message))
+
+    assert message.answers == [
+        "Main menu\n"
+        "Family: Home\n\n"
+        "Next steps:\n"
+        "/teacher_content - add words and topics\n"
+        "/create_assignment - assign homework\n"
+        "/topics - open family topics\n"
+        "/learn - start training"
     ]
 
 

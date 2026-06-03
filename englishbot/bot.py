@@ -6,8 +6,9 @@ from aiogram.types import ErrorEvent, Message
 from aiogram_dialog import setup_dialogs
 from aiogram_dialog.api.exceptions import UnknownIntent
 
-from .command_registry import BOT_COMMANDS, HELP_COMMAND, ME_COMMAND
-from .db import count_text_interactions, get_user
+from .command_registry import BOT_COMMANDS, HELP_COMMAND, ME_COMMAND, START_COMMAND
+from .db import count_text_interactions, get_user, save_user
+from .families import create_family, get_user_family
 from .homework_dialog import homework_dialog
 from .i18n import translate_for_user
 from .runtime import dispatcher, router
@@ -35,6 +36,32 @@ setup_dialogs(dispatcher)
 
 async def configure_bot_commands(bot) -> None:
     await bot.set_my_commands(BOT_COMMANDS)
+
+
+@router.message(Command(START_COMMAND.name))
+async def start_command(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    save_user(message.from_user)
+    family = get_user_family(message.from_user.id)
+    created_family = False
+    if family is None:
+        family = create_family("Home", message.from_user.id)
+        created_family = True
+
+    await message.answer(
+        translate_for_user(
+            message.from_user.id,
+            "bot.start",
+            family_name=str(family["name"] or "Home"),
+            created_family_suffix=(
+                "\n\n" + translate_for_user(message.from_user.id, "bot.start.family_created")
+                if created_family
+                else ""
+            ),
+        )
+    )
 
 
 @router.message(Command(HELP_COMMAND.name))
