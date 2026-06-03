@@ -40,9 +40,8 @@ class TeacherAssignmentRecipientsRequiredError(TeacherAssignmentDraftError):
 
 def list_assignment_topics(
     teacher_user_id: int,
-    workspace_id: int,
+    family_id: int,
 ) -> list[dict[str, object]]:
-    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or family_id != int(family["id"]):
         raise TeacherAssignmentAccessError
@@ -59,10 +58,9 @@ def list_assignment_topics(
 
 def build_topic_selection_summary(
     teacher_user_id: int,
-    workspace_id: int,
+    family_id: int,
     topic_id: int,
 ) -> dict[str, object]:
-    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or family_id != int(family["id"]):
         raise TeacherAssignmentDraftError
@@ -73,8 +71,8 @@ def build_topic_selection_summary(
     preview_items = _build_learning_item_preview_rows(learning_item_ids[:SUMMARY_PREVIEW_LIMIT])
     return {
         "source_mode": SOURCE_MODE_TOPIC,
-        "workspace_id": workspace_id,
-        "workspace_name": str(family["name"]),
+        "family_id": family_id,
+        "family_name": str(family["name"]),
         "topic_id": topic_id,
         "topic_title": str(topic["title"]),
         "topic_name": str(topic["name"]),
@@ -86,16 +84,15 @@ def build_topic_selection_summary(
 
 def build_word_selection_snapshot(
     teacher_user_id: int,
-    workspace_id: int,
+    family_id: int,
     selected_learning_item_ids: list[int],
     *,
     current_learning_item_id: int | None = None,
 ) -> dict[str, object]:
-    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or family_id != int(family["id"]):
         raise TeacherAssignmentDraftError
-    workspace = {"name": str(family["name"])}
+    family_record = {"name": str(family["name"])}
     learning_items = [
         get_learning_item(int(item["id"]))
         for item in list_family_learning_items(family_id)
@@ -103,8 +100,8 @@ def build_word_selection_snapshot(
     learning_items = [item for item in learning_items if item is not None]
     if not learning_items:
         return {
-            "workspace_id": workspace_id,
-            "workspace_name": workspace["name"] or f"Workspace {workspace_id}",
+            "family_id": family_id,
+            "family_name": family_record["name"] or f"Family {family_id}",
             "item_count": 0,
             "current_item": None,
             "current_index": 0,
@@ -128,8 +125,8 @@ def build_word_selection_snapshot(
     current_learning_item = learning_items[current_index]
     preview_items = _build_learning_item_preview_rows(normalized_selected_ids[:SUMMARY_PREVIEW_LIMIT])
     return {
-        "workspace_id": workspace_id,
-        "workspace_name": workspace["name"] or f"Workspace {workspace_id}",
+        "family_id": family_id,
+        "family_name": family_record["name"] or f"Family {family_id}",
         "item_count": len(learning_items),
         "current_item": _serialize_learning_item_card(current_learning_item),
         "current_index": current_index,
@@ -149,7 +146,7 @@ def list_assignment_recipients(teacher_user_id: int) -> list[dict[str, object]]:
         {
             "student_user_id": int(member["telegram_user_id"]),
             "display_name": _build_user_display_name(member, int(member["telegram_user_id"])),
-            "workspace_id": None,
+            "family_id": None,
         }
         for member in list_family_members(int(family["id"]))
     ]
@@ -159,7 +156,7 @@ def build_assignment_confirm_snapshot(
     teacher_user_id: int,
     *,
     source_mode: str,
-    workspace_id: int,
+    family_id: int,
     topic_id: int | None,
     selected_learning_item_ids: list[int],
     recipient_user_ids: list[int],
@@ -168,11 +165,10 @@ def build_assignment_confirm_snapshot(
 ) -> dict[str, object]:
     normalized_kind = normalize_assignment_kind(assignment_kind)
     normalized_mode = normalize_assignment_mode(assignment_mode)
-    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or int(family["id"]) != family_id:
         raise TeacherAssignmentAccessError
-    workspace_name = str(family["name"] or "Family")
+    family_name = str(family["name"] or "Family")
     recipient_lookup = {
         recipient["student_user_id"]: recipient
         for recipient in list_assignment_recipients(teacher_user_id)
@@ -186,11 +182,11 @@ def build_assignment_confirm_snapshot(
     if source_mode == SOURCE_MODE_TOPIC:
         if topic_id is None:
             raise TeacherAssignmentDraftError
-        content_summary = build_topic_selection_summary(teacher_user_id, workspace_id, topic_id)
+        content_summary = build_topic_selection_summary(teacher_user_id, family_id, topic_id)
     elif source_mode == SOURCE_MODE_WORDS:
         snapshot = build_word_selection_snapshot(
             teacher_user_id,
-            workspace_id,
+            family_id,
             selected_learning_item_ids,
             current_learning_item_id=selected_learning_item_ids[0] if selected_learning_item_ids else None,
         )
@@ -198,8 +194,8 @@ def build_assignment_confirm_snapshot(
             raise TeacherAssignmentDraftError
         content_summary = {
             "source_mode": SOURCE_MODE_WORDS,
-            "workspace_id": workspace_id,
-            "workspace_name": workspace_name,
+            "family_id": family_id,
+            "family_name": family_name,
             "selected_count": int(snapshot["selected_count"]),
             "preview_items": list(snapshot["preview_items"]),
             "learning_item_ids": list(snapshot["selected_learning_item_ids"]),
@@ -208,8 +204,8 @@ def build_assignment_confirm_snapshot(
         raise TeacherAssignmentDraftError
 
     return {
-        "workspace_id": workspace_id,
-        "workspace_name": workspace_name,
+        "family_id": family_id,
+        "family_name": family_name,
         "source_mode": source_mode,
         "content_summary": content_summary,
         "assignment_kind": normalized_kind,
@@ -223,7 +219,7 @@ def persist_assignment_draft(
     teacher_user_id: int,
     *,
     source_mode: str,
-    workspace_id: int,
+    family_id: int,
     topic_id: int | None,
     selected_learning_item_ids: list[int],
     recipient_user_ids: list[int],
@@ -232,7 +228,6 @@ def persist_assignment_draft(
 ) -> list[dict[str, object]]:
     if not recipient_user_ids:
         raise TeacherAssignmentRecipientsRequiredError
-    family_id = workspace_id
     family = get_user_family(teacher_user_id)
     if family is None or int(family["id"]) != family_id:
         raise TeacherAssignmentDraftError

@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-06-03
+- Finished the family-first authoring cleanup for the active runtime path: `teacher_content` and `create_assignment` dialogs now keep `family_id` in dialog state instead of workspace-shaped UI state, removed the dead teacher-space creation/chooser helpers, and updated the focused handler tests to assert the direct family-only flow.
+- Deleted the last dead teacher-content i18n keys and stale navigation/docs for removed workspace chooser screens: `englishbot/i18n.py`, `docs/module-map.md`, `docs/family-first-rebuild.md`, and `context/current-state.md` now describe only the current family-first authoring/runtime shape.
 - Removed the last starter-content and workspace-first runtime dependency from the active family-first path: `englishbot/bootstrap.py` no longer seeds starter topics, `englishbot/db.py` now boots a family-first schema without `workspaces`, `workspace_members`, or `invites`, and `/learn` now fails closed outside family content instead of falling back to old workspace-owned items.
 - Rebased the focused runtime tests onto direct family data instead of default-workspace scaffolding: `tests/test_training.py`, `tests/test_training_handlers.py`, `tests/test_bot.py`, `tests/test_teacher_content*.py`, and `tests/test_teacher_assignment_handlers.py` now seed families/topics/items directly, matching the simplified product model.
 - Trimmed dead cleanup baggage from `englishbot/db.py` itself: workbook-import backup helpers are gone, legacy topic-link migration only runs when the old table actually exists, and the current-state/architecture docs no longer claim that startup seeds starter content or that workspaces remain part of the active model.

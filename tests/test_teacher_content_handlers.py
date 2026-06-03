@@ -17,13 +17,11 @@ from englishbot.teacher_content_dialog import (
     get_browser_window_data,
     get_prompt_window_data,
     get_topics_window_data,
-    get_workspaces_window_data,
     go_to_prompt_return,
     hide_show_all,
     next_item,
     on_prompt_input,
     on_topic_selected,
-    on_workspace_selected,
     open_create_topic,
     open_edit_prompt,
     prev_item,
@@ -142,16 +140,15 @@ def seed_topic(
     from englishbot.teacher_content import create_teacher_topic, create_teacher_topic_item
 
     family_id = seed_family_user(user)
-    workspace_id = family_id
-    topic = create_teacher_topic(user.id, workspace_id, topic_title)
+    topic = create_teacher_topic(user.id, family_id, topic_title)
     for index in range(item_count):
         create_teacher_topic_item(
             user.id,
-            workspace_id,
+            family_id,
             int(topic["id"]),
             f"{item_prefix}-{index + 1}",
         )
-    return workspace_id, int(topic["id"])
+    return family_id, int(topic["id"])
 
 
 def test_teacher_content_command_starts_dialog_for_family_member(tmp_path: Path) -> None:
@@ -168,7 +165,7 @@ def test_teacher_content_command_starts_dialog_for_family_member(tmp_path: Path)
         {
             "state": TeacherContentDialogSG.topics,
             "mode": StartMode.RESET_STACK,
-            "data": {"workspace_id": 1},
+            "data": {"family_id": 1},
             "kwargs": {},
         }
     ]
@@ -187,23 +184,20 @@ def test_teacher_content_command_rejects_user_without_family(tmp_path: Path) -> 
     assert message.answers == ["Command /teacher_content is available only inside a family setup."]
 
 
-def test_dialog_navigation_renders_family_workspace_topic_and_item_screens(tmp_path: Path) -> None:
+def test_dialog_navigation_renders_family_topic_and_item_screens(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(103, "Family")
-    workspace_id, topic_id = seed_topic(user)
+    family_id, topic_id = seed_topic(user)
     manager = FakeDialogManager(user)
     topic_message = FakeMessage(user, bot=FakeBot(), message_id=manager.last_message_id)
 
-    asyncio.run(on_workspace_selected(None, None, manager, str(workspace_id)))
+    manager.dialog_data["family_id"] = family_id
     topics_view = asyncio.run(get_topics_window_data(manager))
     asyncio.run(on_topic_selected(SimpleNamespace(message=topic_message), None, manager, str(topic_id)))
     browser_view = asyncio.run(get_browser_window_data(manager))
 
-    assert manager.switch_calls == [
-        {"state": TeacherContentDialogSG.topics, "show_mode": None},
-        {"state": TeacherContentDialogSG.browser, "show_mode": ShowMode.SEND},
-    ]
-    assert "Workspace: Home" in topics_view["screen_text"]
+    assert manager.switch_calls == [{"state": TeacherContentDialogSG.browser, "show_mode": ShowMode.SEND}]
+    assert "Family: Home" in topics_view["screen_text"]
     assert "1. Fruits (2)" in topics_view["screen_text"]
     assert "Topic: Fruits" in browser_view["screen_text"]
     assert "Item 1/2" in browser_view["screen_text"]
@@ -213,12 +207,12 @@ def test_dialog_navigation_renders_family_workspace_topic_and_item_screens(tmp_p
 def test_prev_next_item_navigation_updates_family_selection_in_place(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(104, "Family")
-    workspace_id, topic_id = seed_topic(user, item_count=3)
+    family_id, topic_id = seed_topic(user, item_count=3)
     manager = FakeDialogManager(user)
     bot = FakeBot()
     manager.dialog_data.update(
         {
-            "workspace_id": workspace_id,
+            "family_id": family_id,
             "topic_id": topic_id,
             "browser_overview_message_id": 77,
             "browser_overview_chat_id": user.id,
@@ -241,12 +235,12 @@ def test_prev_next_item_navigation_updates_family_selection_in_place(tmp_path: P
 def test_field_edit_prompt_entry_save_and_back_flow(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(105, "Family")
-    workspace_id, topic_id = seed_topic(user)
+    family_id, topic_id = seed_topic(user)
     manager = FakeDialogManager(user)
     bot = FakeBot()
     manager.dialog_data.update(
         {
-            "workspace_id": workspace_id,
+            "family_id": family_id,
             "topic_id": topic_id,
             "browser_overview_message_id": 77,
             "browser_overview_chat_id": user.id,
@@ -276,12 +270,12 @@ def test_field_edit_prompt_entry_save_and_back_flow(tmp_path: Path) -> None:
 def test_image_field_upload_persists_local_image_and_saves_local_ref(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(109, "Family")
-    workspace_id, topic_id = seed_topic(user)
+    family_id, topic_id = seed_topic(user)
     manager = FakeDialogManager(user)
     bot = FakeBot(download_payload=b"fake-image-bytes")
     manager.dialog_data.update(
         {
-            "workspace_id": workspace_id,
+            "family_id": family_id,
             "topic_id": topic_id,
             "browser_overview_message_id": 77,
             "browser_overview_chat_id": user.id,
@@ -309,15 +303,15 @@ def test_image_field_upload_persists_local_image_and_saves_local_ref(tmp_path: P
 def test_show_all_sends_plain_read_only_message_and_keeps_browser_state(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(111, "Family")
-    workspace_id, topic_id = seed_topic(user, item_count=11)
+    family_id, topic_id = seed_topic(user, item_count=11)
     from englishbot.teacher_content import build_teacher_topic_editor_snapshot, update_teacher_topic_item_field
 
-    snapshot = build_teacher_topic_editor_snapshot(user.id, workspace_id, topic_id)
+    snapshot = build_teacher_topic_editor_snapshot(user.id, family_id, topic_id)
     item_ids = [int(item["id"]) for item in snapshot["navigator_items"]]
-    update_teacher_topic_item_field(user.id, workspace_id, topic_id, item_ids[0], "image_ref", "assets/images/item-1.png")
-    update_teacher_topic_item_field(user.id, workspace_id, topic_id, item_ids[0], "ru", "перевод")
+    update_teacher_topic_item_field(user.id, family_id, topic_id, item_ids[0], "image_ref", "assets/images/item-1.png")
+    update_teacher_topic_item_field(user.id, family_id, topic_id, item_ids[0], "ru", "перевод")
     manager = FakeDialogManager(user)
-    manager.dialog_data.update({"workspace_id": workspace_id, "topic_id": topic_id, "item_id": item_ids[1]})
+    manager.dialog_data.update({"family_id": family_id, "topic_id": topic_id, "item_id": item_ids[1]})
     browser_before = asyncio.run(get_browser_window_data(manager))
     callback_message = FakeMessage(user, bot=FakeBot())
 
@@ -350,12 +344,12 @@ def test_hide_show_all_deletes_temporary_message(tmp_path: Path) -> None:
 def test_cancel_deletes_browser_card_and_overview_message(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(113, "Family")
-    workspace_id, topic_id = seed_topic(user, item_count=3)
+    family_id, topic_id = seed_topic(user, item_count=3)
     bot = FakeBot()
     manager = FakeDialogManager(user)
     manager.dialog_data.update(
         {
-            "workspace_id": workspace_id,
+            "family_id": family_id,
             "topic_id": topic_id,
             "browser_overview_message_id": 77,
             "browser_overview_chat_id": user.id,
@@ -371,17 +365,17 @@ def test_cancel_deletes_browser_card_and_overview_message(tmp_path: Path) -> Non
     assert manager.done_calls == [{"result": None, "show_mode": ShowMode.NO_UPDATE}]
 
 
-def test_unauthorized_family_workspace_selection_falls_back_to_workspaces(tmp_path: Path) -> None:
+def test_unauthorized_family_topics_view_stays_blocked(tmp_path: Path) -> None:
     setup_db(tmp_path)
     owner = make_user(107, "Owner")
     outsider = make_user(108, "Outsider")
-    workspace_id, _topic_id = seed_topic(owner)
+    family_id, _topic_id = seed_topic(owner)
     db.save_user(outsider)
     manager = FakeDialogManager(outsider)
 
-    asyncio.run(on_workspace_selected(None, None, manager, str(workspace_id)))
-    workspaces_view = asyncio.run(get_workspaces_window_data(manager))
+    manager.dialog_data["family_id"] = family_id
+    topics_view = asyncio.run(get_topics_window_data(manager))
 
-    assert manager.switch_calls == [{"state": TeacherContentDialogSG.workspaces, "show_mode": None}]
+    assert manager.switch_calls == []
     assert manager.dialog_data["status_text"] == "This teacher content is not available to you."
-    assert "This teacher content is not available to you." in workspaces_view["screen_text"]
+    assert "This teacher content is not available to you." in topics_view["screen_text"]

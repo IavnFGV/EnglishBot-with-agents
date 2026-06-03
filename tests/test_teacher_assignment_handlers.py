@@ -204,7 +204,7 @@ def test_topic_path_shows_summary_then_confirm_without_persisting_before_confirm
     child = make_user(804, "Child")
     family_id, _, topic_id = seed_family_content(parent, child)
     manager = FakeDialogManager(parent)
-    manager.dialog_data.update({"source_mode": "topic", "workspace_id": family_id})
+    manager.dialog_data.update({"source_mode": "topic", "family_id": family_id})
     bot = FakeBot()
     message = FakeMessage(parent, bot=bot, message_id=55)
 
@@ -225,7 +225,7 @@ def test_words_path_uses_summary_and_current_item_browser(tmp_path: Path) -> Non
     child = make_user(806, "Child")
     family_id, _, _ = seed_family_content(parent, child)
     manager = FakeDialogManager(parent)
-    manager.dialog_data.update({"source_mode": "words", "workspace_id": family_id})
+    manager.dialog_data.update({"source_mode": "words", "family_id": family_id})
     bot = FakeBot()
     message = FakeMessage(parent, bot=bot, message_id=77)
 
@@ -252,7 +252,7 @@ def test_recipient_skip_keeps_confirm_non_persistent_until_recipient_selected(tm
     manager.dialog_data.update(
         {
             "source_mode": "words",
-            "workspace_id": family_id,
+            "family_id": family_id,
             "selected_learning_item_ids": [],
         }
     )
@@ -277,7 +277,7 @@ def test_confirm_creates_expected_assignments_after_recipient_selection(tmp_path
     manager.dialog_data.update(
         {
             "source_mode": "words",
-            "workspace_id": family_id,
+            "family_id": family_id,
             "selected_learning_item_ids": [],
         }
     )
@@ -309,7 +309,7 @@ def test_family_confirm_creates_family_homework_assignments(tmp_path: Path) -> N
     manager.dialog_data.update(
         {
             "source_mode": "topic",
-            "workspace_id": family_id,
+            "family_id": family_id,
             "topic_id": topic_id,
             "selected_recipient_user_ids": [child.id],
         }

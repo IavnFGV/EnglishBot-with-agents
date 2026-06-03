@@ -26,6 +26,7 @@
 - The focused `/topics` handler tests now also run on family topics directly, so the Telegram topic-picker coverage no longer relies on invite/join scaffolding.
 - `/teacher_content` and `/create_assignment` are now family-first on the active runtime path: both entrypoints require family membership and work only against family-owned topics/items.
 - The teacher content and assignment flows no longer need starter-content bootstrap or virtual offset ids to reach family data; the focused dialog and handler tests now seed family content directly.
+- The active teacher content and assignment dialogs now store family ids directly in dialog state instead of carrying the old workspace-shaped UI flow.
 - The focused assignment-dialog handler tests now also run the main topic/words/recipient/confirm path on family content directly, and the family confirm snapshot bug in `teacher_assignments.py` has been fixed.
 - The old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are now deleted.
 - The active registered command list is now family-first only: `/start`, `/help`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/topics`, and `/teacher_content`.
@@ -72,7 +73,6 @@
 - No diff-based publish sync, content versioning, or back-sync from student workspaces.
 - No hard delete lifecycle for learning content.
 - No deep-link driven navigation.
-- Some internal teacher-content/assignment dialog names still say `workspace`, but they now point straight at family-owned content rather than a separate workspace model.
 - No advanced learner statistics beyond current session and assignment progress.
 - No dedicated persisted exercise-instance table; exercises are rebuilt from session state.
 - Some learner and topic selection flows still use inline button lists, so treat Telegram UI constraints in `AGENTS.md` as the direction for future cleanup rather than a claim that every legacy screen is already ideal.
@@ -83,6 +83,6 @@
 - Tests are the best proof of current behavior when docs and older prompts disagree.
 
 ## Immediate next work areas supported by repo state
-- Keep shaving internal naming and dead i18n tails that still mention `workspace` where the product is already family-first.
 - Tighten older Telegram list screens toward the single-screen UI rules where practical.
 - Keep narrowing documentation and task navigation around the module map instead of large historical notes.
+- Add new family-first product slices on top of the simplified schema instead of reviving removed workspace-era paths.

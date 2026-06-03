@@ -80,7 +80,7 @@ Current status:
 - the focused `/topics` Telegram handler coverage now also runs on family topics directly, so invite/join is no longer part of the active topic-picker UI coverage.
 - the old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are gone; the remaining legacy surface is now workspace-first persistence, not onboarding or bootstrap scaffolding.
 - `/teacher_content` and `/create_assignment` are now family-first on the active runtime path: family members work against one shared family content surface, and non-family users no longer enter those authoring flows.
-- the assignment-dialog confirm snapshot now understands virtual family workspaces correctly, so the main topic/words/recipient/confirm authoring path can be covered on family content directly.
+- the teacher-content and assignment dialogs now keep `family_id` in active dialog state, so the main topic/words/recipient/confirm authoring path runs without workspace-shaped UI state.
 - the main bot command list is now trimmed to family-first commands only.
 - legacy admin, invite/join, assign/grant, and workbook Telegram handlers have been removed from active runtime wiring and deleted from the codebase.
 - the old publish shell is now removed from the active teacher-content UI, so family authoring no longer shows publish buttons, publish screens, or publish target stubs.

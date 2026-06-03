@@ -37,23 +37,6 @@ class TeacherContentAccessError(Exception):
     pass
 
 
-def list_teacher_browsable_workspaces(teacher_user_id: int) -> list[dict[str, object]]:
-    family = get_user_family(teacher_user_id)
-    if family is None:
-        return []
-    return [{"id": int(family["id"]), "name": str(family["name"] or "Family")}]
-
-
-def create_teacher_workspace_for_user(
-    teacher_user_id: int,
-    name: str,
-) -> dict[str, object]:
-    family = get_user_family(teacher_user_id)
-    if family is None:
-        raise TeacherContentAccessError
-    return {"id": int(family["id"]), "name": str(family["name"] or "Family")}
-
-
 def list_teacher_workspace_topics(
     teacher_user_id: int,
     workspace_id: int,

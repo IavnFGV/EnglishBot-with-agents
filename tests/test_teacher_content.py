@@ -13,8 +13,6 @@ from englishbot.teacher_content import (
     build_teacher_topic_full_list_overview,
     create_teacher_topic,
     create_teacher_topic_item,
-    create_teacher_workspace_for_user,
-    list_teacher_browsable_workspaces,
     list_teacher_workspace_topics,
     update_teacher_topic_item_field,
     archive_teacher_topic_item,
@@ -58,17 +56,6 @@ def seed_family_with_topic(
         )
         item_ids.append(int(item["learning_item_id"]))
     return user_id, family_id, workspace_id, [int(topic["id"]), *item_ids]
-
-
-def test_teacher_content_uses_single_family_workspace(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    user_id, family_id = seed_family_user(101)
-
-    created = create_teacher_workspace_for_user(user_id, "Ignored")
-    workspaces = list_teacher_browsable_workspaces(user_id)
-
-    assert created == {"id": family_id, "name": "Home"}
-    assert workspaces == [{"id": family_id, "name": "Home"}]
 
 
 def test_teacher_content_topics_and_items_work_inside_family_workspace(tmp_path: Path) -> None:
@@ -195,17 +182,3 @@ def test_teacher_content_access_rejects_users_outside_family(tmp_path: Path) -> 
 
     with pytest.raises(TeacherContentAccessError):
         update_teacher_topic_item_field(602, workspace_id, int(topic["id"]), item_id, "ru", "яблоко")
-
-
-def test_non_family_user_cannot_create_teacher_workspace(tmp_path: Path) -> None:
-    setup_db(tmp_path)
-    outsider = type("User", (), {
-        "id": 701,
-        "username": "outsider",
-        "first_name": "Outsider",
-        "last_name": None,
-    })()
-    db.save_user(outsider)
-
-    with pytest.raises(TeacherContentAccessError):
-        create_teacher_workspace_for_user(701, "Nope")

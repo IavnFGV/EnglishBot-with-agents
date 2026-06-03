@@ -30,8 +30,6 @@ from .teacher_content import (
     build_teacher_topic_editor_snapshot,
     create_teacher_topic,
     create_teacher_topic_item,
-    create_teacher_workspace_for_user,
-    list_teacher_browsable_workspaces,
     list_teacher_workspace_topics,
     update_teacher_topic_item_field,
 )
@@ -43,14 +41,12 @@ SHOW_ALL_HIDE_CALLBACK = "teacher_content:hide_show_all"
 
 
 class TeacherContentDialogSG(StatesGroup):
-    workspaces = State()
     topics = State()
     browser = State()
     prompt = State()
 
 
 class PromptKind(StrEnum):
-    CREATE_WORKSPACE = "create_workspace"
     CREATE_TOPIC = "create_topic"
     CREATE_ITEM = "create_item"
     EDIT_FIELD = "edit_field"
@@ -60,9 +56,13 @@ async def start_teacher_content_dialog(message: Message, dialog_manager: DialogM
     if message.from_user is None:
         return
     save_user(message.from_user)
+    family = get_user_family(message.from_user.id)
+    if family is None:
+        return
     await dialog_manager.start(
-        TeacherContentDialogSG.workspaces,
+        TeacherContentDialogSG.topics,
         mode=StartMode.RESET_STACK,
+        data={"family_id": int(family["id"])},
     )
 
 
@@ -83,27 +83,6 @@ async def teacher_content_command(message: Message, dialog_manager: DialogManage
     await start_teacher_content_dialog(message, dialog_manager)
 
 
-async def _on_workspace_selected(
-    callback: CallbackQuery,
-    widget: Select,
-    dialog_manager: DialogManager,
-    workspace_id: str,
-) -> None:
-    user_id = _get_user_id(dialog_manager)
-    try:
-        list_teacher_workspace_topics(user_id, int(workspace_id))
-    except TeacherContentAccessError:
-        await _handle_unavailable(dialog_manager)
-        return
-    await _reset_prompt_state(dialog_manager)
-    dialog_manager.dialog_data["workspace_id"] = int(workspace_id)
-    dialog_manager.dialog_data["workspace_page"] = 0
-    dialog_manager.dialog_data["topic_page"] = 0
-    dialog_manager.dialog_data.pop("topic_id", None)
-    dialog_manager.dialog_data.pop("item_id", None)
-    await dialog_manager.switch_to(TeacherContentDialogSG.topics)
-
-
 async def _on_topic_selected(
     callback: CallbackQuery,
     widget: Select,
@@ -119,14 +98,6 @@ async def _on_topic_selected(
         return
     dialog_manager.dialog_data["item_id"] = snapshot.get("selected_item_id")
     await _show_browser_with_overview(dialog_manager, callback.message)
-
-
-async def _open_create_workspace(
-    callback: CallbackQuery,
-    button: Button,
-    dialog_manager: DialogManager,
-) -> None:
-    await _enter_prompt(dialog_manager, PromptKind.CREATE_WORKSPACE)
 
 
 async def _open_create_topic(
@@ -172,16 +143,6 @@ async def _go_to_topics(
     await dialog_manager.switch_to(TeacherContentDialogSG.topics)
 
 
-async def _go_to_workspaces(
-    callback: CallbackQuery,
-    button: Button,
-    dialog_manager: DialogManager,
-) -> None:
-    await _delete_browser_overview_message(dialog_manager, callback.message)
-    await _reset_prompt_state(dialog_manager)
-    await dialog_manager.switch_to(TeacherContentDialogSG.workspaces)
-
-
 async def _go_to_prompt_return(
     callback: CallbackQuery,
     button: Button,
@@ -196,7 +157,7 @@ async def _go_to_prompt_return(
         await _sync_browser_overview_message(dialog_manager, callback.message)
         await dialog_manager.switch_to(TeacherContentDialogSG.browser)
         return
-    await dialog_manager.switch_to(TeacherContentDialogSG.workspaces)
+    await dialog_manager.switch_to(TeacherContentDialogSG.topics)
 
 
 async def _choose_field(
@@ -275,7 +236,7 @@ async def _archive_item(
     try:
         archive_teacher_topic_item(
             user_id,
-            int(dialog_manager.dialog_data["workspace_id"]),
+            int(dialog_manager.dialog_data["family_id"]),
             int(dialog_manager.dialog_data["topic_id"]),
             int(selected_item_id),
         )
@@ -301,7 +262,7 @@ async def _show_all_items(
     try:
         overview = build_teacher_topic_full_list_overview(
             user_id,
-            int(dialog_manager.dialog_data["workspace_id"]),
+            int(dialog_manager.dialog_data["family_id"]),
             int(dialog_manager.dialog_data["topic_id"]),
         )
         snapshot = _load_browser_snapshot(dialog_manager)
@@ -365,7 +326,7 @@ async def _on_prompt_input(
         )
         update_teacher_topic_item_field(
             user_id,
-            int(dialog_manager.dialog_data["workspace_id"]),
+            int(dialog_manager.dialog_data["family_id"]),
             int(dialog_manager.dialog_data["topic_id"]),
             int(dialog_manager.dialog_data["item_id"]),
             field_name,
@@ -384,22 +345,10 @@ async def _on_prompt_input(
         return
 
     try:
-        if prompt_kind == PromptKind.CREATE_WORKSPACE:
-            workspace = create_teacher_workspace_for_user(user_id, message.text)
-            dialog_manager.dialog_data["status_text"] = translate_for_user(
-                user_id,
-                "teacher.content.workspace.created",
-                workspace_name=workspace["name"],
-            )
-            dialog_manager.dialog_data["workspace_id"] = workspace["id"]
-            dialog_manager.dialog_data["workspace_page"] = 0
-            await _reset_prompt_state(dialog_manager)
-            await dialog_manager.switch_to(TeacherContentDialogSG.workspaces)
-            return
         if prompt_kind == PromptKind.CREATE_TOPIC:
             topic = create_teacher_topic(
                 user_id,
-                int(dialog_manager.dialog_data["workspace_id"]),
+                int(dialog_manager.dialog_data["family_id"]),
                 message.text,
             )
             dialog_manager.dialog_data["status_text"] = translate_for_user(
@@ -415,7 +364,7 @@ async def _on_prompt_input(
         if prompt_kind == PromptKind.CREATE_ITEM:
             item = create_teacher_topic_item(
                 user_id,
-                int(dialog_manager.dialog_data["workspace_id"]),
+                int(dialog_manager.dialog_data["family_id"]),
                 int(dialog_manager.dialog_data["topic_id"]),
                 message.text,
             )
@@ -433,7 +382,7 @@ async def _on_prompt_input(
             value = message.text
             update_teacher_topic_item_field(
                 user_id,
-                int(dialog_manager.dialog_data["workspace_id"]),
+                int(dialog_manager.dialog_data["family_id"]),
                 int(dialog_manager.dialog_data["topic_id"]),
                 int(dialog_manager.dialog_data["item_id"]),
                 field_name,
@@ -460,51 +409,36 @@ async def _on_prompt_input(
         await dialog_manager.update({})
 
 
-async def get_workspaces_window_data(
-    dialog_manager: DialogManager,
-    **_: object,
-) -> dict[str, object]:
-    user_id = _get_user_id(dialog_manager)
-    workspaces = list_teacher_browsable_workspaces(user_id)
-    page = _clamp_list_page(dialog_manager, "workspace_page", len(workspaces))
-    page_items = _slice_page(workspaces, page)
-    return {
-        "screen_text": _build_workspace_screen_text(
-            user_id=user_id,
-            workspaces=page_items,
-            total_count=len(workspaces),
-            current_page=page,
-            status_text=_get_status_text(dialog_manager),
-        ),
-        "workspace_items": page_items,
-        "create_label": translate_for_user(user_id, "teacher.content.action.create"),
-        "cancel_label": translate_for_user(user_id, "teacher.content.action.cancel"),
-        "prev_label": translate_for_user(user_id, "teacher.content.action.prev"),
-        "next_label": translate_for_user(user_id, "teacher.content.action.next"),
-        "has_prev_page": page > 0,
-        "has_next_page": (page + 1) * LIST_PAGE_SIZE < len(workspaces),
-    }
-
-
 async def get_topics_window_data(
     dialog_manager: DialogManager,
     **_: object,
 ) -> dict[str, object]:
     user_id = _get_user_id(dialog_manager)
-    workspace_id = dialog_manager.dialog_data.get("workspace_id")
-    if workspace_id is None:
-        return await get_workspaces_window_data(dialog_manager)
+    family_id = dialog_manager.dialog_data.get("family_id")
+    if family_id is None:
+        family = get_user_family(user_id)
+        if family is None:
+            return _build_unavailable_view(user_id)
+        family_id = int(family["id"])
+        dialog_manager.dialog_data["family_id"] = family_id
     try:
-        topics = list_teacher_workspace_topics(user_id, int(workspace_id))
-        workspace_name = _get_workspace_name(user_id, int(workspace_id))
+        topics = list_teacher_workspace_topics(user_id, int(family_id))
+        family = get_user_family(user_id)
+        if family is None:
+            raise TeacherContentAccessError
+        family_name = str(family["name"] or "Family")
     except TeacherContentAccessError:
+        dialog_manager.dialog_data["status_text"] = translate_for_user(
+            user_id,
+            "teacher.content.unavailable",
+        )
         return _build_unavailable_view(user_id)
     page = _clamp_list_page(dialog_manager, "topic_page", len(topics))
     page_items = _slice_page(topics, page)
     return {
         "screen_text": _build_topics_screen_text(
             user_id=user_id,
-            workspace_name=workspace_name,
+            family_name=family_name,
             topics=page_items,
             total_count=len(topics),
             current_page=page,
@@ -545,7 +479,6 @@ async def get_browser_window_data(
         "create_label": translate_for_user(user_id, "teacher.content.action.create"),
         "show_all_label": translate_for_user(user_id, "teacher.content.action.show_all"),
         "topics_label": translate_for_user(user_id, "teacher.content.action.topics"),
-        "workspaces_label": translate_for_user(user_id, "teacher.content.action.workspaces"),
         "cancel_label": translate_for_user(user_id, "teacher.content.action.cancel"),
         "has_prev_item": snapshot.get("prev_item_id") is not None,
         "has_next_item": snapshot.get("next_item_id") is not None,
@@ -577,7 +510,6 @@ async def get_prompt_window_data(
         )
         if prompt_kind == PromptKind.EDIT_FIELD and edit_field is not None
         else {
-            PromptKind.CREATE_WORKSPACE: "teacher.content.prompt.workspace_name",
             PromptKind.CREATE_TOPIC: "teacher.content.prompt.topic_title",
             PromptKind.CREATE_ITEM: "teacher.content.prompt.item_text",
             PromptKind.EDIT_FIELD: "teacher.content.prompt.edit_field",
@@ -606,7 +538,7 @@ def _load_browser_snapshot(dialog_manager: DialogManager) -> dict[str, object]:
     user_id = _get_user_id(dialog_manager)
     snapshot = build_teacher_topic_editor_snapshot(
         user_id,
-        int(dialog_manager.dialog_data["workspace_id"]),
+        int(dialog_manager.dialog_data["family_id"]),
         int(dialog_manager.dialog_data["topic_id"]),
         selected_item_id=dialog_manager.dialog_data.get("item_id"),
     )
@@ -614,38 +546,10 @@ def _load_browser_snapshot(dialog_manager: DialogManager) -> dict[str, object]:
     return snapshot
 
 
-def _build_workspace_screen_text(
-    *,
-    user_id: int,
-    workspaces: list[dict[str, object]],
-    total_count: int,
-    current_page: int,
-    status_text: str | None,
-) -> str:
-    lines = [translate_for_user(user_id, "teacher.content.screen.workspaces")]
-    if status_text:
-        lines.extend(("", status_text))
-    lines.append(
-        translate_for_user(
-            user_id,
-            "teacher.content.list.position",
-            current_page=current_page + 1,
-            total_pages=_list_page_count(total_count),
-            total_items=total_count,
-        )
-    )
-    if not workspaces:
-        lines.append(translate_for_user(user_id, "teacher.content.workspaces.empty"))
-        return "\n".join(lines)
-    for index, workspace in enumerate(workspaces, start=current_page * LIST_PAGE_SIZE + 1):
-        lines.append(f"{index}. {workspace['name']}")
-    return "\n".join(lines)
-
-
 def _build_topics_screen_text(
     *,
     user_id: int,
-    workspace_name: str,
+    family_name: str,
     topics: list[dict[str, object]],
     total_count: int,
     current_page: int,
@@ -655,7 +559,7 @@ def _build_topics_screen_text(
         translate_for_user(
             user_id,
             "teacher.content.screen.topics",
-            workspace_name=workspace_name,
+            workspace_name=family_name,
         )
     ]
     if status_text:
@@ -785,7 +689,6 @@ def _build_unavailable_view(user_id: int) -> dict[str, object]:
         "archive_label": translate_for_user(user_id, "teacher.content.action.archive"),
         "show_all_label": translate_for_user(user_id, "teacher.content.action.show_all"),
         "topics_label": translate_for_user(user_id, "teacher.content.action.topics"),
-        "workspaces_label": translate_for_user(user_id, "teacher.content.action.workspaces"),
         "has_prev_page": False,
         "has_next_page": False,
         "has_prev_item": False,
@@ -977,7 +880,7 @@ async def _handle_unavailable(dialog_manager: DialogManager) -> None:
         "teacher.content.unavailable",
     )
     await _reset_prompt_state(dialog_manager)
-    await dialog_manager.switch_to(TeacherContentDialogSG.workspaces)
+    await dialog_manager.switch_to(TeacherContentDialogSG.topics)
 
 
 def _slice_page(items: list[dict[str, object]], page: int) -> list[dict[str, object]]:
@@ -997,13 +900,6 @@ def _list_page_count(total_count: int) -> int:
     if total_count <= 0:
         return 1
     return ((total_count - 1) // LIST_PAGE_SIZE) + 1
-
-
-def _get_workspace_name(user_id: int, workspace_id: int) -> str:
-    for workspace in list_teacher_browsable_workspaces(user_id):
-        if int(workspace["id"]) == workspace_id:
-            return str(workspace["name"])
-    raise TeacherContentAccessError
 
 
 def _get_status_text(dialog_manager: DialogManager) -> str | None:
@@ -1041,31 +937,6 @@ teacher_content_dialog = Dialog(
         Format("{screen_text}"),
         ScrollingGroup(
             Select(
-                Format("{item[name]}"),
-                id="workspace_select",
-                item_id_getter=lambda item: item["id"],
-                items="workspace_items",
-                on_click=_on_workspace_selected,
-            ),
-            id="workspace_scroll",
-            width=1,
-            height=LIST_PAGE_SIZE,
-        ),
-        Row(
-            Button(Format("{prev_label}"), id="workspace_page", on_click=_prev_list_page, when="has_prev_page"),
-            Button(Format("{next_label}"), id="workspace_page", on_click=_next_list_page, when="has_next_page"),
-        ),
-        Row(
-            Button(Format("{create_label}"), id="create_workspace", on_click=_open_create_workspace),
-            Button(Format("{cancel_label}"), id="workspaces_cancel", on_click=_cancel_dialog),
-        ),
-        state=TeacherContentDialogSG.workspaces,
-        getter=get_workspaces_window_data,
-    ),
-    Window(
-        Format("{screen_text}"),
-        ScrollingGroup(
-            Select(
                 Format("{item[title]} ({item[item_count]})"),
                 id="topic_select",
                 item_id_getter=lambda item: item["id"],
@@ -1082,7 +953,6 @@ teacher_content_dialog = Dialog(
         ),
         Row(
             Button(Format("{create_label}"), id="create_topic", on_click=_open_create_topic),
-            Button(Format("{back_label}"), id="back_to_workspaces", on_click=_go_to_workspaces),
             Button(Format("{cancel_label}"), id="topics_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherContentDialogSG.topics,
@@ -1107,7 +977,6 @@ teacher_content_dialog = Dialog(
         ),
         Row(
             Button(Format("{topics_label}"), id="back_to_topics", on_click=_go_to_topics),
-            Button(Format("{workspaces_label}"), id="back_to_workspaces", on_click=_go_to_workspaces),
             Button(Format("{cancel_label}"), id="browser_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherContentDialogSG.browser,
@@ -1144,7 +1013,6 @@ hide_show_all = hide_show_all_message
 next_item = _next_item
 on_prompt_input = _on_prompt_input
 on_topic_selected = _on_topic_selected
-on_workspace_selected = _on_workspace_selected
 open_create_topic = _open_create_topic
 open_edit_prompt = _open_edit_prompt
 prev_item = _prev_item

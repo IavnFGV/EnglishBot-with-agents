@@ -48,7 +48,7 @@ async def _choose_topic_mode(
     if family is None:
         await dialog_manager.update({})
         return
-    dialog_manager.dialog_data["workspace_id"] = int(family["id"])
+    dialog_manager.dialog_data["family_id"] = int(family["id"])
     await dialog_manager.switch_to(TeacherAssignmentDialogSG.topic)
 
 
@@ -63,7 +63,7 @@ async def _choose_words_mode(
     if family is None:
         await dialog_manager.update({})
         return
-    dialog_manager.dialog_data["workspace_id"] = int(family["id"])
+    dialog_manager.dialog_data["family_id"] = int(family["id"])
     dialog_manager.dialog_data["topic_page"] = 0
     dialog_manager.dialog_data["recipient_page"] = 0
     snapshot = build_word_selection_snapshot(
@@ -200,13 +200,13 @@ async def _go_to_confirm(
     await dialog_manager.switch_to(TeacherAssignmentDialogSG.confirm)
 
 
-async def _go_back_to_workspace(
+async def _go_back_to_family(
     callback: CallbackQuery,
     button: Button,
     dialog_manager: DialogManager,
 ) -> None:
     await _delete_summary_message(dialog_manager, callback.message)
-    dialog_manager.dialog_data.pop("workspace_id", None)
+    dialog_manager.dialog_data.pop("family_id", None)
     dialog_manager.dialog_data.pop("topic_id", None)
     dialog_manager.dialog_data.pop("current_learning_item_id", None)
     await dialog_manager.switch_to(TeacherAssignmentDialogSG.source_mode)
@@ -252,7 +252,7 @@ async def _confirm_assignment(
         results = persist_assignment_draft(
             _get_user_id(dialog_manager),
             source_mode=str(dialog_manager.dialog_data.get("source_mode", "")),
-            workspace_id=int(dialog_manager.dialog_data["workspace_id"]),
+            family_id=int(dialog_manager.dialog_data["family_id"]),
             topic_id=_get_optional_int(dialog_manager.dialog_data.get("topic_id")),
             selected_learning_item_ids=_get_selected_learning_item_ids(dialog_manager),
             recipient_user_ids=_get_selected_recipient_ids(dialog_manager),
@@ -317,8 +317,8 @@ async def get_source_mode_window_data(dialog_manager: DialogManager, **_: object
 
 async def get_topic_window_data(dialog_manager: DialogManager, **_: object) -> dict[str, object]:
     user_id = _get_user_id(dialog_manager)
-    workspace_id = int(dialog_manager.dialog_data["workspace_id"])
-    topic_items = list_assignment_topics(user_id, workspace_id)
+    family_id = int(dialog_manager.dialog_data["family_id"])
+    topic_items = list_assignment_topics(user_id, family_id)
     current_page = _clamp_page(dialog_manager, "topic_page", len(topic_items))
     paged_items = _slice_page(topic_items, current_page)
     return {
@@ -367,7 +367,7 @@ async def get_words_window_data(dialog_manager: DialogManager, **_: object) -> d
     screen_text = translate_for_user(
         user_id,
         "teacher.assignment.screen.words",
-        workspace_name=escape(str(snapshot["workspace_name"])),
+        workspace_name=escape(str(snapshot["family_name"])),
         item_position=int(snapshot["current_index"]) + 1,
         item_count=int(snapshot["item_count"]),
         text=escape(str(current_item["text"])),
@@ -439,7 +439,7 @@ async def get_confirm_window_data(dialog_manager: DialogManager, **_: object) ->
     snapshot = build_assignment_confirm_snapshot(
         user_id,
         source_mode=str(dialog_manager.dialog_data.get("source_mode", "")),
-        workspace_id=int(dialog_manager.dialog_data["workspace_id"]),
+        family_id=int(dialog_manager.dialog_data["family_id"]),
         topic_id=_get_optional_int(dialog_manager.dialog_data.get("topic_id")),
         selected_learning_item_ids=_get_selected_learning_item_ids(dialog_manager),
         recipient_user_ids=_get_selected_recipient_ids(dialog_manager),
@@ -487,10 +487,10 @@ async def get_confirm_window_data(dialog_manager: DialogManager, **_: object) ->
 
 
 def _load_words_snapshot(dialog_manager: DialogManager) -> dict[str, object]:
-    workspace_id = int(dialog_manager.dialog_data["workspace_id"])
+    family_id = int(dialog_manager.dialog_data["family_id"])
     return build_word_selection_snapshot(
         _get_user_id(dialog_manager),
-        workspace_id,
+        family_id,
         _get_selected_learning_item_ids(dialog_manager),
         current_learning_item_id=_get_optional_int(dialog_manager.dialog_data.get("current_learning_item_id")),
     )
@@ -550,18 +550,18 @@ async def _delete_summary_message(
 def _build_summary_text(dialog_manager: DialogManager) -> str:
     user_id = _get_user_id(dialog_manager)
     source_mode = str(dialog_manager.dialog_data.get("source_mode", ""))
-    workspace_id = _get_optional_int(dialog_manager.dialog_data.get("workspace_id"))
-    if workspace_id is None:
+    family_id = _get_optional_int(dialog_manager.dialog_data.get("family_id"))
+    if family_id is None:
         return translate_for_user(user_id, "teacher.assignment.summary.empty")
     if source_mode == SOURCE_MODE_TOPIC:
         topic_id = _get_optional_int(dialog_manager.dialog_data.get("topic_id"))
         if topic_id is None:
             return translate_for_user(user_id, "teacher.assignment.summary.empty")
-        summary = build_topic_selection_summary(user_id, workspace_id, topic_id)
+        summary = build_topic_selection_summary(user_id, family_id, topic_id)
         return translate_for_user(
             user_id,
             "teacher.assignment.summary.topic",
-            workspace_name=escape(str(summary["workspace_name"])),
+            workspace_name=escape(str(summary["family_name"])),
             topic_title=escape(str(summary["topic_title"])),
             item_count=int(summary["selected_count"]),
             preview=_format_preview_items(summary["preview_items"]),
@@ -570,7 +570,7 @@ def _build_summary_text(dialog_manager: DialogManager) -> str:
     return translate_for_user(
         user_id,
         "teacher.assignment.summary.words",
-        workspace_name=escape(str(summary["workspace_name"])),
+        workspace_name=escape(str(summary["family_name"])),
         selected_count=int(summary["selected_count"]),
         preview=_format_preview_items(summary["preview_items"]),
     )
@@ -600,7 +600,7 @@ def _slice_page(items: list[dict[str, object]], current_page: int) -> list[dict[
 
 def _reset_content_state(dialog_manager: DialogManager) -> None:
     for key in (
-        "workspace_id",
+        "family_id",
         "topic_id",
         "current_learning_item_id",
         "selected_learning_item_ids",
@@ -608,7 +608,6 @@ def _reset_content_state(dialog_manager: DialogManager) -> None:
         "summary_message_id",
         "summary_chat_id",
         "summary_text",
-        "workspace_page",
         "topic_page",
         "recipient_page",
     ):
@@ -680,7 +679,7 @@ teacher_assignment_dialog = Dialog(
             Button(Format("{next_label}"), id="topic_page", on_click=_next_page, when="has_next_page"),
         ),
         Row(
-            Button(Format("{back_label}"), id="topic_back", on_click=_go_back_to_workspace),
+            Button(Format("{back_label}"), id="topic_back", on_click=_go_back_to_family),
             Button(Format("{cancel_label}"), id="topic_cancel", on_click=_cancel_dialog),
         ),
         state=TeacherAssignmentDialogSG.topic,

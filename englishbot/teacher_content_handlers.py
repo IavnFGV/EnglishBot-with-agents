@@ -28,5 +28,5 @@ async def teacher_content(message: Message, dialog_manager: DialogManager) -> No
     await dialog_manager.start(
         TeacherContentDialogSG.topics,
         mode=StartMode.RESET_STACK,
-        data={"workspace_id": int(family["id"])},
+        data={"family_id": int(family["id"])},
     )
