@@ -4,8 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from englishbot import bootstrap, db
-from englishbot.assets import NO_IMAGE_PLACEHOLDER_PATH, ensure_runtime_assets
+from englishbot import bootstrap
 from englishbot.build_info import BuildInfo
 
 
@@ -37,9 +36,6 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
     def fake_init_db() -> None:
         calls.append("init_db")
 
-    def fake_ensure_runtime_assets() -> None:
-        calls.append("ensure_runtime_assets")
-
     class FakeStatusServer:
         def close(self) -> None:
             closed_servers.append("close")
@@ -68,7 +64,6 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
-    monkeypatch.setattr(bootstrap, "ensure_runtime_assets", fake_ensure_runtime_assets)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -81,7 +76,6 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
         "configure_logging",
         "load_build_info",
         "init_db",
-        "ensure_runtime_assets",
         "start_status_server",
         "build_bot",
         "configure_bot_commands",
@@ -113,9 +107,6 @@ def test_bootstrap_run_logs_compact_startup_banner(monkeypatch) -> None:
     def fake_init_db() -> None:
         return None
 
-    def fake_ensure_runtime_assets() -> None:
-        return None
-
     class FakeStatusServer:
         def close(self) -> None:
             return None
@@ -144,7 +135,6 @@ def test_bootstrap_run_logs_compact_startup_banner(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
-    monkeypatch.setattr(bootstrap, "ensure_runtime_assets", fake_ensure_runtime_assets)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -185,9 +175,6 @@ def test_bootstrap_run_logs_status_server_startup(monkeypatch) -> None:
     def fake_init_db() -> None:
         return None
 
-    def fake_ensure_runtime_assets() -> None:
-        return None
-
     class FakeStatusServer:
         def close(self) -> None:
             return None
@@ -216,7 +203,6 @@ def test_bootstrap_run_logs_status_server_startup(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
-    monkeypatch.setattr(bootstrap, "ensure_runtime_assets", fake_ensure_runtime_assets)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -250,9 +236,6 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
     def fake_init_db() -> None:
         return None
 
-    def fake_ensure_runtime_assets() -> None:
-        return None
-
     class FakeStatusServer:
         def close(self) -> None:
             return None
@@ -284,7 +267,6 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
-    monkeypatch.setattr(bootstrap, "ensure_runtime_assets", fake_ensure_runtime_assets)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -297,15 +279,3 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
     assert "ENGLISHBOT_ENV_NAME=production" in log_messages[0]
     assert "TELEGRAM_BOT_TOKEN=real-secret-token" in log_messages[0]
     assert "API_KEY=super-secret-key" in log_messages[0]
-
-
-def test_ensure_runtime_assets_copies_placeholder_next_to_runtime_db(tmp_path: Path) -> None:
-    db.DB_PATH = tmp_path / "data" / "englishbot.sqlite3"
-    runtime_placeholder = db.DB_PATH.resolve().parent / NO_IMAGE_PLACEHOLDER_PATH
-    runtime_placeholder.parent.mkdir(parents=True, exist_ok=True)
-    runtime_placeholder.write_bytes(b"outdated")
-
-    ensure_runtime_assets()
-
-    assert runtime_placeholder.exists()
-    assert runtime_placeholder.read_bytes() != b"outdated"

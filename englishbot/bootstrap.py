@@ -2,7 +2,6 @@ import logging
 import os
 import contextlib
 import asyncio
-from .assets import ensure_runtime_assets
 from .bot import configure_bot_commands, dispatcher
 from .bulk_edit import run_bulk_edit_monitor
 from .build_info import format_startup_banner, load_build_info
@@ -36,7 +35,6 @@ async def run() -> None:
     logger.info(format_startup_banner(build_info))
 
     init_db()
-    ensure_runtime_assets()
     status_server = await start_status_server(build_info)
     logger.info(
         "EnglishBot status server listening on %s:%s",

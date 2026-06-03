@@ -125,6 +125,12 @@ jobs:
             show_dir_state "${SYNC_ROOT}"
             show_dir_state "${SYNC_ROOT}/backups"
 
+            echo "[deploy] syncing placeholder assets into host runtime storage"
+            sudo mkdir -p "${DATA_ROOT}/assets/images"
+            sudo install -m 644 "${SERVICE_DIR}/assets/images/no-image.png" "${DATA_ROOT}/assets/images/no-image.png"
+            sudo chown "${USER}:${USER}" "${DATA_ROOT}/assets/images/no-image.png" || true
+            ls -l "${DATA_ROOT}/assets/images/no-image.png"
+
             export ENGLISHBOT_VERSION="main-${{ github.run_number }}"
             export ENGLISHBOT_GIT_COMMIT="${{ github.sha }}"
             export ENGLISHBOT_BUILD_TIME_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

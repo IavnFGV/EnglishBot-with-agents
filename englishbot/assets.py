@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
-import shutil
 from urllib.parse import urlparse
 from urllib.request import urlopen
 from uuid import uuid4
@@ -13,7 +12,6 @@ from . import db
 
 TEACHER_CONTENT_IMAGE_DIR = Path("assets/images/teacher-content")
 NO_IMAGE_PLACEHOLDER_PATH = Path("assets/images/no-image.png")
-PACKAGED_NO_IMAGE_PLACEHOLDER_PATH = Path(__file__).resolve().parent / "runtime_assets" / "no-image.png"
 WORKBOOK_IMPORT_ASSET_DIR = Path("assets/workbook-import")
 ASSET_TYPE_IMAGE = "image"
 ASSET_TYPE_AUDIO = "audio"
@@ -65,19 +63,6 @@ def create_asset(
             (workbook_key, asset_type, source_url, local_path, db.utc_now()),
         )
     return int(cursor.lastrowid)
-
-
-def ensure_runtime_assets() -> None:
-    target_path = Path(db.DB_PATH).resolve().parent / NO_IMAGE_PLACEHOLDER_PATH
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    if not PACKAGED_NO_IMAGE_PLACEHOLDER_PATH.exists():
-        raise RuntimeError(
-            f"Packaged placeholder asset is missing: {PACKAGED_NO_IMAGE_PLACEHOLDER_PATH}"
-        )
-    if target_path.exists() and target_path.read_bytes() == PACKAGED_NO_IMAGE_PLACEHOLDER_PATH.read_bytes():
-        return
-    shutil.copyfile(PACKAGED_NO_IMAGE_PLACEHOLDER_PATH, target_path)
-
 
 def link_asset_to_learning_item(
     learning_item_id: int,
@@ -388,7 +373,7 @@ def store_teacher_content_image(
         raise ValueError("image content is required")
 
     normalized_extension = extension if extension.startswith(".") else f".{extension}"
-    asset_dir = Path(db.DB_PATH).resolve().parent / TEACHER_CONTENT_IMAGE_DIR
+    asset_dir = _get_runtime_root() / TEACHER_CONTENT_IMAGE_DIR
     asset_dir.mkdir(parents=True, exist_ok=True)
     filename = f"learning-item-{int(learning_item_id)}-{uuid4().hex}{normalized_extension}"
     output_path = asset_dir / filename
@@ -432,7 +417,7 @@ def store_remote_asset(
 
     suffix = Path(parsed_url.path).suffix.lower() or default_extension
     relative_dir = preferred_dir or REMOTE_ASSET_SUBDIR_BY_TYPE[asset_type]
-    asset_dir = Path(db.DB_PATH).resolve().parent / relative_dir
+    asset_dir = _get_runtime_root() / relative_dir
     asset_dir.mkdir(parents=True, exist_ok=True)
 
     base_prefix = (filename_prefix or asset_type).strip() or asset_type
@@ -443,7 +428,7 @@ def store_remote_asset(
 
 
 def is_valid_local_image_path(image_path: str | Path) -> bool:
-    candidate_path = Path(db.DB_PATH).resolve().parent / Path(str(image_path))
+    candidate_path = _get_runtime_root() / Path(str(image_path))
     if not candidate_path.exists() or not candidate_path.is_file():
         return False
     try:
@@ -473,7 +458,7 @@ def store_workbook_import_asset(
             suffix = ".bin"
         else:
             suffix = ".txt"
-    asset_dir = Path(db.DB_PATH).resolve().parent / WORKBOOK_IMPORT_ASSET_DIR / asset_type
+    asset_dir = _get_runtime_root() / WORKBOOK_IMPORT_ASSET_DIR / asset_type
     asset_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{asset_type}-{uuid4().hex}{suffix}"
     output_path = asset_dir / filename
@@ -509,3 +494,10 @@ def _validate_image_content(content: bytes, *, source_url: str) -> None:
             image.verify()
     except (OSError, SyntaxError, UnidentifiedImageError) as exc:
         raise ValueError(f"image content from {source_url} is not a valid image") from exc
+
+
+def _get_runtime_root() -> Path:
+    db_parent = Path(db.DB_PATH).resolve().parent
+    if db_parent.name == "data":
+        return db_parent.parent
+    return db_parent
