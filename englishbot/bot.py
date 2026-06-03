@@ -1,9 +1,10 @@
 import logging
+from typing import Any
 
 from aiogram import Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
-from aiogram.types import ErrorEvent, Message
+from aiogram.types import CallbackQuery, ErrorEvent, Message
 from aiogram_dialog import setup_dialogs
 from aiogram_dialog.api.exceptions import UnknownIntent
 
@@ -43,6 +44,27 @@ async def configure_bot_commands(bot) -> None:
 
 def _is_message_not_modified_error(exception: BaseException) -> bool:
     return isinstance(exception, TelegramBadRequest) and "message is not modified" in str(exception)
+
+
+def _extract_callback_context(event: ErrorEvent) -> tuple[int | None, int | None, Any | None]:
+    callback_query: CallbackQuery | None = event.update.callback_query
+    if callback_query is None:
+        return None, None, None
+    user_id = callback_query.from_user.id if callback_query.from_user is not None else None
+    message = callback_query.message
+    chat_id = message.chat.id if message is not None and message.chat is not None else user_id
+    bot = message.bot if message is not None else getattr(callback_query, "bot", None)
+    return user_id, chat_id, bot
+
+
+async def _notify_unknown_intent_user(event: ErrorEvent) -> None:
+    user_id, chat_id, bot = _extract_callback_context(event)
+    if user_id is None or chat_id is None or bot is None:
+        return
+    await bot.send_message(
+        chat_id=chat_id,
+        text=translate_for_user(user_id, "flow.session_expired"),
+    )
 
 
 @router.message(Command(START_COMMAND.name))
@@ -135,12 +157,12 @@ async def on_error(event: ErrorEvent) -> None:
     aiogram-dialog sessions) and logs them as a warning.
     """
     if isinstance(event.exception, UnknownIntent):
-        user_id = (
-            event.update.callback_query.from_user.id 
-            if event.update.callback_query 
-            else "Unknown"
-        )
+        user_id = event.update.callback_query.from_user.id if event.update.callback_query else "Unknown"
         logger.warning("Unknown dialog intent detected for user %s", user_id)
+        try:
+            await _notify_unknown_intent_user(event)
+        except Exception:
+            logger.exception("Failed to notify user about expired dialog intent")
         return
 
     if _is_message_not_modified_error(event.exception):

@@ -19,6 +19,7 @@
 - Owner-managed local setups now also expose `/seed_demo`, which fills the owner family with a small idempotent demo dataset (2 topics, 10 basic words) so family-first learner and teacher UI flows can be exercised immediately after bootstrap.
 - A minimal `/help` command now shows the active family-first command set, so unsupported commands like `/help` no longer fall through as unhandled updates.
 - Added global observability for unhandled updates: fallback message handler and UnknownIntent error handler now log at WARNING level.
+- Expired `aiogram-dialog` intents now also produce a user-facing recovery message: when a stale inline button hits `UnknownIntent`, the bot warns in logs and tells the user that the screen expired and they should reopen `/start` to begin again.
 - Bot-level error handling now also ignores Telegram's exact `message is not modified` no-op globally, so harmless repeated UI edits do not flood logs with stack traces.
 - The active family-first persistence layer is now the only live product model: SQLite bootstraps `families`, `family_members`, family-owned `learning_items`, family-owned `topics`, `topic_items`, `user_progress`, `homework_assignments`, and `homework_assignment_items`, with focused helpers in `englishbot/families.py`.
 - Plain `/learn` is now family-only on the active path: users train only on family-owned learning items, and users outside a family setup get the normal no-items response instead of a legacy workspace fallback.
@@ -58,6 +59,7 @@
 - `chain_of_commands/047-family-first-rebuild.md` now captures the full family-first rebuild brief so the whole simplification wave can be replayed from one prompt instead of reconstructing it from many commits.
 - `chain_of_commands/048-owner-managed-family-access.md` now captures the owner-only privacy layer for local family bootstrap and the technical `/add_family <telegram_user_id>` flow.
 - `chain_of_commands/049-local-demo-seeding-and-noop-ui-guard.md` now captures the local-owner polish slice: `/seed_demo` demo bootstrap plus exact Telegram no-op edit guards for both focused dialogs and global bot error handling.
+- `chain_of_commands/050-unknown-intent-recovery-notice.md` now captures the expired-dialog recovery slice for `UnknownIntent` logging plus user-facing restart guidance.
 - `docs/family-first-rebuild.md` records the approved direction: keep this repository and deploy path, but replace the old workspace/publish-centric product model with a family-first core built around shared family content plus personal progress and homework.
 
 ## Data and ownership constraints

@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-06-03
+- Added `chain_of_commands/050-unknown-intent-recovery-notice.md`, a single replayable prompt for the expired-dialog recovery slice around `UnknownIntent` logging plus a user-facing restart notice.
+- Improved expired dialog UX: `UnknownIntent` now still logs as a warning, but also sends a localized recovery message telling the user that the screen is no longer active and they should reopen `/start` and begin again.
 - Fixed a family-first assignment dialog regression in `/create_assignment`: topic list rows now include the dialog-compatible `id` field expected by `aiogram-dialog` selects, so opening the topic picker no longer crashes with `KeyError: 'id'`, and focused assignment handler coverage now locks that shape in.
 - Added `chain_of_commands/049-local-demo-seeding-and-noop-ui-guard.md`, a single replayable prompt for the local-owner polish slice around `/seed_demo`, teacher-content unchanged-edit resilience, and the global Telegram no-op edit guard.
 - Added a global no-op guard for Telegram `message is not modified` errors in the bot-level error handler, so repeated identical message edits no longer pollute runtime logs with stack traces while other Telegram bad requests still surface normally.

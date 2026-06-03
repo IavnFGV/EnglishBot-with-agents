@@ -27,3 +27,8 @@ def test_translate_falls_back_to_default_catalog_when_translation_missing(
 def test_translate_raises_for_missing_key() -> None:
     with pytest.raises(KeyError):
         translate("missing.translation.key", "en")
+
+
+def test_translate_includes_session_expired_recovery_copy() -> None:
+    assert "/start" in translate("flow.session_expired", "en")
+    assert "бот" in translate("flow.session_expired", "ru")
