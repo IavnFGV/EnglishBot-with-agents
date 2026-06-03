@@ -44,6 +44,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
 
 def test_bot_command_collection_stays_consistent_with_registry() -> None:
     registered = get_registered_commands()
+    owner_registered = get_registered_commands(include_owner_commands=True)
 
     assert registered == (
         START_COMMAND,
@@ -53,11 +54,11 @@ def test_bot_command_collection_stays_consistent_with_registry() -> None:
         SETTINGS_COMMAND,
         CANCEL_COMMAND,
         CREATE_ASSIGNMENT_COMMAND,
-        SEED_DEMO_COMMAND,
         TOPICS_COMMAND,
         TEACHER_CONTENT_COMMAND,
         BULK_EDIT_COMMAND,
     )
+    assert owner_registered == registered + (SEED_DEMO_COMMAND,)
     assert BOT_COMMANDS == build_bot_commands()
     assert [command.command for command in BOT_COMMANDS] == [command.name for command in registered]
 

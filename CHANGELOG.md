@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-03
+- Hid `/seed_demo` from non-owner users when `ENGLISHBOT_OWNER_TELEGRAM_USER_ID` is configured: default bot commands and non-owner `/start` and `/help` output no longer advertise the demo seeder, while the owner still gets it through a chat-scoped command list and owner-specific help text.
 - Restored a first working family-first workbook bulk-edit flow through `/bulk_edit`: the bot now exports family content to a human-editable `.xlsx`, allows one globally gated bulk-edit session at a time, accepts an uploaded workbook back from the initiator, creates a full SQLite backup before apply, validates the workbook before writing, applies the import atomically, archives family rows missing from the workbook instead of hard-deleting them, and exports a display-only `image` column beside `image_ref` as a Google Sheets `IMAGE()` formula when a usable URL is available.
 - Added focused coverage for the new workbook/bulk-edit slice: session exclusivity and expiry, bot-wide gate behavior, workbook export shape, atomic import behavior, backup creation/retention, `image`-column ignore semantics on import, and the upload-then-apply Telegram handler path.
 - Updated navigation docs for the new slice: `docs/module-map.md` now has a dedicated family workbook bulk-edit row, and `docs/architecture.md` now lists the new workbook/bulk-edit modules and their persistence/runtime role.

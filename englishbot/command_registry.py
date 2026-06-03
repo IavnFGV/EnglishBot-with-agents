@@ -112,8 +112,8 @@ ALL_COMMANDS = (
 )
 
 
-def get_registered_commands() -> tuple[CommandDefinition, ...]:
-    return (
+def get_registered_commands(*, include_owner_commands: bool = False) -> tuple[CommandDefinition, ...]:
+    commands = (
         START_COMMAND,
         HELP_COMMAND,
         LEARN_COMMAND,
@@ -121,15 +121,24 @@ def get_registered_commands() -> tuple[CommandDefinition, ...]:
         SETTINGS_COMMAND,
         CANCEL_COMMAND,
         CREATE_ASSIGNMENT_COMMAND,
-        SEED_DEMO_COMMAND,
         TOPICS_COMMAND,
         TEACHER_CONTENT_COMMAND,
         BULK_EDIT_COMMAND,
     )
+    if include_owner_commands:
+        commands = commands + (SEED_DEMO_COMMAND,)
+    return commands
 
 
-def build_bot_commands(language_code: str = DEFAULT_LANGUAGE_CODE) -> list[BotCommand]:
-    return [command.to_bot_command(language_code) for command in get_registered_commands()]
+def build_bot_commands(
+    language_code: str = DEFAULT_LANGUAGE_CODE,
+    *,
+    include_owner_commands: bool = False,
+) -> list[BotCommand]:
+    return [
+        command.to_bot_command(language_code)
+        for command in get_registered_commands(include_owner_commands=include_owner_commands)
+    ]
 
 
 BOT_COMMANDS = build_bot_commands()

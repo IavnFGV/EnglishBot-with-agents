@@ -4,11 +4,11 @@ from typing import Any
 from aiogram import Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, ErrorEvent, Message
+from aiogram.types import BotCommandScopeChat, BotCommandScopeDefault, CallbackQuery, ErrorEvent, Message
 from aiogram_dialog import setup_dialogs
 from aiogram_dialog.api.exceptions import UnknownIntent
 
-from .command_registry import BOT_COMMANDS, HELP_COMMAND, ME_COMMAND, START_COMMAND
+from .command_registry import BOT_COMMANDS, HELP_COMMAND, ME_COMMAND, START_COMMAND, build_bot_commands
 from .config import get_owner_telegram_user_id
 from .db import count_text_interactions, get_user, save_user
 from .families import ensure_user_family, get_user_family
@@ -40,7 +40,21 @@ setup_dialogs(dispatcher)
 
 
 async def configure_bot_commands(bot) -> None:
-    await bot.set_my_commands(BOT_COMMANDS)
+    owner_user_id = get_owner_telegram_user_id()
+    await bot.set_my_commands(
+        build_bot_commands(),
+        scope=BotCommandScopeDefault(),
+    )
+    if owner_user_id is not None:
+        await bot.set_my_commands(
+            build_bot_commands(include_owner_commands=True),
+            scope=BotCommandScopeChat(chat_id=owner_user_id),
+        )
+
+
+def _is_owner_user(user_id: int) -> bool:
+    owner_user_id = get_owner_telegram_user_id()
+    return owner_user_id is None or user_id == owner_user_id
 
 
 def _is_message_not_modified_error(exception: BaseException) -> bool:
@@ -93,7 +107,7 @@ async def start_command(message: Message) -> None:
     await message.answer(
         translate_for_user(
             message.from_user.id,
-            "bot.start",
+            "bot.start.owner" if _is_owner_user(message.from_user.id) else "bot.start",
             family_name=str(family["name"] or "Home"),
             created_family_suffix=(
                 "\n\n" + translate_for_user(message.from_user.id, "bot.start.family_created")
@@ -112,7 +126,7 @@ async def help_command(message: Message) -> None:
     await message.answer(
         translate_for_user(
             message.from_user.id,
-            "bot.help",
+            "bot.help.owner" if _is_owner_user(message.from_user.id) else "bot.help",
         )
     )
 

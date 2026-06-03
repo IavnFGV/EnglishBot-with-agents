@@ -16,7 +16,7 @@
 ## Implemented product slices
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
 - `/start` now supports an owner-managed privacy mode for local bots: if `ENGLISHBOT_OWNER_TELEGRAM_USER_ID` is set, only that owner account auto-bootstraps a `Home` family, while other users are merely registered and can be added later with the technical `/add_family <telegram_user_id>` command.
-- Owner-managed local setups now also expose `/seed_demo`, which fills the owner family with a small idempotent demo dataset (2 topics, 10 basic words) so family-first learner and teacher UI flows can be exercised immediately after bootstrap.
+- Owner-managed local setups now also expose `/seed_demo`, which fills the owner family with a small idempotent demo dataset (2 topics, 10 basic words) so family-first learner and teacher UI flows can be exercised immediately after bootstrap; when `ENGLISHBOT_OWNER_TELEGRAM_USER_ID` is configured, the command is shown only to that owner in Telegram command menus and owner-specific `/start` and `/help` text.
 - A minimal `/help` command now shows the active family-first command set, so unsupported commands like `/help` no longer fall through as unhandled updates.
 - Added global observability for unhandled updates: fallback message handler and UnknownIntent error handler now log at WARNING level.
 - Expired `aiogram-dialog` intents now also produce a user-facing recovery message: when a stale inline button hits `UnknownIntent`, the bot warns in logs and tells the user that the screen expired and they should reopen `/start` to begin again.

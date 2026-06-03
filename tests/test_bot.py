@@ -9,6 +9,8 @@ from aiogram.types import Chat, Message, Update
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from aiogram.types import BotCommandScopeChat, BotCommandScopeDefault
+
 from englishbot.bot import BOT_COMMANDS, configure_bot_commands, dispatcher, help_command, me, start_command
 from englishbot.command_registry import get_registered_commands
 from englishbot.families import (
@@ -33,10 +35,10 @@ class FakeMessage:
 
 class FakeBot:
     def __init__(self) -> None:
-        self.commands = None
+        self.commands_calls: list[dict[str, object]] = []
 
-    async def set_my_commands(self, commands) -> None:
-        self.commands = commands
+    async def set_my_commands(self, commands, scope=None) -> None:
+        self.commands_calls.append({"commands": commands, "scope": scope})
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -172,6 +174,31 @@ def test_start_handler_registers_non_owner_without_bootstrapping_family_when_own
 def test_help_handler_shows_family_first_command_list(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(904, "Nora")
+    db.save_user(user)
+    message = FakeMessage(user)
+
+    asyncio.run(help_command(message))
+
+    assert message.answers == [
+        "Available commands:\n"
+        "/start - open the main menu\n"
+        "/help - show this help\n"
+        "/learn - start training\n"
+        "/topics - open family topics\n"
+        "/me - show your profile\n"
+        "/settings - open settings\n"
+        "/cancel - stop the current flow\n"
+        "/teacher_content - edit family content\n"
+        "/bulk_edit - export and reimport family workbook\n"
+        "/create_assignment - assign homework inside the family\n"
+        "/seed_demo - fill family with test content"
+    ]
+
+
+def test_help_handler_shows_seed_demo_to_owner_only(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", "9904")
+    user = make_user(9904, "Owner")
     db.save_user(user)
     message = FakeMessage(user)
 
@@ -336,8 +363,27 @@ def test_configure_bot_commands_registers_expected_commands() -> None:
 
     asyncio.run(configure_bot_commands(bot))
 
-    assert bot.commands == BOT_COMMANDS
-    assert [command.command for command in bot.commands] == [
+    assert bot.commands_calls == [
+        {
+            "commands": BOT_COMMANDS,
+            "scope": BotCommandScopeDefault(),
+        }
+    ]
+
+
+def test_configure_bot_commands_registers_seed_demo_only_for_owner_scope(monkeypatch) -> None:
+    bot = FakeBot()
+    monkeypatch.setenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", "913")
+
+    asyncio.run(configure_bot_commands(bot))
+
+    assert bot.commands_calls[0] == {
+        "commands": BOT_COMMANDS,
+        "scope": BotCommandScopeDefault(),
+    }
+    assert bot.commands_calls[1]["scope"] == BotCommandScopeChat(chat_id=913)
+    assert [command.command for command in bot.commands_calls[1]["commands"]][-1] == "seed_demo"
+    assert [command.command for command in bot.commands_calls[0]["commands"]] == [
         command.name for command in get_registered_commands()
     ]
 
