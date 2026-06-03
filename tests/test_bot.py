@@ -187,6 +187,7 @@ def test_help_handler_shows_family_first_command_list(tmp_path: Path) -> None:
         "/settings - open settings\n"
         "/cancel - stop the current flow\n"
         "/teacher_content - edit family content\n"
+        "/bulk_edit - export and reimport family workbook\n"
         "/create_assignment - assign homework inside the family\n"
         "/seed_demo - fill family with test content"
     ]

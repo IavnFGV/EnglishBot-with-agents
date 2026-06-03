@@ -7,6 +7,7 @@ from englishbot.command_registry import (
     ALL_COMMANDS,
     ADD_FAMILY_COMMAND,
     BOT_COMMANDS,
+    BULK_EDIT_COMMAND,
     CANCEL_COMMAND,
     CREATE_ASSIGNMENT_COMMAND,
     HELP_COMMAND,
@@ -36,6 +37,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "add_family",
         "topics",
         "teacher_content",
+        "bulk_edit",
     ]
     assert len({command.name for command in ALL_COMMANDS}) == len(ALL_COMMANDS)
 
@@ -54,6 +56,7 @@ def test_bot_command_collection_stays_consistent_with_registry() -> None:
         SEED_DEMO_COMMAND,
         TOPICS_COMMAND,
         TEACHER_CONTENT_COMMAND,
+        BULK_EDIT_COMMAND,
     )
     assert BOT_COMMANDS == build_bot_commands()
     assert [command.command for command in BOT_COMMANDS] == [command.name for command in registered]
@@ -75,5 +78,9 @@ def test_bot_commands_use_centralized_i18n_descriptions() -> None:
     )
     assert TEACHER_CONTENT_COMMAND.to_bot_command("en").description == translate(
         "command.teacher_content",
+        "en",
+    )
+    assert BULK_EDIT_COMMAND.to_bot_command("en").description == translate(
+        "command.bulk_edit",
         "en",
     )

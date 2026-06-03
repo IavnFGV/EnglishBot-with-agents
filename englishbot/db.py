@@ -1005,6 +1005,50 @@ def init_db() -> None:
             ON homework_assignment_items (homework_assignment_id, item_order)
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bulk_edit_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                family_id INTEGER NOT NULL,
+                started_by_user_id INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                export_file_path TEXT,
+                uploaded_file_path TEXT,
+                backup_file_path TEXT,
+                control_message_chat_id INTEGER,
+                control_message_message_id INTEGER,
+                expires_at TEXT NOT NULL,
+                reminded_10m_at TEXT,
+                reminded_3m_at TEXT,
+                expired_notified_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (family_id) REFERENCES families (id),
+                FOREIGN KEY (started_by_user_id) REFERENCES users (telegram_user_id)
+            )
+            """
+        )
+        bulk_edit_session_columns = get_table_columns(connection, "bulk_edit_sessions")
+        if "control_message_chat_id" not in bulk_edit_session_columns:
+            connection.execute(
+                """
+                ALTER TABLE bulk_edit_sessions
+                ADD COLUMN control_message_chat_id INTEGER
+                """
+            )
+        if "control_message_message_id" not in bulk_edit_session_columns:
+            connection.execute(
+                """
+                ALTER TABLE bulk_edit_sessions
+                ADD COLUMN control_message_message_id INTEGER
+                """
+            )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_bulk_edit_sessions_status
+            ON bulk_edit_sessions (status, expires_at)
+            """
+        )
         connection.execute("DROP TABLE IF EXISTS assignment_items")
         connection.execute("DROP TABLE IF EXISTS assignments")
         connection.execute("DROP TABLE IF EXISTS messages")

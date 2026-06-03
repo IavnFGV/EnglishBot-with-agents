@@ -89,6 +89,12 @@ TEACHER_CONTENT_COMMAND = CommandDefinition(
     scope="teacher",
     register_after_startup=True,
 )
+BULK_EDIT_COMMAND = CommandDefinition(
+    name="bulk_edit",
+    description_key="command.bulk_edit",
+    scope="teacher",
+    register_after_startup=True,
+)
 
 ALL_COMMANDS = (
     START_COMMAND,
@@ -102,6 +108,7 @@ ALL_COMMANDS = (
     ADD_FAMILY_COMMAND,
     TOPICS_COMMAND,
     TEACHER_CONTENT_COMMAND,
+    BULK_EDIT_COMMAND,
 )
 
 
@@ -117,6 +124,7 @@ def get_registered_commands() -> tuple[CommandDefinition, ...]:
         SEED_DEMO_COMMAND,
         TOPICS_COMMAND,
         TEACHER_CONTENT_COMMAND,
+        BULK_EDIT_COMMAND,
     )
 
 

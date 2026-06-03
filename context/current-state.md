@@ -29,13 +29,16 @@
 - `/topics` is now family-first end to end: family learners open shared family topics directly, without grants, published runtime copies, or `student_topic_access`.
 - The focused `/topics` handler tests now also run on family topics directly, so the Telegram topic-picker coverage no longer relies on invite/join scaffolding.
 - `/teacher_content` and `/create_assignment` are now family-first on the active runtime path: both entrypoints require family membership and work only against family-owned topics/items.
+- `/bulk_edit` now provides the first working family-first `.xlsx` bulk editing path: any family member can export the current family workbook, edit it offline, upload it back, and apply it through one validation-first, backup-first transaction.
+- Only one bulk edit session may be active across the whole bot at a time; while it is active, normal commands and callback flows are globally gated, the initiator gets a specialized prompt, and reminder/expiration messages are handled by a small background monitor.
+- Family workbook import/export is now an explicit projection layer in focused modules (`bulk_edit.py`, `workbook_export.py`, `workbook_import.py`): `image_ref` stays the source of truth, `image` is display-only and exported as a Google Sheets `IMAGE()` formula when a usable URL exists, and workbook rows missing from the uploaded file are archived rather than hard-deleted.
 - The assignment topic picker now exposes dialog-compatible topic ids again, so `/create_assignment` no longer crashes on the topic-selection screen with `KeyError: 'id'` during `aiogram-dialog` select rendering.
 - The teacher content and assignment flows no longer need starter-content bootstrap or virtual offset ids to reach family data; the focused dialog and handler tests now seed family content directly.
 - The active teacher content and assignment dialogs now store family ids directly in dialog state instead of carrying the old workspace-shaped UI flow.
 - The teacher-content overview card now safely ignores Telegram's exact `message is not modified` no-op when returning from prompt screens, so family authoring no longer throws on unchanged overview resyncs.
 - The focused assignment-dialog handler tests now also run the main topic/words/recipient/confirm path on family content directly, and the family confirm snapshot bug in `teacher_assignments.py` has been fixed.
 - The old `teacher_student.py` invite helper, `simple_mode.py`, and their dedicated tests are now deleted.
-- The active registered command list is now family-first plus owner bootstrap support: `/start`, `/help`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/seed_demo`, `/topics`, and `/teacher_content`.
+- The active registered command list is now family-first plus owner bootstrap support: `/start`, `/help`, `/learn`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/seed_demo`, `/topics`, `/teacher_content`, and `/bulk_edit`.
 - Legacy admin, invite/join, assign/grant, and workbook Telegram handlers have been deleted from the active bot runtime and from the codebase.
 - The old `/admin` env config tail is gone too: `.env.example` no longer documents `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID`, and `englishbot/config.py` no longer exposes an admin-id helper.
 - The old publish shell is now gone from the active teacher UI too: `teacher_content` no longer exposes publish buttons or publish target screens, and the dead publish/granttopic i18n strings have been removed.

@@ -17,7 +17,7 @@
 - User/i18n: `user_profiles.py`, `i18n.py`, `settings_handlers.py`
 - Family-first domain slice: `families.py`
 - Learning domain: `vocabulary.py`, `topics.py`, `assets.py`, `exercises.py`, `training.py`
-- Family-first workflows: `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`
+- Family-first workflows: `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`, `bulk_edit.py`, `workbook_export.py`, `workbook_import.py`
 - Telegram orchestration: `*_handlers.py`
 - Multi-step Telegram UI: `homework_dialog.py`, `teacher_assignment_dialog.py`, `teacher_content_dialog.py`
 - Operations: `logging_setup.py`, `build_info.py`, `status_server.py`
@@ -33,6 +33,7 @@
 
 ## Major flows
 - Family authoring: `/teacher_content` edits shared family topics, items, translations, and linked assets through aiogram-dialog.
+- Family bulk editing: `/bulk_edit` exports one family workbook, opens one global gated bulk-edit session, and applies the returned `.xlsx` back into SQLite through validation-first import.
 - Assignment creation: `/create_assignment` persists family homework assignments for family members.
 - The active authoring and assignment flows resolve directly through family membership without invite/join, grants, or workspace bootstrap.
 - Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`.
@@ -51,8 +52,9 @@
 - Schema bootstrap and migrations live in `db.py`.
 - The repository uses SQLite through stdlib `sqlite3`.
 - Sessions, homework, topic access, and content all persist in SQLite.
+- Bulk edit sessions also persist in SQLite so the bot can enforce one active workbook session globally and recover gating state after restart.
 - The active family-first schema no longer bootstraps `workspaces`, `workspace_members`, `invites`, `student_topic_access`, `assignments`, or `assignment_items`.
-- Workbook files and Telegram message state are integration surfaces, not primary storage.
+- Workbook files and Telegram message state are integration surfaces, not primary storage; family workbook apply is backup-first and atomic, and missing workbook rows archive family content instead of hard-deleting it.
 
 ## Testing strategy
 - The project uses focused `pytest` files by module or flow.

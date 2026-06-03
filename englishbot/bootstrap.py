@@ -1,6 +1,9 @@
 import logging
 import os
+import contextlib
+import asyncio
 from .bot import configure_bot_commands, dispatcher
+from .bulk_edit import run_bulk_edit_monitor
 from .build_info import format_startup_banner, load_build_info
 from .config import load_environment
 from .db import init_db
@@ -39,10 +42,14 @@ async def run() -> None:
         STATUS_SERVER_PORT,
     )
     bot = build_bot()
+    bulk_edit_monitor_task = asyncio.create_task(run_bulk_edit_monitor(bot))
     try:
         await configure_bot_commands(bot)
         logger.info("Starting EnglishBot with long polling")
         await dispatcher.start_polling(bot)
     finally:
+        bulk_edit_monitor_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await bulk_edit_monitor_task
         status_server.close()
         await status_server.wait_closed()

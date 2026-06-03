@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-06-03
+- Restored a first working family-first workbook bulk-edit flow through `/bulk_edit`: the bot now exports family content to a human-editable `.xlsx`, allows one globally gated bulk-edit session at a time, accepts an uploaded workbook back from the initiator, creates a full SQLite backup before apply, validates the workbook before writing, applies the import atomically, archives family rows missing from the workbook instead of hard-deleting them, and exports a display-only `image` column beside `image_ref` as a Google Sheets `IMAGE()` formula when a usable URL is available.
+- Added focused coverage for the new workbook/bulk-edit slice: session exclusivity and expiry, bot-wide gate behavior, workbook export shape, atomic import behavior, backup creation/retention, `image`-column ignore semantics on import, and the upload-then-apply Telegram handler path.
+- Updated navigation docs for the new slice: `docs/module-map.md` now has a dedicated family workbook bulk-edit row, and `docs/architecture.md` now lists the new workbook/bulk-edit modules and their persistence/runtime role.
 - Added `chain_of_commands/051-family-bulk-edit-via-xlsx.md`, a replayable prompt for restoring the older `.xlsx` workbook editing flow from project history onto the current family-first runtime, with a single global bulk-edit session, bot-wide gating, backup-before-apply, archive-on-missing semantics, and a display-only `image` column exported as a Google Sheets `IMAGE()` formula beside `image_ref`.
 - Added `chain_of_commands/050-unknown-intent-recovery-notice.md`, a single replayable prompt for the expired-dialog recovery slice around `UnknownIntent` logging plus a user-facing restart notice.
 - Improved expired dialog UX: `UnknownIntent` now still logs as a warning, but also sends a localized recovery message telling the user that the screen is no longer active and they should reopen `/start` and begin again.
