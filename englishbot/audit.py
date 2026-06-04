@@ -1,4 +1,6 @@
 from json import dumps
+import logging
+import sqlite3
 from typing import Any, Awaitable, Callable
 
 from aiogram import Bot
@@ -8,6 +10,9 @@ from aiogram.methods.base import TelegramMethod
 from aiogram.types import Update
 
 from .db import save_interaction
+
+
+logger = logging.getLogger(__name__)
 
 
 def serialize_content(value: Any) -> str:
@@ -76,7 +81,7 @@ class InteractionLoggingMiddleware(BaseMiddleware):
     ) -> Any:
         telegram_user_id, interaction_type, content = extract_incoming_interaction(event)
         if telegram_user_id is not None:
-            save_interaction(telegram_user_id, "in", interaction_type, content)
+            _save_interaction_safely(telegram_user_id, "in", interaction_type, content)
         return await handler(event, data)
 
 
@@ -90,5 +95,26 @@ class OutgoingLoggingMiddleware(BaseRequestMiddleware):
         result = await make_request(bot, method)
         telegram_user_id, interaction_type, content = extract_outgoing_interaction(method)
         if telegram_user_id is not None:
-            save_interaction(telegram_user_id, "out", interaction_type, content)
+            _save_interaction_safely(telegram_user_id, "out", interaction_type, content)
         return result
+
+
+def _save_interaction_safely(
+    telegram_user_id: int,
+    direction: str,
+    interaction_type: str,
+    content: str,
+) -> None:
+    try:
+        save_interaction(telegram_user_id, direction, interaction_type, content)
+    except sqlite3.OperationalError as exc:
+        if "locked" in str(exc).lower():
+            logger.warning(
+                "Skipping interaction audit write because SQLite is locked: "
+                "telegram_user_id=%s direction=%s interaction_type=%s",
+                telegram_user_id,
+                direction,
+                interaction_type,
+            )
+            return
+        raise

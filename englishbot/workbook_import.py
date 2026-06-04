@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from inspect import signature
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from openpyxl import load_workbook
 
@@ -12,8 +14,10 @@ from .assets import (
     ASSET_TYPE_IMAGE,
     PRIMARY_AUDIO_ROLE,
     PRIMARY_IMAGE_ROLE,
+    download_remote_asset_content,
     replace_learning_item_assets_for_role,
-    store_remote_asset,
+    resolve_runtime_asset_path,
+    store_workbook_import_asset,
 )
 from .bulk_edit import create_bulk_edit_backup
 from .db import get_connection, utc_now
@@ -42,12 +46,48 @@ class WorkbookImportRow:
 
 
 @dataclass(frozen=True)
+class PreparedAssetRef:
+    source_url: str | None
+    local_path: str
+    staged_local_path: str | None = None
+
+
+@dataclass(frozen=True)
+class PreparedWorkbookImportRow:
+    row_number: int
+    item_key: str
+    text: str
+    translations: dict[str, str]
+    topic_titles: list[str]
+    image_asset: PreparedAssetRef | None
+    audio_asset: PreparedAssetRef | None
+    is_archived: bool
+
+
+@dataclass(frozen=True)
+class PreparedFamilyWorkbookImport:
+    rows: list[PreparedWorkbookImportRow]
+    staged_asset_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class WorkbookImportProgress:
+    phase: str
+    processed_rows: int
+    total_rows: int
+    current_item_text: str = ""
+
+
+@dataclass(frozen=True)
 class FamilyWorkbookImportSummary:
     created: int
     updated: int
     archived: int
     unchanged: int
     backup_file_path: Path
+
+
+ProgressCallback = Callable[[WorkbookImportProgress], None]
 
 
 def validate_family_workbook_import(file_path: Path, family_id: int) -> list[WorkbookImportRow]:
@@ -99,7 +139,6 @@ def validate_family_workbook_import(file_path: Path, family_id: int) -> list[Wor
             errors.append(f"Row {row_number}: invalid is_archived value {normalized['is_archived']!r}.")
             is_archived = False
 
-        topic_titles = _parse_topic_titles(normalized["topics"])
         rows.append(
             WorkbookImportRow(
                 row_number=row_number,
@@ -110,7 +149,7 @@ def validate_family_workbook_import(file_path: Path, family_id: int) -> list[Wor
                     for language_code in ("ru", "uk", "bg")
                     if normalized[f"translation_{language_code}"]
                 },
-                topic_titles=topic_titles,
+                topic_titles=_parse_topic_titles(normalized["topics"]),
                 image_ref=normalized["image_ref"],
                 audio_ref=normalized["audio_ref"],
                 is_archived=is_archived,
@@ -122,16 +161,60 @@ def validate_family_workbook_import(file_path: Path, family_id: int) -> list[Wor
     return rows
 
 
-def apply_family_workbook_import(
+def prepare_family_workbook_import(
     file_path: Path,
     family_id: int,
-    started_by_user_id: int,
     rows: list[WorkbookImportRow] | None = None,
-) -> FamilyWorkbookImportSummary:
+    progress_callback: ProgressCallback | None = None,
+) -> PreparedFamilyWorkbookImport:
     if rows is None:
         rows = validate_family_workbook_import(file_path, family_id)
-    backup_file_path = create_bulk_edit_backup(family_id=family_id, user_id=started_by_user_id)
 
+    existing_asset_refs = _load_existing_asset_refs(family_id)
+    prepared_rows: list[PreparedWorkbookImportRow] = []
+    staged_asset_paths: list[str] = []
+    total_rows = len(rows)
+
+    try:
+        for row_index, row in enumerate(rows, start=1):
+            prepared_row = _prepare_row(
+                row,
+                existing_asset_refs=existing_asset_refs.get(_parse_item_key(row.item_key) or -1, {}),
+            )
+            prepared_rows.append(prepared_row)
+            for asset in (prepared_row.image_asset, prepared_row.audio_asset):
+                if asset is not None and asset.staged_local_path:
+                    staged_asset_paths.append(asset.staged_local_path)
+            _report_progress(
+                progress_callback,
+                WorkbookImportProgress(
+                    phase="preparing",
+                    processed_rows=row_index,
+                    total_rows=total_rows,
+                    current_item_text=row.text,
+                ),
+            )
+    except Exception:
+        _cleanup_staged_asset_paths(staged_asset_paths)
+        raise
+
+    return PreparedFamilyWorkbookImport(
+        rows=prepared_rows,
+        staged_asset_paths=tuple(staged_asset_paths),
+    )
+
+
+def cleanup_prepared_family_workbook_import(prepared_import: PreparedFamilyWorkbookImport) -> None:
+    _cleanup_staged_asset_paths(prepared_import.staged_asset_paths)
+
+
+def apply_prepared_family_workbook_import(
+    family_id: int,
+    prepared_import: PreparedFamilyWorkbookImport,
+    backup_file_path: Path,
+    progress_callback: ProgressCallback | None = None,
+) -> FamilyWorkbookImportSummary:
+    total_rows = len(prepared_import.rows)
     summary = {
         "created": 0,
         "updated": 0,
@@ -146,7 +229,7 @@ def apply_family_workbook_import(
 
         try:
             connection.execute("BEGIN")
-            for row in rows:
+            for row_index, row in enumerate(prepared_import.rows, start=1):
                 imported_item_id, change_kind = _upsert_learning_item(
                     connection,
                     family_id,
@@ -158,6 +241,15 @@ def apply_family_workbook_import(
                 if not row.is_archived:
                     for topic_title in row.topic_titles:
                         active_topic_membership.setdefault(topic_title, []).append(imported_item_id)
+                _report_progress(
+                    progress_callback,
+                    WorkbookImportProgress(
+                        phase="applying",
+                        processed_rows=row_index,
+                        total_rows=total_rows,
+                        current_item_text=row.text,
+                    ),
+                )
 
             for item_id, item in existing_items.items():
                 if item_id in imported_item_ids:
@@ -181,6 +273,34 @@ def apply_family_workbook_import(
     )
 
 
+def apply_family_workbook_import(
+    file_path: Path,
+    family_id: int,
+    started_by_user_id: int,
+    rows: list[WorkbookImportRow] | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> FamilyWorkbookImportSummary:
+    if rows is None:
+        rows = validate_family_workbook_import(file_path, family_id)
+    backup_file_path = create_bulk_edit_backup(family_id=family_id, user_id=started_by_user_id)
+    prepared_import = prepare_family_workbook_import(
+        file_path,
+        family_id,
+        rows,
+        progress_callback=progress_callback,
+    )
+    try:
+        return apply_prepared_family_workbook_import(
+            family_id,
+            prepared_import,
+            backup_file_path,
+            progress_callback=progress_callback,
+        )
+    except Exception:
+        cleanup_prepared_family_workbook_import(prepared_import)
+        raise
+
+
 def _load_existing_family_item_ids(family_id: int) -> set[int]:
     with get_connection() as connection:
         rows = connection.execute(
@@ -192,6 +312,38 @@ def _load_existing_family_item_ids(family_id: int) -> set[int]:
             (family_id,),
         ).fetchall()
     return {int(row["id"]) for row in rows}
+
+
+def _load_existing_asset_refs(
+    family_id: int,
+) -> dict[int, dict[str, tuple[str, str]]]:
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                learning_items.id AS learning_item_id,
+                learning_item_assets.role,
+                assets.local_path,
+                assets.source_url
+            FROM learning_items
+            LEFT JOIN learning_item_assets
+              ON learning_item_assets.learning_item_id = learning_items.id
+            LEFT JOIN assets
+              ON assets.id = learning_item_assets.asset_id
+            WHERE learning_items.family_id = ?
+            """,
+            (family_id,),
+        ).fetchall()
+    result: dict[int, dict[str, tuple[str, str]]] = {}
+    for row in rows:
+        role = str(row["role"] or "")
+        if not role:
+            continue
+        result.setdefault(int(row["learning_item_id"]), {})[role] = (
+            str(row["local_path"] or ""),
+            str(row["source_url"] or ""),
+        )
+    return result
 
 
 def _load_existing_items(connection: sqlite3.Connection, family_id: int) -> dict[int, sqlite3.Row]:
@@ -220,10 +372,71 @@ def _load_existing_topics(connection: sqlite3.Connection, family_id: int) -> dic
     return {_normalize_topic_identity(str(row["title"])): row for row in rows}
 
 
+def _prepare_row(
+    row: WorkbookImportRow,
+    *,
+    existing_asset_refs: dict[str, tuple[str, str]],
+) -> PreparedWorkbookImportRow:
+    return PreparedWorkbookImportRow(
+        row_number=row.row_number,
+        item_key=row.item_key,
+        text=row.text,
+        translations=row.translations,
+        topic_titles=row.topic_titles,
+        image_asset=_prepare_asset_ref(
+            row.image_ref,
+            role=PRIMARY_IMAGE_ROLE,
+            asset_type=ASSET_TYPE_IMAGE,
+            existing_ref=existing_asset_refs.get(PRIMARY_IMAGE_ROLE),
+        ),
+        audio_asset=_prepare_asset_ref(
+            row.audio_ref,
+            role=PRIMARY_AUDIO_ROLE,
+            asset_type=ASSET_TYPE_AUDIO,
+            existing_ref=existing_asset_refs.get(PRIMARY_AUDIO_ROLE),
+        ),
+        is_archived=row.is_archived,
+    )
+
+
+def _prepare_asset_ref(
+    asset_ref: str,
+    *,
+    role: str,
+    asset_type: str,
+    existing_ref: tuple[str, str] | None,
+) -> PreparedAssetRef | None:
+    del role
+    normalized_ref = asset_ref.strip()
+    if not normalized_ref:
+        return None
+    if not normalized_ref.startswith(("http://", "https://")):
+        return PreparedAssetRef(source_url=None, local_path=normalized_ref)
+
+    existing_local_path, existing_source_url = existing_ref or ("", "")
+    if existing_source_url == normalized_ref and existing_local_path:
+        return PreparedAssetRef(
+            source_url=normalized_ref,
+            local_path=existing_local_path,
+        )
+
+    content = download_remote_asset_content(asset_type, normalized_ref)
+    local_path = store_workbook_import_asset(
+        asset_type,
+        content,
+        source_url=normalized_ref,
+    )
+    return PreparedAssetRef(
+        source_url=normalized_ref,
+        local_path=local_path,
+        staged_local_path=local_path,
+    )
+
+
 def _upsert_learning_item(
     connection: sqlite3.Connection,
     family_id: int,
-    row: WorkbookImportRow,
+    row: PreparedWorkbookImportRow,
     existing_items: dict[int, sqlite3.Row],
 ) -> tuple[int, str]:
     existing_item = existing_items.get(_parse_item_key(row.item_key) or -1)
@@ -265,7 +478,7 @@ def _upsert_learning_item(
     return item_id, "unchanged"
 
 
-def _create_learning_item(connection: sqlite3.Connection, family_id: int, row: WorkbookImportRow) -> int:
+def _create_learning_item(connection: sqlite3.Connection, family_id: int, row: PreparedWorkbookImportRow) -> int:
     cursor = connection.execute(
         """
         INSERT INTO learning_items (
@@ -354,22 +567,24 @@ def _sync_translations(
     return changed
 
 
-def _sync_media_assets(connection: sqlite3.Connection, learning_item_id: int, row: WorkbookImportRow) -> bool:
+def _sync_media_assets(
+    connection: sqlite3.Connection,
+    learning_item_id: int,
+    row: PreparedWorkbookImportRow,
+) -> bool:
     image_changed = _replace_asset_ref(
         connection,
         learning_item_id,
         role=PRIMARY_IMAGE_ROLE,
         asset_type=ASSET_TYPE_IMAGE,
-        asset_ref=row.image_ref,
-        default_extension=".jpg",
+        prepared_asset=row.image_asset,
     )
     audio_changed = _replace_asset_ref(
         connection,
         learning_item_id,
         role=PRIMARY_AUDIO_ROLE,
         asset_type=ASSET_TYPE_AUDIO,
-        asset_ref=row.audio_ref,
-        default_extension=".bin",
+        prepared_asset=row.audio_asset,
     )
     return image_changed or audio_changed
 
@@ -380,8 +595,7 @@ def _replace_asset_ref(
     *,
     role: str,
     asset_type: str,
-    asset_ref: str,
-    default_extension: str,
+    prepared_asset: PreparedAssetRef | None,
 ) -> bool:
     existing_assets = connection.execute(
         """
@@ -395,29 +609,35 @@ def _replace_asset_ref(
         """,
         (learning_item_id, role),
     ).fetchall()
-    current_ref = ""
+    current_local_path = ""
+    current_source_url = ""
     if existing_assets:
-        current_ref = str(existing_assets[0]["local_path"] or existing_assets[0]["source_url"] or "")
-    normalized_ref = asset_ref.strip()
-    if current_ref == normalized_ref:
+        current_local_path = str(existing_assets[0]["local_path"] or "")
+        current_source_url = str(existing_assets[0]["source_url"] or "")
+
+    if prepared_asset is None:
+        if not current_local_path and not current_source_url:
+            return False
+        replace_learning_item_assets_for_role(
+            learning_item_id,
+            role,
+            assets=[],
+            connection=connection,
+        )
+        return True
+
+    desired_source_url = prepared_asset.source_url
+    desired_local_path = prepared_asset.local_path
+    if current_local_path == desired_local_path and current_source_url == (desired_source_url or ""):
         return False
 
-    source_url = normalized_ref if normalized_ref.startswith(("http://", "https://")) else None
-    local_path = normalized_ref
-    if source_url is not None:
-        local_path = store_remote_asset(
-            asset_type,
-            source_url,
-            filename_prefix=f"learning-item-{learning_item_id}",
-            default_extension=default_extension,
-        )
     replace_learning_item_assets_for_role(
         learning_item_id,
         role,
-        assets=[] if not normalized_ref else [{
+        assets=[{
             "asset_type": asset_type,
-            "source_url": source_url,
-            "local_path": local_path,
+            "source_url": desired_source_url,
+            "local_path": desired_local_path,
         }],
         connection=connection,
     )
@@ -539,6 +759,27 @@ def _get_or_create_lexeme_id(connection: sqlite3.Connection, lemma: str) -> int:
         (lemma, utc_now(), utc_now()),
     )
     return int(cursor.lastrowid)
+
+
+def _cleanup_staged_asset_paths(asset_paths: tuple[str, ...] | list[str]) -> None:
+    for asset_path in asset_paths:
+        try:
+            resolve_runtime_asset_path(asset_path).unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
+def _report_progress(
+    progress_callback: ProgressCallback | None,
+    event: WorkbookImportProgress,
+) -> None:
+    if progress_callback is None:
+        return
+    parameter_count = len(signature(progress_callback).parameters)
+    if parameter_count <= 1:
+        progress_callback(event)
+        return
+    progress_callback(event.processed_rows, event.total_rows)
 
 
 def _normalize_cell(value: object) -> str:

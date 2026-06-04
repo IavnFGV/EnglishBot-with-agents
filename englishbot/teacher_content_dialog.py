@@ -14,7 +14,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from aiogram_dialog import Dialog, DialogManager, ShowMode, StartMode, Window
 from aiogram_dialog.api.entities.media import MediaAttachment
 from aiogram_dialog.widgets.input import MessageInput
-from aiogram_dialog.widgets.kbd import Button, Column, Row, ScrollingGroup, Select
+from aiogram_dialog.widgets.kbd import Button, Column, Row, Select
 from aiogram_dialog.widgets.media import DynamicMedia
 from aiogram_dialog.widgets.text import Format
 
@@ -36,6 +36,7 @@ from .teacher_content import (
 )
 
 LIST_PAGE_SIZE = 8
+TOPIC_PAGE_KEY = "topic_page"
 TRANSLATION_LANGUAGE_CODES = ("ru", "uk", "bg")
 EDITABLE_FIELDS = ("text", "ru", "uk", "bg", "image_ref", "audio_ref")
 SHOW_ALL_HIDE_CALLBACK = "teacher_content:hide_show_all"
@@ -189,9 +190,8 @@ async def _prev_list_page(
     button: Button,
     dialog_manager: DialogManager,
 ) -> None:
-    page_key = str(button.widget_id)
-    current_page = int(dialog_manager.dialog_data.get(page_key, 0))
-    dialog_manager.dialog_data[page_key] = max(current_page - 1, 0)
+    current_page = int(dialog_manager.dialog_data.get(TOPIC_PAGE_KEY, 0))
+    dialog_manager.dialog_data[TOPIC_PAGE_KEY] = max(current_page - 1, 0)
     await dialog_manager.update({})
 
 
@@ -200,9 +200,8 @@ async def _next_list_page(
     button: Button,
     dialog_manager: DialogManager,
 ) -> None:
-    page_key = str(button.widget_id)
-    current_page = int(dialog_manager.dialog_data.get(page_key, 0))
-    dialog_manager.dialog_data[page_key] = current_page + 1
+    current_page = int(dialog_manager.dialog_data.get(TOPIC_PAGE_KEY, 0))
+    dialog_manager.dialog_data[TOPIC_PAGE_KEY] = current_page + 1
     await dialog_manager.update({})
 
 
@@ -446,24 +445,31 @@ async def get_topics_window_data(
             "teacher.content.unavailable",
         )
         return _build_unavailable_view(user_id)
-    page = _clamp_list_page(dialog_manager, "topic_page", len(topics))
+    page = _clamp_list_page(dialog_manager, TOPIC_PAGE_KEY, len(topics))
     page_items = _slice_page(topics, page)
+    page_offset = page * LIST_PAGE_SIZE
     return {
         "screen_text": _build_topics_screen_text(
             user_id=user_id,
             family_name=family_name,
-            topics=page_items,
             total_count=len(topics),
             current_page=page,
             status_text=_get_status_text(dialog_manager),
         ),
-        "topic_items": page_items,
+        "topic_items": [
+            {
+                **topic,
+                "label": f"{page_offset + index}. {topic['title']} ({topic['item_count']})",
+            }
+            for index, topic in enumerate(page_items, start=1)
+        ],
         "create_label": translate_for_user(user_id, "teacher.content.action.create"),
         "back_label": translate_for_user(user_id, "teacher.content.action.back"),
         "bulk_edit_label": translate_for_user(user_id, "teacher.content.action.bulk_edit"),
         "cancel_label": translate_for_user(user_id, "teacher.content.action.cancel"),
         "prev_label": translate_for_user(user_id, "teacher.content.action.prev"),
         "next_label": translate_for_user(user_id, "teacher.content.action.next"),
+        "has_topics": bool(page_items),
         "has_prev_page": page > 0,
         "has_next_page": (page + 1) * LIST_PAGE_SIZE < len(topics),
     }
@@ -564,7 +570,6 @@ def _build_topics_screen_text(
     *,
     user_id: int,
     family_name: str,
-    topics: list[dict[str, object]],
     total_count: int,
     current_page: int,
     status_text: str | None,
@@ -587,11 +592,8 @@ def _build_topics_screen_text(
             total_items=total_count,
         )
     )
-    if not topics:
+    if total_count == 0:
         lines.append(translate_for_user(user_id, "teacher.content.topics.empty"))
-        return "\n".join(lines)
-    for index, topic in enumerate(topics, start=current_page * LIST_PAGE_SIZE + 1):
-        lines.append(f"{index}. {topic['title']} ({topic['item_count']})")
     return "\n".join(lines)
 
 
@@ -970,21 +972,19 @@ def _get_chat_id(source_message: Message, dialog_manager: DialogManager) -> int 
 teacher_content_dialog = Dialog(
     Window(
         Format("{screen_text}"),
-        ScrollingGroup(
+        Column(
             Select(
-                Format("{item[title]} ({item[item_count]})"),
+                Format("{item[label]}"),
                 id="topic_select",
                 item_id_getter=lambda item: item["id"],
                 items="topic_items",
                 on_click=_on_topic_selected,
             ),
-            id="topic_scroll",
-            width=1,
-            height=LIST_PAGE_SIZE,
+            when="has_topics",
         ),
         Row(
-            Button(Format("{prev_label}"), id="topic_page", on_click=_prev_list_page, when="has_prev_page"),
-            Button(Format("{next_label}"), id="topic_page", on_click=_next_list_page, when="has_next_page"),
+            Button(Format("{prev_label}"), id="topic_prev_page", on_click=_prev_list_page, when="has_prev_page"),
+            Button(Format("{next_label}"), id="topic_next_page", on_click=_next_list_page, when="has_next_page"),
         ),
         Row(
             Button(Format("{create_label}"), id="create_topic", on_click=_open_create_topic),
@@ -1054,4 +1054,6 @@ on_topic_selected = _on_topic_selected
 open_create_topic = _open_create_topic
 open_edit_prompt = _open_edit_prompt
 prev_item = _prev_item
+prev_topic_page = _prev_list_page
 show_all_items = _show_all_items
+next_topic_page = _next_list_page

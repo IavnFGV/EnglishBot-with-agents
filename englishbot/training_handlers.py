@@ -1,4 +1,6 @@
 import logging
+from pathlib import Path
+from urllib.parse import urlparse
 
 from aiogram import F
 from aiogram.filters import Command
@@ -41,6 +43,24 @@ TRAINING_MEDIUM_BACKSPACE_CALLBACK = "training:medium:backspace"
 TRAINING_MEDIUM_CHECK_CALLBACK = "training:medium:check"
 TRAINING_HARD_SKIP_CALLBACK = "training:hard:skip"
 logger = logging.getLogger(__name__)
+
+
+def _resolve_question_photo_path(question: dict[str, object]) -> str | None:
+    image_ref = str(question.get("image_ref") or "").strip()
+    if not image_ref:
+        return None
+
+    parsed = urlparse(image_ref)
+    if parsed.scheme and parsed.scheme != "file":
+        return None
+
+    candidate = Path(parsed.path if parsed.scheme == "file" else image_ref)
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    if not candidate.is_file():
+        logger.warning("Training question image is unavailable: %s", image_ref)
+        return None
+    return str(candidate)
 def _build_easy_options_keyboard(question: dict[str, object]) -> InlineKeyboardMarkup | None:
     options = question.get("options")
     if question.get("exercise_type") != "multiple_choice" or not isinstance(options, list):
@@ -288,6 +308,132 @@ def _render_question_text(
     return f"{feedback}\n{question_text}"
 
 
+async def _send_question_message(
+    anchor_message: Message,
+    telegram_user_id: int,
+    question: dict[str, object],
+    *,
+    feedback: str | None = None,
+):
+    question_text = _render_question_text(telegram_user_id, question, feedback=feedback)
+    reply_markup = _build_question_keyboard(telegram_user_id, question)
+    photo_path = _resolve_question_photo_path(question)
+    if photo_path is not None:
+        answer_photo = getattr(anchor_message, "answer_photo", None)
+        if callable(answer_photo):
+            try:
+                return await answer_photo(
+                    FSInputFile(photo_path),
+                    caption=question_text,
+                    reply_markup=reply_markup,
+                )
+            except Exception as exc:
+                logger.warning("Could not send training question image, falling back to text: %s", exc)
+    return await anchor_message.answer(question_text, reply_markup=reply_markup)
+
+
+async def _edit_question_message_in_place(
+    anchor_message: Message,
+    telegram_user_id: int,
+    question: dict[str, object],
+    *,
+    feedback: str | None = None,
+) -> bool:
+    question_message_id = question.get("question_message_id")
+    if question_message_id is None:
+        return False
+
+    question_text = _render_question_text(telegram_user_id, question, feedback=feedback)
+    reply_markup = _build_question_keyboard(telegram_user_id, question)
+    photo_path = _resolve_question_photo_path(question)
+    try:
+        if photo_path is None:
+            await anchor_message.bot.edit_message_text(
+                chat_id=anchor_message.chat.id,
+                message_id=int(question_message_id),
+                text=question_text,
+                reply_markup=reply_markup,
+            )
+        else:
+            await anchor_message.bot.edit_message_media(
+                chat_id=anchor_message.chat.id,
+                message_id=int(question_message_id),
+                media=InputMediaPhoto(
+                    media=FSInputFile(photo_path),
+                    caption=question_text,
+                ),
+                reply_markup=reply_markup,
+            )
+        return True
+    except Exception as exc:
+        error_text = str(exc).lower()
+        if "not modified" in error_text:
+            return True
+        logger.warning("Could not edit training question in place: %s", exc)
+        return False
+
+
+async def _replace_question_message(
+    anchor_message: Message,
+    telegram_user_id: int,
+    session: object,
+    question: dict[str, object],
+    *,
+    feedback: str | None = None,
+) -> None:
+    await _delete_previous_question_message(anchor_message, session)
+    question_message = await _send_question_message(
+        anchor_message,
+        telegram_user_id,
+        question,
+        feedback=feedback,
+    )
+    set_training_session_current_question_message_id(
+        int(question["session_id"]),
+        getattr(question_message, "message_id", None),
+    )
+
+
+async def _render_question_message(
+    anchor_message: Message,
+    telegram_user_id: int,
+    session: object,
+    question: dict[str, object],
+    *,
+    previous_question: dict[str, object] | None = None,
+    feedback: str | None = None,
+) -> None:
+    previous_has_photo = (
+        _resolve_question_photo_path(previous_question) is not None
+        if previous_question is not None
+        else None
+    )
+    next_has_photo = _resolve_question_photo_path(question) is not None
+    question_with_message_id = dict(question)
+    question_with_message_id["question_message_id"] = session["current_question_message_id"]
+
+    if (
+        session["current_question_message_id"] is not None
+        and previous_has_photo is not None
+        and previous_has_photo == next_has_photo
+    ):
+        if await _edit_question_message_in_place(
+            anchor_message,
+            telegram_user_id,
+            question_with_message_id,
+            feedback=feedback,
+        ):
+            return
+
+    await _replace_question_message(
+        anchor_message,
+        telegram_user_id,
+        session,
+        question,
+        feedback=feedback,
+    )
+
+
 async def render_started_training_session(message: Message, telegram_user_id: int) -> None:
     session = get_active_training_session(telegram_user_id)
     question = get_current_question(telegram_user_id)
@@ -336,9 +482,10 @@ async def render_started_training_session(message: Message, telegram_user_id: in
         getattr(progress_message, "message_id", None),
     )
 
-    question_message = await message.answer(
-        _render_question_text(telegram_user_id, question),
-        reply_markup=_build_question_keyboard(telegram_user_id, question),
+    question_message = await _send_question_message(
+        message,
+        telegram_user_id,
+        question,
     )
     set_training_session_current_question_message_id(
         int(question["session_id"]),
@@ -455,29 +602,13 @@ async def _delete_progress_message(anchor_message: Message, session: object) -> 
         return
 
 
-async def _send_next_question_message(
-    anchor_message: Message,
-    telegram_user_id: int,
-    question: dict[str, object],
-    *,
-    feedback: str | None = None,
-) -> None:
-    question_message = await anchor_message.answer(
-        _render_question_text(telegram_user_id, question, feedback=feedback),
-        reply_markup=_build_question_keyboard(telegram_user_id, question),
-    )
-    set_training_session_current_question_message_id(
-        int(question["session_id"]),
-        getattr(question_message, "message_id", None),
-    )
-
-
 async def _process_training_answer(
     anchor_message: Message,
     telegram_user_id: int,
     answer_text: str,
 ) -> None:
     session = get_active_training_session(telegram_user_id)
+    current_question = get_current_question(telegram_user_id)
     if session is None:
         return
 
@@ -533,11 +664,12 @@ async def _process_training_answer(
         stage_key=str(next_question["current_stage"]),
         hard_unlocked=bool(next_question["hard_unlocked"]),
     )
-    await _delete_previous_question_message(anchor_message, session)
-    await _send_next_question_message(
+    await _render_question_message(
         anchor_message,
         telegram_user_id,
+        session,
         next_question,
+        previous_question=current_question,
         feedback=feedback,
     )
 
@@ -612,15 +744,13 @@ async def _refresh_current_question_message(
 ) -> None:
     if callback.message is None:
         return
-    try:
-        await callback.message.bot.edit_message_text(
-            chat_id=callback.message.chat.id,
-            message_id=callback.message.message_id,
-            text=_render_question_text(telegram_user_id, question),
-            reply_markup=_build_question_keyboard(telegram_user_id, question),
-        )
-    except Exception:
-        return
+    question_with_message_id = dict(question)
+    question_with_message_id["question_message_id"] = callback.message.message_id
+    await _edit_question_message_in_place(
+        callback.message,
+        telegram_user_id,
+        question_with_message_id,
+    )
 
 
 @router.callback_query(
@@ -673,6 +803,7 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
         return
 
     session = get_active_training_session(callback.from_user.id)
+    current_question = get_current_question(callback.from_user.id)
     if session is None:
         return
     result = skip_optional_hard(callback.from_user.id)
@@ -715,10 +846,11 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
         stage_key=str(next_question["current_stage"]),
         hard_unlocked=bool(next_question["hard_unlocked"]),
     )
-    await _delete_previous_question_message(callback.message, session)
-    await _send_next_question_message(
+    await _render_question_message(
         callback.message,
         callback.from_user.id,
+        session,
         next_question,
+        previous_question=current_question,
         feedback=translate_for_user(callback.from_user.id, "training.hard_skipped"),
     )

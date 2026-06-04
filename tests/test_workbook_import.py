@@ -1,18 +1,27 @@
 import sys
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from openpyxl import load_workbook
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.assets import PRIMARY_IMAGE_ROLE, resolve_asset_ref_for_role
+from englishbot.assets import PRIMARY_IMAGE_ROLE, resolve_asset_ref_for_role, resolve_runtime_asset_path
 from englishbot.families import create_family, create_family_learning_item, create_family_topic, list_family_topics, replace_topic_items
 from englishbot.topics import get_topic_learning_item_ids
 from englishbot.vocabulary import get_learning_item, list_learning_item_translations, create_learning_item_translation, create_lexeme
 from englishbot.workbook_export import export_family_workbook
-from englishbot.workbook_import import WorkbookImportValidationError, apply_family_workbook_import
+from englishbot.workbook_import import (
+    WorkbookImportValidationError,
+    apply_family_workbook_import,
+    apply_prepared_family_workbook_import,
+    prepare_family_workbook_import,
+    validate_family_workbook_import,
+)
 
 
 def setup_db(tmp_path: Path, monkeypatch) -> int:
@@ -42,6 +51,13 @@ def seed_family_content(family_id: int) -> tuple[int, int]:
             connection=connection,
         )
     return first_item_id, second_item_id
+
+
+def make_png_bytes() -> bytes:
+    buffer = BytesIO()
+    image = Image.new("RGB", (1, 1), color="red")
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def test_import_updates_creates_archives_and_ignores_display_only_image_column(tmp_path: Path, monkeypatch) -> None:
@@ -154,3 +170,134 @@ def test_import_accepts_excel_style_float_archive_flags(tmp_path: Path, monkeypa
 
     assert summary.updated == 0
     assert get_learning_item(first_item_id)["is_archived"] == 0
+
+
+def test_import_reports_row_level_progress(tmp_path: Path, monkeypatch) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-progress.xlsx").file_path
+    progress_events: list[tuple[str, int, int]] = []
+
+    summary = apply_family_workbook_import(
+        workbook_path,
+        family_id,
+        started_by_user_id=1401,
+        progress_callback=lambda event: progress_events.append(
+            (event.phase, event.processed_rows, event.total_rows)
+        ),
+    )
+
+    assert summary.unchanged == 2
+    assert progress_events == [
+        ("preparing", 1, 2),
+        ("preparing", 2, 2),
+        ("applying", 1, 2),
+        ("applying", 2, 2),
+    ]
+
+
+def test_backup_failure_prevents_any_import_work_from_starting(tmp_path: Path, monkeypatch) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    first_item_id, _ = seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-backup-fail.xlsx").file_path
+    prepare_called = False
+
+    def fail_backup(*args, **kwargs):
+        raise RuntimeError("backup failed")
+
+    def fake_prepare(*args, **kwargs):
+        nonlocal prepare_called
+        prepare_called = True
+        return SimpleNamespace(rows=[], staged_asset_paths=())
+
+    monkeypatch.setattr("englishbot.workbook_import.create_bulk_edit_backup", fail_backup)
+    monkeypatch.setattr("englishbot.workbook_import.prepare_family_workbook_import", fake_prepare)
+
+    with pytest.raises(RuntimeError, match="backup failed"):
+        apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
+
+    assert prepare_called is False
+    assert get_learning_item(first_item_id)["text"] == "apple"
+
+
+def test_failed_remote_asset_download_leaves_sqlite_unchanged_and_cleans_staging(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    first_item_id, second_item_id = seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-remote-fail.xlsx").file_path
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["learning_items"]
+    sheet["G2"] = "https://example.com/apple.png"
+    sheet["G3"] = "https://example.com/pear.png"
+    workbook.save(workbook_path)
+
+    calls = {"count": 0}
+
+    def fake_download(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return make_png_bytes()
+        raise RuntimeError("download failed")
+
+    monkeypatch.setattr("englishbot.workbook_import.download_remote_asset_content", fake_download)
+
+    with pytest.raises(RuntimeError, match="download failed"):
+        apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
+
+    assert get_learning_item(first_item_id)["text"] == "apple"
+    assert get_learning_item(second_item_id)["text"] == "pear"
+    staged_dir = resolve_runtime_asset_path("assets/workbook-import/image")
+    assert not staged_dir.exists() or list(staged_dir.iterdir()) == []
+
+
+def test_failed_image_validation_leaves_sqlite_unchanged(tmp_path: Path, monkeypatch) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    first_item_id, _ = seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-invalid-image.xlsx").file_path
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["learning_items"]
+    sheet["G2"] = "https://example.com/apple.png"
+    workbook.save(workbook_path)
+
+    def fail_validation(*args, **kwargs):
+        raise ValueError("image content from https://example.com/apple.png is not a valid image")
+
+    monkeypatch.setattr("englishbot.workbook_import.download_remote_asset_content", fail_validation)
+
+    with pytest.raises(ValueError, match="not a valid image"):
+        apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
+
+    assert get_learning_item(first_item_id)["text"] == "apple"
+
+
+def test_apply_phase_uses_prepared_local_asset_refs_without_network(tmp_path: Path, monkeypatch) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    first_item_id, _ = seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-prepare-apply.xlsx").file_path
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["learning_items"]
+    sheet["G2"] = "https://example.com/apple.png"
+    workbook.save(workbook_path)
+
+    monkeypatch.setattr(
+        "englishbot.workbook_import.download_remote_asset_content",
+        lambda *args, **kwargs: make_png_bytes(),
+    )
+    validated_rows = validate_family_workbook_import(workbook_path, family_id)
+    prepared_import = prepare_family_workbook_import(workbook_path, family_id, validated_rows)
+
+    def fail_network(*args, **kwargs):
+        raise AssertionError("network should not be used during apply")
+
+    monkeypatch.setattr("englishbot.workbook_import.download_remote_asset_content", fail_network)
+
+    summary = apply_prepared_family_workbook_import(
+        family_id,
+        prepared_import,
+        tmp_path / "backups" / "prepared.sqlite3",
+    )
+
+    assert summary.updated == 1
+    assert resolve_asset_ref_for_role(first_item_id, PRIMARY_IMAGE_ROLE).startswith("assets/workbook-import/image/")

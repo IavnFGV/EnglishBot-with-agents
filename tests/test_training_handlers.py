@@ -8,6 +8,7 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.assets import PRIMARY_IMAGE_ROLE, create_asset, link_asset_to_learning_item
 from englishbot.families import (
     add_family_member,
     create_family,
@@ -66,6 +67,7 @@ class FakeBot:
         chat_id: int,
         message_id: int,
         media,
+        reply_markup=None,
     ) -> None:
         if self.fail_edit_media_message is not None:
             raise RuntimeError(self.fail_edit_media_message)
@@ -74,6 +76,7 @@ class FakeBot:
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "media": media,
+                "reply_markup": reply_markup,
             }
         )
 
@@ -142,6 +145,11 @@ def seed_learning_items(item_count: int, *, user: User | None = None) -> User:
     return teacher
 
 
+def attach_primary_image(learning_item_id: int, image_path: Path) -> None:
+    asset_id = create_asset("image", local_path=str(image_path))
+    link_asset_to_learning_item(learning_item_id, asset_id, PRIMARY_IMAGE_ROLE)
+
+
 def seed_family_parent_and_child() -> tuple[User, User, int]:
     parent = make_user(498, "Parent")
     child = make_user(497, "Child")
@@ -179,6 +187,38 @@ def test_learn_renders_one_progress_message_and_one_easy_question(tmp_path: Path
     assert session is not None
     assert session["progress_message_id"] == 1
     assert session["current_question_message_id"] == 2
+
+
+def test_learn_renders_question_photo_when_learning_item_has_image(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(411, "Learner")
+    seed_learning_items(3, user=user)
+    image_path = tmp_path / "card-1.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+
+    assert [answer["text"] for answer in message.answers] == ["Item 1/3\nDone 0/3\nStage: easy"]
+    assert len(message.photo_answers) == 1
+    assert message.photo_answers[0]["kwargs"]["caption"] == "слово-1"
+    keyboard = message.photo_answers[0]["kwargs"]["reply_markup"]
+    assert keyboard is not None
+    assert len(keyboard.inline_keyboard) == 3
+
+
+def test_invalid_question_image_falls_back_to_text_only_card(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(412, "Learner")
+    seed_learning_items(3, user=user)
+    attach_primary_image(1, tmp_path / "missing.png")
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+
+    assert len(message.photo_answers) == 0
+    assert message.answers[-1]["text"] == "слово-1"
 
 
 def test_easy_callback_delegates_selected_option_to_training_logic(tmp_path: Path, monkeypatch) -> None:
@@ -252,17 +292,95 @@ def test_easy_callback_reuses_progress_message_and_replaces_question_message(tmp
     session = get_active_training_session(user.id)
     assert session is not None
     assert session["progress_message_id"] == 1
+    assert session["current_question_message_id"] == 2
+    assert message.bot.edited_messages[0] == {
+        "chat_id": user.id,
+        "message_id": 1,
+        "text": "Item 2/3\nDone 0/3\nStage: easy",
+        "reply_markup": None,
+    }
+    assert message.bot.edited_messages[1]["message_id"] == 2
+    assert message.bot.edited_messages[1]["text"] == "Correct.\nслово-2"
+    assert message.bot.deleted_messages == []
+    assert len(message.bot.edited_messages) == 2
+
+
+def test_easy_callback_image_to_image_updates_question_photo_in_place(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(413, "Learner")
+    seed_learning_items(3, user=user)
+    for index in range(2):
+        image_path = tmp_path / f"card-{index}.png"
+        image_path.write_bytes(b"fake image")
+        attach_primary_image(index + 1, image_path)
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+
+    keyboard = message.photo_answers[0]["kwargs"]["reply_markup"]
+    correct_index = _find_keyboard_index_by_label(keyboard, "word-1")
+    callback = FakeCallback(user, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", message)
+
+    asyncio.run(answer_training_easy(callback))
+
+    session = get_active_training_session(user.id)
+    assert session is not None
+    assert session["current_question_message_id"] == 2
+    assert len(message.photo_answers) == 1
+    assert message.bot.deleted_messages == []
+    assert message.bot.edited_media[-1]["message_id"] == 2
+    assert message.bot.edited_media[-1]["media"].caption == "Correct.\nслово-2"
+
+
+def test_easy_callback_no_image_to_image_replaces_text_question_with_photo(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(414, "Learner")
+    seed_learning_items(3, user=user)
+    image_path = tmp_path / "card-2.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(2, image_path)
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+
+    keyboard = message.answers[1]["kwargs"]["reply_markup"]
+    correct_index = _find_keyboard_index_by_label(keyboard, "word-1")
+    callback = FakeCallback(user, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", message)
+
+    asyncio.run(answer_training_easy(callback))
+
+    session = get_active_training_session(user.id)
+    assert session is not None
     assert session["current_question_message_id"] == 3
-    assert message.bot.edited_messages == [
-        {
-            "chat_id": user.id,
-            "message_id": 1,
-            "text": "Item 2/3\nDone 0/3\nStage: easy",
-            "reply_markup": None,
-        }
-    ]
+    assert message.bot.deleted_messages == [{"chat_id": user.id, "message_id": 2}]
+    assert len(message.photo_answers) == 1
+    assert message.photo_answers[-1]["message_id"] == 3
+    assert message.photo_answers[-1]["kwargs"]["caption"] == "Correct.\nслово-2"
+
+
+def test_easy_callback_image_to_no_image_replaces_photo_question_with_text(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(415, "Learner")
+    seed_learning_items(3, user=user)
+    image_path = tmp_path / "card-1.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+
+    keyboard = message.photo_answers[0]["kwargs"]["reply_markup"]
+    correct_index = _find_keyboard_index_by_label(keyboard, "word-1")
+    callback = FakeCallback(user, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", message)
+
+    asyncio.run(answer_training_easy(callback))
+
+    session = get_active_training_session(user.id)
+    assert session is not None
+    assert session["current_question_message_id"] == 3
     assert message.bot.deleted_messages == [{"chat_id": user.id, "message_id": 2}]
     assert message.answers[-1]["message_id"] == 3
+    assert message.answers[-1]["text"] == "Correct.\nслово-2"
 
 
 def test_question_deletion_failures_are_tolerated_safely(tmp_path: Path) -> None:
@@ -282,8 +400,8 @@ def test_question_deletion_failures_are_tolerated_safely(tmp_path: Path) -> None
 
     session = get_active_training_session(user.id)
     assert session is not None
-    assert session["current_question_message_id"] == 3
-    assert message.answers[-1]["message_id"] == 3
+    assert session["current_question_message_id"] == 2
+    assert message.answers[-1]["message_id"] == 2
 
 
 def test_text_answers_are_ignored_for_medium_stage(tmp_path: Path) -> None:
@@ -362,6 +480,37 @@ def test_medium_callbacks_assemble_and_remove_letters(tmp_path: Path) -> None:
     assert letter_buttons2[0].callback_data == f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}0"
 
 
+def test_medium_question_with_image_updates_photo_caption_and_keyboard(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(416, "Learner")
+    seed_learning_items(1, user=user)
+    image_path = tmp_path / "medium-card.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    asyncio.run(render_started_training_session(message, user.id))
+
+    session = get_active_training_session(user.id)
+    assert session is not None
+    message.message_id = int(session["current_question_message_id"])
+    question = get_current_question(user.id)
+    assert question is not None
+
+    asyncio.run(
+        answer_training_medium_add(
+            FakeCallback(user, f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}0", message)
+        )
+    )
+
+    assert message.bot.edited_media[-1]["message_id"] == int(session["current_question_message_id"])
+    assert "Answer: " in message.bot.edited_media[-1]["media"].caption
+    assert message.bot.edited_media[-1]["reply_markup"] is not None
+
+
 def test_medium_check_uses_assembled_answer_and_advances(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(410, "Learner")
@@ -407,6 +556,31 @@ def test_text_answers_render_hint_and_first_letter_for_hard_stage(tmp_path: Path
 
     assert "Hint: слово-1" in start_message.answers[-1]["text"]
     assert "First letter: w" in start_message.answers[-1]["text"]
+
+
+def test_hard_stage_with_image_keeps_photo_question_card_and_skip_keyboard(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(417, "Learner")
+    seed_learning_items(1, user=user)
+    image_path = tmp_path / "hard-card.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+    start_message = FakeMessage(user)
+
+    asyncio.run(learn(start_message))
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    asyncio.run(render_started_training_session(start_message, user.id))
+
+    assert len(start_message.photo_answers) >= 2
+    hard_card = start_message.photo_answers[-1]
+    assert "Hint: слово-1" in hard_card["kwargs"]["caption"]
+    assert "First letter: w" in hard_card["kwargs"]["caption"]
+    keyboard = hard_card["kwargs"]["reply_markup"]
+    assert keyboard is not None
+    assert keyboard.inline_keyboard[0][0].callback_data == TRAINING_HARD_SKIP_CALLBACK
 
 
 def test_session_completion_sends_summary_and_stops_question_rendering(tmp_path: Path) -> None:

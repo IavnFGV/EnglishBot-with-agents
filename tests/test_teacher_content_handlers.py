@@ -1,7 +1,6 @@
 import asyncio
 import sys
 from io import BytesIO
-from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +19,8 @@ from englishbot.teacher_content_dialog import (
     get_browser_window_data,
     get_prompt_window_data,
     get_topics_window_data,
+    next_topic_page,
+    prev_topic_page,
     go_to_prompt_return,
     hide_show_all,
     next_item,
@@ -173,6 +174,15 @@ def seed_topic(
     return family_id, int(topic["id"])
 
 
+def seed_topics(user: User, topic_count: int) -> int:
+    from englishbot.teacher_content import create_teacher_topic
+
+    family_id = seed_family_user(user)
+    for index in range(topic_count):
+        create_teacher_topic(user.id, family_id, f"Topic {index + 1:02d}")
+    return family_id
+
+
 def test_teacher_content_command_starts_dialog_for_family_member(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(101, "Family")
@@ -220,10 +230,133 @@ def test_dialog_navigation_renders_family_topic_and_item_screens(tmp_path: Path)
 
     assert manager.switch_calls == [{"state": TeacherContentDialogSG.browser, "show_mode": ShowMode.SEND}]
     assert "Family: Home" in topics_view["screen_text"]
-    assert "1. Fruits (2)" in topics_view["screen_text"]
+    assert "Choose a topic." in topics_view["screen_text"]
+    assert "1. Fruits (2)" not in topics_view["screen_text"]
+    assert topics_view["topic_items"] == [{"id": topic_id, "name": "fruits", "title": "Fruits", "item_count": 2, "label": "1. Fruits (2)"}]
     assert "Topic: Fruits" in browser_view["screen_text"]
     assert "Item 1/2" in browser_view["screen_text"]
     assert "👉 • 1. <b>item-1</b>" in topic_message.bot.edit_calls[0]["text"]
+
+
+def test_topics_window_uses_single_compact_list_without_scrolling_group(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(120, "Family")
+    family_id = seed_topics(user, 3)
+    manager = FakeDialogManager(user)
+    manager.dialog_data["family_id"] = family_id
+
+    topics_view = asyncio.run(get_topics_window_data(manager))
+    assert "Topic 1" not in topics_view["screen_text"]
+    assert topics_view["screen_text"].endswith("Page 1/1 • total 3")
+    assert [item["label"] for item in topics_view["topic_items"]] == [
+        "1. Topic 01 (0)",
+        "2. Topic 02 (0)",
+        "3. Topic 03 (0)",
+    ]
+
+
+def test_topics_window_next_page_shows_next_slice(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(121, "Family")
+    family_id = seed_topics(user, 10)
+    manager = FakeDialogManager(user)
+    manager.dialog_data["family_id"] = family_id
+
+    first_view = asyncio.run(get_topics_window_data(manager))
+    asyncio.run(next_topic_page(SimpleNamespace(message=None), SimpleNamespace(widget_id="topic_next_page"), manager))
+    second_view = asyncio.run(get_topics_window_data(manager))
+
+    assert [item["label"] for item in first_view["topic_items"]] == [
+        "1. Topic 01 (0)",
+        "2. Topic 02 (0)",
+        "3. Topic 03 (0)",
+        "4. Topic 04 (0)",
+        "5. Topic 05 (0)",
+        "6. Topic 06 (0)",
+        "7. Topic 07 (0)",
+        "8. Topic 08 (0)",
+    ]
+    assert second_view["screen_text"].endswith("Page 2/2 • total 10")
+    assert [item["label"] for item in second_view["topic_items"]] == [
+        "9. Topic 09 (0)",
+        "10. Topic 10 (0)",
+    ]
+
+
+def test_topics_window_prev_page_returns_to_previous_slice(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(122, "Family")
+    family_id = seed_topics(user, 10)
+    manager = FakeDialogManager(user)
+    manager.dialog_data.update({"family_id": family_id, "topic_page": 1})
+
+    second_view = asyncio.run(get_topics_window_data(manager))
+    asyncio.run(prev_topic_page(SimpleNamespace(message=None), SimpleNamespace(widget_id="topic_prev_page"), manager))
+    first_view = asyncio.run(get_topics_window_data(manager))
+
+    assert [item["label"] for item in second_view["topic_items"]] == [
+        "9. Topic 09 (0)",
+        "10. Topic 10 (0)",
+    ]
+    assert first_view["screen_text"].endswith("Page 1/2 • total 10")
+    assert [item["label"] for item in first_view["topic_items"]][:2] == [
+        "1. Topic 01 (0)",
+        "2. Topic 02 (0)",
+    ]
+
+
+def test_topic_selection_from_second_page_opens_matching_browser(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(123, "Family")
+    family_id = seed_topics(user, 9)
+    from englishbot.teacher_content import create_teacher_topic_item, list_teacher_workspace_topics
+
+    topics = list_teacher_workspace_topics(user.id, family_id)
+    target_topic = topics[-1]
+    create_teacher_topic_item(user.id, family_id, int(target_topic["id"]), "late-item")
+    manager = FakeDialogManager(user)
+    manager.dialog_data["family_id"] = family_id
+    topic_message = FakeMessage(user, bot=FakeBot(), message_id=manager.last_message_id)
+
+    asyncio.run(next_topic_page(SimpleNamespace(message=None), SimpleNamespace(widget_id="topic_next_page"), manager))
+    topics_view = asyncio.run(get_topics_window_data(manager))
+    asyncio.run(on_topic_selected(SimpleNamespace(message=topic_message), None, manager, str(target_topic["id"])))
+    browser_view = asyncio.run(get_browser_window_data(manager))
+
+    assert [item["label"] for item in topics_view["topic_items"]] == ["9. Topic 09 (1)"]
+    assert manager.dialog_data["topic_id"] == int(target_topic["id"])
+    assert "Topic: Topic 09" in browser_view["screen_text"]
+    assert "Item 1/1" in browser_view["screen_text"]
+    assert "Topic: Topic 09" in topic_message.bot.edit_calls[0]["text"]
+
+
+def test_topics_window_empty_and_single_page_states_stay_compact(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(124, "Family")
+    empty_family_id = seed_family_user(user)
+    empty_manager = FakeDialogManager(user)
+    empty_manager.dialog_data["family_id"] = empty_family_id
+
+    empty_view = asyncio.run(get_topics_window_data(empty_manager))
+
+    assert empty_view["topic_items"] == []
+    assert empty_view["has_prev_page"] is False
+    assert empty_view["has_next_page"] is False
+    assert "No topics are available in this family yet." in empty_view["screen_text"]
+
+    single_user = make_user(125, "Single")
+    single_family_id = seed_topics(single_user, 1)
+    single_manager = FakeDialogManager(single_user)
+    single_manager.dialog_data["family_id"] = single_family_id
+
+    single_view = asyncio.run(get_topics_window_data(single_manager))
+
+    assert single_view["has_prev_page"] is False
+    assert single_view["has_next_page"] is False
+    assert single_view["screen_text"].endswith("Page 1/1 • total 1")
+    assert len(single_view["topic_items"]) == 1
+    assert single_view["topic_items"][0]["title"] == "Topic 01"
+    assert single_view["topic_items"][0]["label"] == "1. Topic 01 (0)"
 
 
 def test_topics_screen_exposes_bulk_edit_entrypoint(tmp_path: Path, monkeypatch) -> None:

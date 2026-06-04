@@ -274,6 +274,7 @@ def configure_logging() -> LoggingConfig:
     _reset_logger(root_logger)
     root_logger.setLevel(config.level)
     root_logger.addHandler(_build_console_handler(config.level))
+    logging.getLogger("PIL").setLevel(logging.INFO)
 
     maintenance_logger = get_maintenance_logger()
     _reset_logger(maintenance_logger)
