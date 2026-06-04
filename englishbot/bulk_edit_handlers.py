@@ -221,6 +221,19 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
         return
 
     session = mark_bulk_edit_applying(int(session["id"]))
+    progress_state = {
+        "processed_rows": 0,
+        "total_rows": len(validated_rows),
+    }
+    event_loop = asyncio.get_running_loop()
+
+    def report_progress(processed_rows: int, total_rows: int) -> None:
+        def update_state() -> None:
+            progress_state["processed_rows"] = processed_rows
+            progress_state["total_rows"] = total_rows
+
+        event_loop.call_soon_threadsafe(update_state)
+
     progress_stop = asyncio.Event()
     progress_task = asyncio.create_task(
         _run_apply_progress_indicator(
@@ -228,6 +241,7 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
             session,
             actor_user_id=callback.from_user.id,
             row_count=len(validated_rows),
+            progress_state=progress_state,
             stop_event=progress_stop,
         )
     )
@@ -238,6 +252,7 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
             int(session["family_id"]),
             int(session["started_by_user_id"]),
             validated_rows,
+            report_progress,
         )
     except Exception:
         progress_stop.set()
@@ -339,6 +354,7 @@ async def _run_apply_progress_indicator(
     *,
     actor_user_id: int,
     row_count: int,
+    progress_state: dict[str, int],
     stop_event: asyncio.Event,
 ) -> None:
     elapsed_seconds = 0
@@ -351,14 +367,16 @@ async def _run_apply_progress_indicator(
             "bulk_edit.apply.in_progress",
             actor_user_id=actor_user_id,
             row_count=row_count,
+            processed_rows=int(progress_state.get("processed_rows", 0)),
             elapsed_seconds=elapsed_seconds,
             indicator=frames[frame_index],
         )
         if stop_event.is_set():
             return
         try:
-            await asyncio.wait_for(stop_event.wait(), timeout=5)
-            return
+            await asyncio.wait_for(stop_event.wait(), timeout=1)
+            if stop_event.is_set():
+                return
         except asyncio.TimeoutError:
-            elapsed_seconds += 5
+            elapsed_seconds += 1
             frame_index = (frame_index + 1) % len(frames)

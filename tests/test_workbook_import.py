@@ -154,3 +154,20 @@ def test_import_accepts_excel_style_float_archive_flags(tmp_path: Path, monkeypa
 
     assert summary.updated == 0
     assert get_learning_item(first_item_id)["is_archived"] == 0
+
+
+def test_import_reports_row_level_progress(tmp_path: Path, monkeypatch) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-progress.xlsx").file_path
+    progress_events: list[tuple[int, int]] = []
+
+    summary = apply_family_workbook_import(
+        workbook_path,
+        family_id,
+        started_by_user_id=1401,
+        progress_callback=lambda processed, total: progress_events.append((processed, total)),
+    )
+
+    assert summary.unchanged == 2
+    assert progress_events == [(1, 2), (2, 2)]

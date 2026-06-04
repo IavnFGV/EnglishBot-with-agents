@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-03
+- Upgraded the `/bulk_edit` apply indicator from a static waiting note to live row progress: the control message now updates while import runs and shows `processed/total` rows plus elapsed seconds, which makes large workbook applies with remote image downloads much easier to trust and monitor.
 - Improved large family bulk-edit apply UX: `/bulk_edit` now acknowledges the Apply callback immediately, runs workbook apply off the event loop, and keeps the reused control message updated with an in-progress status so long imports with remote image downloads no longer look frozen or fail with expired Telegram callback queries.
 - Fixed the deploy-owned placeholder sync for runtime assets: `assets/images/no-image.png` is now tracked in git, and the deploy workflow now fails with an explicit source-file error plus directory listing before copying that placeholder into `/srv/services/englishbot/assets/images/no-image.png`.
 - Moved runtime assets onto their own host mount and simplified placeholder delivery: `docker-compose.yml` now mounts `/srv/services/englishbot/assets` to `/app/assets`, and the GitHub Actions deploy workflow now copies `assets/images/no-image.png` from the repo into the host asset directory so teacher-content fallbacks work on a fresh VPS without extra app-startup bootstrap logic.

@@ -4,6 +4,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from openpyxl import load_workbook
 
@@ -127,10 +128,12 @@ def apply_family_workbook_import(
     family_id: int,
     started_by_user_id: int,
     rows: list[WorkbookImportRow] | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> FamilyWorkbookImportSummary:
     if rows is None:
         rows = validate_family_workbook_import(file_path, family_id)
     backup_file_path = create_bulk_edit_backup(family_id=family_id, user_id=started_by_user_id)
+    total_rows = len(rows)
 
     summary = {
         "created": 0,
@@ -146,7 +149,7 @@ def apply_family_workbook_import(
 
         try:
             connection.execute("BEGIN")
-            for row in rows:
+            for row_index, row in enumerate(rows, start=1):
                 imported_item_id, change_kind = _upsert_learning_item(
                     connection,
                     family_id,
@@ -158,6 +161,8 @@ def apply_family_workbook_import(
                 if not row.is_archived:
                     for topic_title in row.topic_titles:
                         active_topic_membership.setdefault(topic_title, []).append(imported_item_id)
+                if progress_callback is not None:
+                    progress_callback(row_index, total_rows)
 
             for item_id, item in existing_items.items():
                 if item_id in imported_item_ids:

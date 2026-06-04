@@ -194,7 +194,7 @@ def test_apply_shows_progress_status_before_completion(tmp_path: Path, monkeypat
 
     assert callback.answers == [{"text": None, "show_alert": False}]
     assert any(
-        edit["text"].startswith("Applying workbook")
+        "Processed:" in edit["text"]
         for edit in callback_message.bot.edits
     )
     assert callback_message.bot.edits[-1]["text"].startswith("Bulk edit completed.")

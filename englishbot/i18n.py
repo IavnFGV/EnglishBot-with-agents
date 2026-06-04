@@ -141,7 +141,7 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "bulk_edit.session.expired": "Bulk edit session expired automatically. The bot is available again.",
         "bulk_edit.upload.xlsx_only": "Please upload a .xlsx workbook file.",
         "bulk_edit.upload.received": "Workbook file received. Review it if needed, then apply it or cancel the session.",
-        "bulk_edit.apply.in_progress": "Applying workbook{indicator}\nRows: {row_count}\nElapsed: {elapsed_seconds}s\nLarge imports with remote image downloads can take a while. This screen will update when the import finishes.",
+        "bulk_edit.apply.in_progress": "Applying workbook{indicator}\nProcessed: {processed_rows}/{row_count} rows\nElapsed: {elapsed_seconds}s\nLarge imports with remote image downloads can take a while. This screen will keep updating until the import finishes.",
         "bulk_edit.apply.validation_failed": "Workbook validation failed. Nothing was written.\n{error_lines}",
         "bulk_edit.apply.failed": "Bulk edit failed during apply. The session was closed so the bot could reopen safely.",
         "bulk_edit.apply.completed": "Bulk edit completed.\nCreated: {created}\nUpdated: {updated}\nArchived: {archived}\nUnchanged: {unchanged}",
