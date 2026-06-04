@@ -17,6 +17,7 @@ from .i18n import translate_for_user
 from .runtime import dispatcher, router
 from .teacher_assignment_dialog import teacher_assignment_dialog
 from .teacher_content_dialog import teacher_content_dialog
+from .telegram_media_storage import telegram_media_id_storage
 from .user_profiles import get_user_role
 from . import cancel_handlers  # noqa: F401
 from . import bulk_edit_handlers  # noqa: F401
@@ -36,7 +37,7 @@ dispatcher.include_router(teacher_assignment_dialog)
 dispatcher.include_router(homework_dialog)
 dispatcher.include_router(teacher_content_dialog)
 dispatcher.include_router(unhandled_router)
-setup_dialogs(dispatcher)
+setup_dialogs(dispatcher, media_id_storage=telegram_media_id_storage)
 
 
 async def configure_bot_commands(bot) -> None:

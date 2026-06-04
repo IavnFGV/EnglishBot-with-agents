@@ -20,6 +20,7 @@ class ResolvedLearningItem:
     headword: str
     translations: Sequence[TranslationEntry]
     image_ref: str | None = None
+    image_asset_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +44,7 @@ class ExerciseInstance:
     options: list[str] | None
     hint_text: str | None
     image_ref: str | None
+    image_asset_id: int | None
     first_letter: str | None
 
 
@@ -69,6 +71,7 @@ def build_exercise(
             options=_build_multiple_choice_options(expected_answer, distractor_pool),
             hint_text=None,
             image_ref=learning_item.image_ref,
+            image_asset_id=learning_item.image_asset_id,
             first_letter=None,
         )
 
@@ -85,6 +88,7 @@ def build_exercise(
             options=None,
             hint_text=prompt_text,
             image_ref=learning_item.image_ref,
+            image_asset_id=learning_item.image_asset_id,
             first_letter=None,
         )
 
@@ -97,6 +101,7 @@ def build_exercise(
         options=None,
         hint_text=prompt_text,
         image_ref=learning_item.image_ref,
+        image_asset_id=learning_item.image_asset_id,
         first_letter=expected_answer[:1],
     )
 

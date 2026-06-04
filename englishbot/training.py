@@ -1,6 +1,6 @@
 import sqlite3
 
-from .assets import PRIMARY_IMAGE_ROLE, resolve_asset_ref_for_role
+from .assets import PRIMARY_IMAGE_ROLE, get_learning_item_asset, resolve_asset_ref
 from .db import DEFAULT_HINT_LANGUAGE, get_connection, utc_now
 from .exercises import ExerciseBuildError, ResolvedLearningItem, TranslationEntry, build_exercise
 from .families import get_user_family, list_family_learning_items
@@ -321,6 +321,7 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
         "options": exercise.options,
         "hint_text": exercise.hint_text,
         "image_ref": exercise.image_ref,
+        "image_asset_id": exercise.image_asset_id,
         "first_letter": exercise.first_letter,
         "jumbled_letters": exercise.prompt_payload.jumbled_letters,
         "selected_letter_indexes": selected_letter_indexes,
@@ -1174,6 +1175,7 @@ def _resolve_learning_item(learning_item_id: int) -> ResolvedLearningItem:
     if lexeme is None:
         raise NoLearningItemsError
 
+    image_asset = get_learning_item_asset(int(learning_item["id"]), role=PRIMARY_IMAGE_ROLE)
     return ResolvedLearningItem(
         learning_item_id=int(learning_item["id"]),
         headword=str(lexeme["lemma"]),
@@ -1184,7 +1186,8 @@ def _resolve_learning_item(learning_item_id: int) -> ResolvedLearningItem:
             )
             for translation in translations
         ],
-        image_ref=resolve_asset_ref_for_role(int(learning_item["id"]), PRIMARY_IMAGE_ROLE),
+        image_ref=resolve_asset_ref(image_asset),
+        image_asset_id=int(image_asset["asset_id"]) if image_asset is not None else None,
     )
 
 

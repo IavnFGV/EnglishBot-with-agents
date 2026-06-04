@@ -42,6 +42,14 @@ IMPORTED_ASSET_SUBDIR_BY_TYPE = {
     ASSET_TYPE_VOICE: Path("assets/voice/imported"),
     ASSET_TYPE_VIDEO: Path("assets/video/imported"),
 }
+TELEGRAM_MEDIA_KIND_PHOTO = "photo"
+TELEGRAM_MEDIA_KIND_AUDIO = "audio"
+TELEGRAM_MEDIA_KIND_VOICE = "voice"
+SUPPORTED_TELEGRAM_MEDIA_KINDS = {
+    TELEGRAM_MEDIA_KIND_PHOTO,
+    TELEGRAM_MEDIA_KIND_AUDIO,
+    TELEGRAM_MEDIA_KIND_VOICE,
+}
 
 
 def create_asset(
@@ -168,6 +176,79 @@ def get_learning_item_asset(
             connection.close()
 
 
+def get_asset(asset_id: int, *, connection=None):
+    owns_connection = connection is None
+    if connection is None:
+        connection = db.get_connection()
+    try:
+        return connection.execute(
+            """
+            SELECT
+                id,
+                workbook_key,
+                asset_type,
+                source_url,
+                local_path,
+                created_at
+            FROM assets
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (asset_id,),
+        ).fetchone()
+    finally:
+        if owns_connection:
+            connection.close()
+
+
+def find_asset_by_transport_source(
+    *,
+    asset_type: str,
+    local_path: str | Path | None = None,
+    source_url: str | None = None,
+    connection=None,
+):
+    if asset_type not in SUPPORTED_ASSET_TYPES:
+        raise ValueError("unsupported asset_type")
+    normalized_local_path = str(local_path).strip() if local_path is not None else ""
+    normalized_source_url = str(source_url or "").strip()
+    if not normalized_local_path and not normalized_source_url:
+        return None
+    owns_connection = connection is None
+    if connection is None:
+        connection = db.get_connection()
+    try:
+        return connection.execute(
+            """
+            SELECT
+                id,
+                workbook_key,
+                asset_type,
+                source_url,
+                local_path,
+                created_at
+            FROM assets
+            WHERE asset_type = ?
+              AND (
+                    (? != '' AND local_path = ?)
+                 OR (? != '' AND source_url = ?)
+              )
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (
+                asset_type,
+                normalized_local_path,
+                normalized_local_path,
+                normalized_source_url,
+                normalized_source_url,
+            ),
+        ).fetchone()
+    finally:
+        if owns_connection:
+            connection.close()
+
+
 def resolve_asset_ref(asset_row) -> str | None:
     if asset_row is None:
         return None
@@ -176,6 +257,90 @@ def resolve_asset_ref(asset_row) -> str | None:
     if asset_row["source_url"] is not None:
         return str(asset_row["source_url"])
     return None
+
+
+def get_cached_telegram_file_id(asset_id: int, telegram_media_kind: str) -> str | None:
+    _validate_telegram_media_kind(telegram_media_kind)
+    with db.get_connection() as connection:
+        asset_row = get_asset(asset_id, connection=connection)
+        if asset_row is None:
+            return None
+        cache_row = connection.execute(
+            """
+            SELECT telegram_file_id, asset_fingerprint
+            FROM telegram_asset_file_cache
+            WHERE asset_id = ? AND telegram_media_kind = ?
+            LIMIT 1
+            """,
+            (asset_id, telegram_media_kind),
+        ).fetchone()
+        if cache_row is None:
+            return None
+        current_fingerprint = _build_asset_transport_fingerprint(asset_row)
+        cached_fingerprint = cache_row["asset_fingerprint"]
+        if current_fingerprint != cached_fingerprint:
+            connection.execute(
+                """
+                DELETE FROM telegram_asset_file_cache
+                WHERE asset_id = ? AND telegram_media_kind = ?
+                """,
+                (asset_id, telegram_media_kind),
+            )
+            return None
+        return str(cache_row["telegram_file_id"])
+
+
+def cache_telegram_file_id(
+    asset_id: int,
+    telegram_media_kind: str,
+    telegram_file_id: str,
+) -> None:
+    _validate_telegram_media_kind(telegram_media_kind)
+    normalized_file_id = telegram_file_id.strip()
+    if not normalized_file_id:
+        raise ValueError("telegram_file_id is required")
+    with db.get_connection() as connection:
+        asset_row = get_asset(asset_id, connection=connection)
+        if asset_row is None:
+            raise ValueError("asset_id does not exist")
+        timestamp = db.utc_now()
+        connection.execute(
+            """
+            INSERT INTO telegram_asset_file_cache (
+                asset_id,
+                telegram_media_kind,
+                telegram_file_id,
+                asset_fingerprint,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(asset_id, telegram_media_kind) DO UPDATE SET
+                telegram_file_id = excluded.telegram_file_id,
+                asset_fingerprint = excluded.asset_fingerprint,
+                updated_at = excluded.updated_at
+            """,
+            (
+                asset_id,
+                telegram_media_kind,
+                normalized_file_id,
+                _build_asset_transport_fingerprint(asset_row),
+                timestamp,
+                timestamp,
+            ),
+        )
+
+
+def delete_cached_telegram_file_id(asset_id: int, telegram_media_kind: str) -> None:
+    _validate_telegram_media_kind(telegram_media_kind)
+    with db.get_connection() as connection:
+        connection.execute(
+            """
+            DELETE FROM telegram_asset_file_cache
+            WHERE asset_id = ? AND telegram_media_kind = ?
+            """,
+            (asset_id, telegram_media_kind),
+        )
 
 
 def resolve_asset_ref_for_role(
@@ -540,6 +705,30 @@ def _get_runtime_root() -> Path:
     if db_parent.name == "data":
         return db_parent.parent
     return db_parent
+
+
+def _validate_telegram_media_kind(telegram_media_kind: str) -> None:
+    if telegram_media_kind not in SUPPORTED_TELEGRAM_MEDIA_KINDS:
+        raise ValueError("unsupported telegram_media_kind")
+
+
+def _build_asset_transport_fingerprint(asset_row) -> str:
+    local_path = str(asset_row["local_path"] or "").strip()
+    source_url = str(asset_row["source_url"] or "").strip()
+    asset_type = str(asset_row["asset_type"] or "").strip()
+    if local_path:
+        resolved_path = resolve_runtime_asset_path(local_path)
+        try:
+            stat_result = resolved_path.stat()
+        except OSError:
+            return f"{asset_type}|local|{local_path}|missing"
+        return (
+            f"{asset_type}|local|{local_path}|"
+            f"{stat_result.st_size}|{stat_result.st_mtime_ns}"
+        )
+    if source_url:
+        return f"{asset_type}|source_url|{source_url}"
+    return f"{asset_type}|asset_id|{int(asset_row['id'])}"
 
 
 def _build_asset_replacement_link(

@@ -4,14 +4,17 @@ from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
+from aiogram.enums.content_type import ContentType
 from aiogram.exceptions import TelegramBadRequest
 from aiogram_dialog import ShowMode, StartMode
+from aiogram_dialog.api.entities import MediaId
 from aiogram.types import User
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
+from englishbot.assets import PRIMARY_IMAGE_ROLE, create_asset, get_cached_telegram_file_id, link_asset_to_learning_item
 from englishbot.families import create_family
 from englishbot.teacher_content_dialog import (
     TeacherContentDialogSG,
@@ -32,6 +35,7 @@ from englishbot.teacher_content_dialog import (
     prev_item,
     show_all_items,
 )
+from englishbot.telegram_media_storage import telegram_media_id_storage
 from englishbot.teacher_content_handlers import teacher_content
 
 
@@ -174,6 +178,11 @@ def seed_topic(
     return family_id, int(topic["id"])
 
 
+def attach_primary_image(learning_item_id: int, image_path: Path) -> None:
+    asset_id = create_asset("image", local_path=str(image_path.as_posix()))
+    link_asset_to_learning_item(learning_item_id, asset_id, PRIMARY_IMAGE_ROLE)
+
+
 def seed_topics(user: User, topic_count: int) -> int:
     from englishbot.teacher_content import create_teacher_topic
 
@@ -236,6 +245,48 @@ def test_dialog_navigation_renders_family_topic_and_item_screens(tmp_path: Path)
     assert "Topic: Fruits" in browser_view["screen_text"]
     assert "Item 1/2" in browser_view["screen_text"]
     assert "👉 • 1. <b>item-1</b>" in topic_message.bot.edit_calls[0]["text"]
+
+
+def test_dialog_media_storage_uses_project_cache_table_for_teacher_item_images(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(130, "Family")
+    seed_topic(user, item_count=1)
+    image_path = tmp_path / "teacher-item.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+
+    asyncio.run(
+        telegram_media_id_storage.save_media_id(
+            path="assets/images/no-image.png",
+            url=None,
+            type=ContentType.PHOTO,
+            media_id=MediaId(file_id="ignored-placeholder-id"),
+        )
+    )
+    assert get_cached_telegram_file_id(1, "photo") is None
+
+    asyncio.run(
+        telegram_media_id_storage.save_media_id(
+            path=str(image_path.as_posix()),
+            url=None,
+            type=ContentType.PHOTO,
+            media_id=MediaId(file_id="teacher-photo-id", file_unique_id="teacher-photo-uniq"),
+        )
+    )
+
+    cached_media_id = asyncio.run(
+        telegram_media_id_storage.get_media_id(
+            path=str(image_path.as_posix()),
+            url=None,
+            type=ContentType.PHOTO,
+        )
+    )
+
+    assert cached_media_id is not None
+    assert cached_media_id.file_id == "teacher-photo-id"
+    assert get_cached_telegram_file_id(1, "photo") == "teacher-photo-id"
 
 
 def test_topics_window_uses_single_compact_list_without_scrolling_group(tmp_path: Path) -> None:

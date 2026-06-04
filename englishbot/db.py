@@ -137,6 +137,34 @@ def _ensure_assets_schema(
             ON learning_item_assets (learning_item_id, role)
             """
         )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS telegram_asset_file_cache (
+            asset_id INTEGER NOT NULL,
+            telegram_media_kind TEXT NOT NULL,
+            telegram_file_id TEXT NOT NULL,
+            asset_fingerprint TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (asset_id, telegram_media_kind),
+            FOREIGN KEY (asset_id) REFERENCES assets (id) ON DELETE CASCADE
+        )
+        """
+    )
+    telegram_cache_columns = get_table_columns(connection, "telegram_asset_file_cache")
+    if "asset_fingerprint" not in telegram_cache_columns:
+        connection.execute(
+            """
+            ALTER TABLE telegram_asset_file_cache
+            ADD COLUMN asset_fingerprint TEXT
+            """
+        )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_telegram_asset_file_cache_media_kind
+        ON telegram_asset_file_cache (telegram_media_kind)
+        """
+    )
 
 
 def _collect_legacy_learning_item_assets(

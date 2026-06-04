@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +9,16 @@ from aiogram.types import User
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.assets import PRIMARY_IMAGE_ROLE, create_asset, link_asset_to_learning_item
+from englishbot.assets import (
+    PRIMARY_IMAGE_ROLE,
+    TELEGRAM_MEDIA_KIND_AUDIO,
+    TELEGRAM_MEDIA_KIND_PHOTO,
+    TELEGRAM_MEDIA_KIND_VOICE,
+    cache_telegram_file_id,
+    create_asset,
+    get_cached_telegram_file_id,
+    link_asset_to_learning_item,
+)
 from englishbot.families import (
     add_family_member,
     create_family,
@@ -43,6 +53,7 @@ class FakeBot:
         self.deleted_messages: list[dict[str, object]] = []
         self.fail_delete = False
         self.fail_edit_media_message: str | None = None
+        self.fail_edit_media_file_ids: set[str] = set()
 
     async def edit_message_text(
         self,
@@ -71,6 +82,9 @@ class FakeBot:
     ) -> None:
         if self.fail_edit_media_message is not None:
             raise RuntimeError(self.fail_edit_media_message)
+        media_value = getattr(media, "media", None)
+        if isinstance(media_value, str) and media_value in self.fail_edit_media_file_ids:
+            raise RuntimeError("Bad Request: wrong file identifier/HTTP URL specified")
         self.edited_media.append(
             {
                 "chat_id": chat_id,
@@ -94,6 +108,8 @@ class FakeMessage:
         self.chat = SimpleNamespace(id=user.id)
         self.answers: list[dict[str, object]] = []
         self.photo_answers: list[dict[str, object]] = []
+        self.photo_attempts: list[object] = []
+        self.fail_photo_file_ids: set[str] = set()
         self._next_message_id = 1
         self.message_id = 0
 
@@ -104,8 +120,32 @@ class FakeMessage:
         return message
 
     async def answer_photo(self, photo, **kwargs: object) -> SimpleNamespace:
+        self.photo_attempts.append(photo)
+        if isinstance(photo, str) and photo in self.fail_photo_file_ids:
+            raise RuntimeError("Bad Request: wrong file identifier/HTTP URL specified")
         message = SimpleNamespace(message_id=self._next_message_id)
         self._next_message_id += 1
+        if isinstance(photo, str):
+            file_id = photo
+        else:
+            file_id = f"uploaded-photo-{message.message_id}"
+        message.photo = [SimpleNamespace(file_id=file_id)]
+        self.photo_answers.append({"photo": photo, "kwargs": kwargs, "message_id": message.message_id})
+        return message
+
+
+class FakeTuplePhotoMessage(FakeMessage):
+    async def answer_photo(self, photo, **kwargs: object) -> SimpleNamespace:
+        self.photo_attempts.append(photo)
+        if isinstance(photo, str) and photo in self.fail_photo_file_ids:
+            raise RuntimeError("Bad Request: wrong file identifier/HTTP URL specified")
+        message = SimpleNamespace(message_id=self._next_message_id)
+        self._next_message_id += 1
+        if isinstance(photo, str):
+            file_id = photo
+        else:
+            file_id = f"uploaded-photo-{message.message_id}"
+        message.photo = (SimpleNamespace(file_id=file_id),)
         self.photo_answers.append({"photo": photo, "kwargs": kwargs, "message_id": message.message_id})
         return message
 
@@ -206,6 +246,98 @@ def test_learn_renders_question_photo_when_learning_item_has_image(tmp_path: Pat
     keyboard = message.photo_answers[0]["kwargs"]["reply_markup"]
     assert keyboard is not None
     assert len(keyboard.inline_keyboard) == 3
+    assert get_cached_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO) == "uploaded-photo-2"
+
+
+def test_learn_caches_question_photo_file_id_from_tuple_shaped_telegram_photo(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(422, "Learner")
+    seed_learning_items(1, user=user)
+    image_path = tmp_path / "card-1.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+    message = FakeTuplePhotoMessage(user)
+
+    asyncio.run(learn(message))
+
+    assert get_cached_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO) == "uploaded-photo-2"
+
+
+def test_second_question_send_prefers_cached_telegram_photo_file_id(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(418, "Learner")
+    seed_learning_items(1, user=user)
+    image_path = tmp_path / "card-1.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+
+    first_message = FakeMessage(user)
+    asyncio.run(learn(first_message))
+    cached_file_id = get_cached_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO)
+    assert cached_file_id == "uploaded-photo-2"
+
+    second_message = FakeMessage(user)
+    asyncio.run(learn(second_message))
+
+    assert len(second_message.photo_answers) == 1
+    assert second_message.photo_attempts[0] == "uploaded-photo-2"
+    assert second_message.photo_answers[0]["photo"] == "uploaded-photo-2"
+
+
+def test_invalid_cached_question_photo_file_id_retries_local_upload_and_refreshes_cache(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(419, "Learner")
+    seed_learning_items(1, user=user)
+    image_path = tmp_path / "card-1.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+    cache_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO, "stale-photo-file-id")
+
+    message = FakeMessage(user)
+    message.fail_photo_file_ids.add("stale-photo-file-id")
+    asyncio.run(learn(message))
+
+    assert message.photo_attempts[0] == "stale-photo-file-id"
+    assert len(message.photo_answers) == 1
+    assert message.photo_answers[0]["photo"].__class__.__name__ == "FSInputFile"
+    assert get_cached_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO) == "uploaded-photo-2"
+
+
+def test_invalid_cached_photo_file_id_during_edit_replaces_message_and_refreshes_cache(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(420, "Learner")
+    seed_learning_items(1, user=user)
+    image_path = tmp_path / "card-1.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+    first_message = FakeMessage(user)
+    asyncio.run(learn(first_message))
+
+    submit_training_answer(user.id, "word-1")
+    submit_training_answer(user.id, "word-1")
+    asyncio.run(render_started_training_session(first_message, user.id))
+    cache_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO, "stale-photo-file-id")
+
+    session = get_active_training_session(user.id)
+    assert session is not None
+    first_message.message_id = int(session["current_question_message_id"])
+    first_message.bot.fail_edit_media_file_ids.add("stale-photo-file-id")
+
+    asyncio.run(
+        answer_training_medium_add(
+            FakeCallback(user, f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}0", first_message)
+        )
+    )
+
+    assert first_message.bot.deleted_messages[-1] == {"chat_id": user.id, "message_id": 4}
+    assert first_message.photo_answers[-1]["message_id"] == 5
+    assert get_cached_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO) == "uploaded-photo-5"
 
 
 def test_invalid_question_image_falls_back_to_text_only_card(tmp_path: Path) -> None:
@@ -219,6 +351,41 @@ def test_invalid_question_image_falls_back_to_text_only_card(tmp_path: Path) -> 
 
     assert len(message.photo_answers) == 0
     assert message.answers[-1]["text"] == "слово-1"
+
+
+def test_telegram_photo_cache_table_stays_separate_from_assets_and_supports_future_media_kinds(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(421, "Teacher")
+    seed_learning_items(1, user=user)
+    image_path = tmp_path / "card-1.png"
+    image_path.write_bytes(b"fake image")
+    attach_primary_image(1, image_path)
+    cache_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO, "photo-file-id")
+    cache_telegram_file_id(1, TELEGRAM_MEDIA_KIND_AUDIO, "audio-file-id")
+    cache_telegram_file_id(1, TELEGRAM_MEDIA_KIND_VOICE, "voice-file-id")
+
+    with sqlite3.connect(db.DB_PATH) as connection:
+        asset_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(assets)").fetchall()
+        }
+        cache_rows = connection.execute(
+            """
+            SELECT telegram_media_kind, telegram_file_id
+            FROM telegram_asset_file_cache
+            WHERE asset_id = 1
+            ORDER BY telegram_media_kind
+            """
+        ).fetchall()
+
+    assert "telegram_file_id" not in asset_columns
+    assert "file_id" not in asset_columns
+    assert [(row[0], row[1]) for row in cache_rows] == [
+        ("audio", "audio-file-id"),
+        ("photo", "photo-file-id"),
+        ("voice", "voice-file-id"),
+    ]
 
 
 def test_easy_callback_delegates_selected_option_to_training_logic(tmp_path: Path, monkeypatch) -> None:

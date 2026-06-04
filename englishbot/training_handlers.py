@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from collections.abc import Sequence
 from urllib.parse import urlparse
 
 from aiogram import F
@@ -13,6 +14,12 @@ from aiogram.types import (
     Message,
 )
 
+from .assets import (
+    TELEGRAM_MEDIA_KIND_PHOTO,
+    cache_telegram_file_id,
+    delete_cached_telegram_file_id,
+    get_cached_telegram_file_id,
+)
 from .command_registry import LEARN_COMMAND
 from .db import save_user
 from .homework import (
@@ -61,6 +68,146 @@ def _resolve_question_photo_path(question: dict[str, object]) -> str | None:
         logger.warning("Training question image is unavailable: %s", image_ref)
         return None
     return str(candidate)
+
+
+def _resolve_question_photo_asset_id(question: dict[str, object]) -> int | None:
+    asset_id = question.get("image_asset_id")
+    if isinstance(asset_id, int):
+        return asset_id
+    if isinstance(asset_id, str) and asset_id.isdigit():
+        return int(asset_id)
+    return None
+
+
+def _extract_photo_file_id(sent_message: object) -> str | None:
+    photo_sizes = getattr(sent_message, "photo", None)
+    if (
+        not isinstance(photo_sizes, Sequence)
+        or isinstance(photo_sizes, (str, bytes))
+        or not photo_sizes
+    ):
+        return None
+    file_id = getattr(photo_sizes[-1], "file_id", None)
+    if isinstance(file_id, str) and file_id.strip():
+        return file_id
+    return None
+
+
+def _is_invalid_telegram_file_id_error(exc: Exception) -> bool:
+    error_text = str(exc).lower()
+    invalid_markers = (
+        "wrong file identifier",
+        "wrong remote file identifier",
+        "failed to get http url content",
+        "file_id",
+    )
+    return any(marker in error_text for marker in invalid_markers)
+
+
+async def _send_question_photo(
+    anchor_message: Message,
+    *,
+    photo_path: str,
+    asset_id: int | None,
+    caption: str,
+    reply_markup: InlineKeyboardMarkup | None,
+):
+    answer_photo = getattr(anchor_message, "answer_photo", None)
+    if not callable(answer_photo):
+        raise RuntimeError("Message object does not support answer_photo")
+
+    cached_file_id = (
+        get_cached_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_PHOTO)
+        if asset_id is not None
+        else None
+    )
+    if cached_file_id is not None:
+        try:
+            return await answer_photo(
+                cached_file_id,
+                caption=caption,
+                reply_markup=reply_markup,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Cached Telegram photo file_id failed for asset %s; retrying upload: %s",
+                asset_id,
+                exc,
+            )
+            delete_cached_telegram_file_id(int(asset_id), TELEGRAM_MEDIA_KIND_PHOTO)
+
+    sent_message = await answer_photo(
+        FSInputFile(photo_path),
+        caption=caption,
+        reply_markup=reply_markup,
+    )
+    if asset_id is not None:
+        uploaded_file_id = _extract_photo_file_id(sent_message)
+        if uploaded_file_id is not None:
+            cache_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_PHOTO, uploaded_file_id)
+    return sent_message
+
+
+async def _edit_question_photo_in_place(
+    anchor_message: Message,
+    *,
+    question_message_id: int,
+    photo_path: str,
+    asset_id: int | None,
+    caption: str,
+    reply_markup: InlineKeyboardMarkup | None,
+) -> bool:
+    cached_file_id = (
+        get_cached_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_PHOTO)
+        if asset_id is not None
+        else None
+    )
+    if cached_file_id is not None:
+        try:
+            await anchor_message.bot.edit_message_media(
+                chat_id=anchor_message.chat.id,
+                message_id=question_message_id,
+                media=InputMediaPhoto(
+                    media=cached_file_id,
+                    caption=caption,
+                ),
+                reply_markup=reply_markup,
+            )
+            return True
+        except Exception as exc:
+            if _is_invalid_telegram_file_id_error(exc):
+                logger.warning(
+                    "Cached Telegram photo file_id expired for asset %s; replacing message: %s",
+                    asset_id,
+                    exc,
+                )
+                delete_cached_telegram_file_id(int(asset_id), TELEGRAM_MEDIA_KIND_PHOTO)
+                return False
+            error_text = str(exc).lower()
+            if "not modified" in error_text:
+                return True
+            logger.warning("Could not edit training question photo in place: %s", exc)
+            return False
+
+    try:
+        await anchor_message.bot.edit_message_media(
+            chat_id=anchor_message.chat.id,
+            message_id=question_message_id,
+            media=InputMediaPhoto(
+                media=FSInputFile(photo_path),
+                caption=caption,
+            ),
+            reply_markup=reply_markup,
+        )
+        return True
+    except Exception as exc:
+        error_text = str(exc).lower()
+        if "not modified" in error_text:
+            return True
+        logger.warning("Could not edit training question photo in place: %s", exc)
+        return False
+
+
 def _build_easy_options_keyboard(question: dict[str, object]) -> InlineKeyboardMarkup | None:
     options = question.get("options")
     if question.get("exercise_type") != "multiple_choice" or not isinstance(options, list):
@@ -318,17 +465,18 @@ async def _send_question_message(
     question_text = _render_question_text(telegram_user_id, question, feedback=feedback)
     reply_markup = _build_question_keyboard(telegram_user_id, question)
     photo_path = _resolve_question_photo_path(question)
+    asset_id = _resolve_question_photo_asset_id(question)
     if photo_path is not None:
-        answer_photo = getattr(anchor_message, "answer_photo", None)
-        if callable(answer_photo):
-            try:
-                return await answer_photo(
-                    FSInputFile(photo_path),
-                    caption=question_text,
-                    reply_markup=reply_markup,
-                )
-            except Exception as exc:
-                logger.warning("Could not send training question image, falling back to text: %s", exc)
+        try:
+            return await _send_question_photo(
+                anchor_message,
+                photo_path=photo_path,
+                asset_id=asset_id,
+                caption=question_text,
+                reply_markup=reply_markup,
+            )
+        except Exception as exc:
+            logger.warning("Could not send training question image, falling back to text: %s", exc)
     return await anchor_message.answer(question_text, reply_markup=reply_markup)
 
 
@@ -346,6 +494,7 @@ async def _edit_question_message_in_place(
     question_text = _render_question_text(telegram_user_id, question, feedback=feedback)
     reply_markup = _build_question_keyboard(telegram_user_id, question)
     photo_path = _resolve_question_photo_path(question)
+    asset_id = _resolve_question_photo_asset_id(question)
     try:
         if photo_path is None:
             await anchor_message.bot.edit_message_text(
@@ -355,13 +504,12 @@ async def _edit_question_message_in_place(
                 reply_markup=reply_markup,
             )
         else:
-            await anchor_message.bot.edit_message_media(
-                chat_id=anchor_message.chat.id,
-                message_id=int(question_message_id),
-                media=InputMediaPhoto(
-                    media=FSInputFile(photo_path),
-                    caption=question_text,
-                ),
+            return await _edit_question_photo_in_place(
+                anchor_message,
+                question_message_id=int(question_message_id),
+                photo_path=photo_path,
+                asset_id=asset_id,
+                caption=question_text,
                 reply_markup=reply_markup,
             )
         return True
@@ -746,10 +894,20 @@ async def _refresh_current_question_message(
         return
     question_with_message_id = dict(question)
     question_with_message_id["question_message_id"] = callback.message.message_id
-    await _edit_question_message_in_place(
+    if await _edit_question_message_in_place(
         callback.message,
         telegram_user_id,
         question_with_message_id,
+    ):
+        return
+    session = get_active_training_session(telegram_user_id)
+    if session is None:
+        return
+    await _replace_question_message(
+        callback.message,
+        telegram_user_id,
+        session,
+        question,
     )
 
 
