@@ -14,16 +14,19 @@ from .bulk_edit import (
     BulkEditSessionAlreadyActiveError,
     cancel_bulk_edit_session,
     complete_bulk_edit_session,
+    create_bulk_edit_backup,
     create_bulk_edit_session,
     ensure_bulk_edit_session_ready_for_apply,
     ensure_bulk_edit_session_ready_for_upload,
     extend_bulk_edit_session,
-    fail_bulk_edit_session,
+    fail_bulk_edit_session_with_status,
     get_active_bulk_edit_session,
     get_bulk_edit_control_message_target,
     get_bulk_edit_session,
     get_bulk_edit_upload_dir,
+    mark_bulk_edit_backing_up,
     mark_bulk_edit_applying,
+    mark_bulk_edit_preparing,
     mark_bulk_edit_uploaded,
     require_bulk_edit_initiator,
     restore_bulk_edit_uploaded,
@@ -38,8 +41,11 @@ from .i18n import translate_for_user
 from .runtime import router
 from .workbook_export import export_family_workbook
 from .workbook_import import (
+    WorkbookImportProgress,
     WorkbookImportValidationError,
-    apply_family_workbook_import,
+    apply_prepared_family_workbook_import,
+    cleanup_prepared_family_workbook_import,
+    prepare_family_workbook_import,
     validate_family_workbook_import,
 )
 
@@ -220,17 +226,20 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
         )
         return
 
-    session = mark_bulk_edit_applying(int(session["id"]))
     progress_state = {
+        "phase": "backing_up",
         "processed_rows": 0,
         "total_rows": len(validated_rows),
+        "current_item_text": "",
     }
     event_loop = asyncio.get_running_loop()
 
-    def report_progress(processed_rows: int, total_rows: int) -> None:
+    def report_progress(event: WorkbookImportProgress) -> None:
         def update_state() -> None:
-            progress_state["processed_rows"] = processed_rows
-            progress_state["total_rows"] = total_rows
+            progress_state["phase"] = event.phase
+            progress_state["processed_rows"] = event.processed_rows
+            progress_state["total_rows"] = event.total_rows
+            progress_state["current_item_text"] = event.current_item_text
 
         event_loop.call_soon_threadsafe(update_state)
 
@@ -245,19 +254,65 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
             stop_event=progress_stop,
         )
     )
+    prepared_import = None
     try:
-        summary = await asyncio.to_thread(
-            apply_family_workbook_import,
+        session = mark_bulk_edit_backing_up(int(session["id"]))
+        backup_file_path = await asyncio.to_thread(
+            create_bulk_edit_backup,
+            family_id=int(session["family_id"]),
+            user_id=int(session["started_by_user_id"]),
+        )
+    except Exception:
+        progress_stop.set()
+        await progress_task
+        session = fail_bulk_edit_session_with_status(int(session["id"]), "failed_backup")
+        await _upsert_control_message(
+            callback.message,
+            session,
+            "bulk_edit.apply.backup_failed",
+            include_controls=False,
+            actor_user_id=callback.from_user.id,
+        )
+        raise
+
+    try:
+        session = mark_bulk_edit_preparing(int(session["id"]))
+        prepared_import = await asyncio.to_thread(
+            prepare_family_workbook_import,
             Path(str(session["uploaded_file_path"])),
             int(session["family_id"]),
-            int(session["started_by_user_id"]),
             validated_rows,
+            report_progress,
+        )
+    except Exception as exc:
+        progress_stop.set()
+        await progress_task
+        session = fail_bulk_edit_session_with_status(int(session["id"]), "failed_prepare")
+        await _upsert_control_message(
+            callback.message,
+            session,
+            "bulk_edit.apply.prepare_failed",
+            include_controls=False,
+            actor_user_id=callback.from_user.id,
+            error_text=str(exc),
+        )
+        raise
+
+    try:
+        session = mark_bulk_edit_applying(int(session["id"]))
+        summary = await asyncio.to_thread(
+            apply_prepared_family_workbook_import,
+            int(session["family_id"]),
+            prepared_import,
+            backup_file_path,
             report_progress,
         )
     except Exception:
         progress_stop.set()
         await progress_task
-        session = fail_bulk_edit_session(int(session["id"]))
+        if prepared_import is not None:
+            await asyncio.to_thread(cleanup_prepared_family_workbook_import, prepared_import)
+        session = fail_bulk_edit_session_with_status(int(session["id"]), "failed_apply")
         await _upsert_control_message(
             callback.message,
             session,
@@ -266,22 +321,22 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
             actor_user_id=callback.from_user.id,
         )
         raise
-
-    progress_stop.set()
-    await progress_task
-    set_bulk_edit_backup_path(int(session["id"]), str(summary.backup_file_path))
-    session = complete_bulk_edit_session(int(session["id"]), str(summary.backup_file_path))
-    await _upsert_control_message(
-        callback.message,
-        session,
-        "bulk_edit.apply.completed",
-        include_controls=False,
-        actor_user_id=callback.from_user.id,
-        created=summary.created,
-        updated=summary.updated,
-        archived=summary.archived,
-        unchanged=summary.unchanged,
-    )
+    else:
+        progress_stop.set()
+        await progress_task
+        set_bulk_edit_backup_path(int(session["id"]), str(summary.backup_file_path))
+        session = complete_bulk_edit_session(int(session["id"]), str(summary.backup_file_path))
+        await _upsert_control_message(
+            callback.message,
+            session,
+            "bulk_edit.apply.completed",
+            include_controls=False,
+            actor_user_id=callback.from_user.id,
+            created=summary.created,
+            updated=summary.updated,
+            archived=summary.archived,
+            unchanged=summary.unchanged,
+        )
 
 
 def _build_controls_markup(session) -> InlineKeyboardMarkup:
@@ -361,14 +416,21 @@ async def _run_apply_progress_indicator(
     frames = ("...", "..", ".")
     frame_index = 0
     while True:
+        phase = str(progress_state.get("phase", "backing_up"))
+        phase_label = translate_for_user(
+            actor_user_id,
+            f"bulk_edit.apply.phase.{phase}" if phase in {"backing_up", "preparing", "applying"} else "bulk_edit.apply.phase.backing_up",
+        )
         await _upsert_control_message(
             source_message,
             session,
             "bulk_edit.apply.in_progress",
             actor_user_id=actor_user_id,
             row_count=row_count,
+            phase_label=phase_label,
             processed_rows=int(progress_state.get("processed_rows", 0)),
             elapsed_seconds=elapsed_seconds,
+            current_item_text=str(progress_state.get("current_item_text", "")),
             indicator=frames[frame_index],
         )
         if stop_event.is_set():

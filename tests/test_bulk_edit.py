@@ -18,6 +18,7 @@ from englishbot.bulk_edit import (
     get_active_bulk_edit_session,
     get_bulk_edit_session,
     process_due_bulk_edit_notifications,
+    restore_database_from_bulk_edit_backup,
 )
 from englishbot.families import add_family_member, create_family
 
@@ -177,3 +178,27 @@ def test_bulk_edit_monitor_sends_reminders_and_expiration_notice(tmp_path: Path,
         "Bulk edit reminder: 3 minutes remain before the session expires automatically.",
         "Bulk edit session expired automatically. The bot is available again.",
     ]
+
+
+def test_restore_database_from_bulk_edit_backup_restores_previous_sqlite_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    owner, _, family_id = seed_family(tmp_path, monkeypatch)
+    backup_path = create_bulk_edit_backup(family_id=family_id, user_id=owner.id)
+
+    extra_user = make_user(1999, "LateUser")
+    db.save_user(extra_user)
+    with db.get_connection() as connection:
+        assert connection.execute(
+            "SELECT 1 FROM users WHERE telegram_user_id = ?",
+            (extra_user.id,),
+        ).fetchone() is not None
+
+    restore_database_from_bulk_edit_backup(backup_path)
+
+    with db.get_connection() as connection:
+        assert connection.execute(
+            "SELECT 1 FROM users WHERE telegram_user_id = ?",
+            (extra_user.id,),
+        ).fetchone() is None

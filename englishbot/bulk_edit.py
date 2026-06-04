@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 SESSION_DURATION_MINUTES = 30
 REMINDER_10_MINUTES = 10
 REMINDER_3_MINUTES = 3
-ACTIVE_SESSION_STATUSES = ("active", "uploaded", "applying")
+ACTIVE_SESSION_STATUSES = ("active", "uploaded", "backing_up", "preparing", "applying")
 BULK_EDIT_CALLBACK_PREFIX = "bulk_edit:"
 BULK_EDIT_COMMAND_TOKEN = "/bulk_edit"
 
@@ -85,7 +86,7 @@ def get_active_bulk_edit_session() -> sqlite3.Row | None:
             """
             SELECT *
             FROM bulk_edit_sessions
-            WHERE status IN (?, ?, ?)
+            WHERE status IN (?, ?, ?, ?, ?)
             ORDER BY id DESC
             LIMIT 1
             """,
@@ -171,16 +172,15 @@ def mark_bulk_edit_uploaded(session_id: int, uploaded_file_path: str) -> sqlite3
 
 
 def mark_bulk_edit_applying(session_id: int) -> sqlite3.Row:
-    return _update_session(
-        session_id,
-        """
-        UPDATE bulk_edit_sessions
-        SET status = 'applying',
-            updated_at = ?
-        WHERE id = ?
-        """,
-        (utc_now(), session_id),
-    )
+    return _set_bulk_edit_status(session_id, "applying")
+
+
+def mark_bulk_edit_backing_up(session_id: int) -> sqlite3.Row:
+    return _set_bulk_edit_status(session_id, "backing_up")
+
+
+def mark_bulk_edit_preparing(session_id: int) -> sqlite3.Row:
+    return _set_bulk_edit_status(session_id, "preparing")
 
 
 def restore_bulk_edit_uploaded(session_id: int) -> sqlite3.Row:
@@ -239,20 +239,20 @@ def cancel_bulk_edit_session(session_id: int) -> sqlite3.Row:
 
 
 def fail_bulk_edit_session(session_id: int) -> sqlite3.Row:
+    return fail_bulk_edit_session_with_status(session_id, "failed_apply")
+
+
+def fail_bulk_edit_session_with_status(session_id: int, status: str) -> sqlite3.Row:
     session = _update_session(
         session_id,
         """
         UPDATE bulk_edit_sessions
-        SET status = 'failed',
+        SET status = ?,
             expires_at = ?,
             updated_at = ?
         WHERE id = ?
         """,
-        (
-            _format_dt(_utcnow()),
-            utc_now(),
-            session_id,
-        ),
+        (status, _format_dt(_utcnow()), utc_now(), session_id),
     )
     _cleanup_session_temp_files(session)
     return session
@@ -327,13 +327,31 @@ def create_bulk_edit_backup(*, family_id: int, user_id: int) -> Path:
     return backup_path
 
 
+def restore_database_from_bulk_edit_backup(backup_file_path: str | Path) -> None:
+    backup_path = Path(backup_file_path)
+    if not backup_path.exists() or not backup_path.is_file():
+        raise BulkEditError("backup file does not exist")
+    if backup_path.resolve() == Path(db.DB_PATH).resolve():
+        raise BulkEditError("refusing to restore database from itself")
+
+    restored_copy_path = Path(db.DB_PATH).with_suffix(".restore.sqlite3")
+    restored_copy_path.unlink(missing_ok=True)
+    try:
+        with closing(sqlite3.connect(backup_path)) as source:
+            with closing(sqlite3.connect(restored_copy_path)) as destination:
+                source.backup(destination)
+        os.replace(restored_copy_path, db.DB_PATH)
+    finally:
+        restored_copy_path.unlink(missing_ok=True)
+
+
 def expire_active_bulk_edit_session_if_needed() -> sqlite3.Row | None:
     with get_connection() as connection:
         row = connection.execute(
             """
             SELECT *
             FROM bulk_edit_sessions
-            WHERE status IN (?, ?, ?)
+            WHERE status IN (?, ?, ?, ?, ?)
             ORDER BY id DESC
             LIMIT 1
             """,
@@ -479,6 +497,19 @@ def _update_session(session_id: int, query: str, parameters: tuple[object, ...])
     session = get_bulk_edit_session(session_id)
     assert session is not None
     return session
+
+
+def _set_bulk_edit_status(session_id: int, status: str) -> sqlite3.Row:
+    return _update_session(
+        session_id,
+        """
+        UPDATE bulk_edit_sessions
+        SET status = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (status, utc_now(), session_id),
+    )
 
 
 def _cleanup_session_temp_files(session: sqlite3.Row) -> None:

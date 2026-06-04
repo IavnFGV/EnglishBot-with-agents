@@ -13,7 +13,7 @@ from englishbot.bulk_edit import get_active_bulk_edit_session
 from englishbot.bulk_edit_handlers import handle_bulk_edit_callback, start_bulk_edit, upload_bulk_edit_workbook
 from englishbot.families import create_family, create_family_learning_item
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme, list_learning_items
-from englishbot.workbook_import import WorkbookImportRow
+from englishbot.workbook_import import WorkbookImportProgress, WorkbookImportRow
 
 
 class FakeBot:
@@ -175,8 +175,36 @@ def test_apply_shows_progress_status_before_completion(tmp_path: Path, monkeypat
     def fake_validate(*args, **kwargs):
         return validated_rows
 
+    def fake_backup(*args, **kwargs):
+        backup_path = tmp_path / "backups" / "fake.sqlite3"
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        backup_path.write_bytes(b"backup")
+        return backup_path
+
+    def fake_prepare(*args, **kwargs):
+        time.sleep(1.1)
+        progress_callback = args[-1]
+        progress_callback(
+            WorkbookImportProgress(
+                phase="preparing",
+                processed_rows=1,
+                total_rows=1,
+                current_item_text="apple",
+            )
+        )
+        return SimpleNamespace(rows=[], staged_asset_paths=())
+
     def fake_apply(*args, **kwargs):
-        time.sleep(0.05)
+        time.sleep(1.1)
+        progress_callback = args[-1]
+        progress_callback(
+            WorkbookImportProgress(
+                phase="applying",
+                processed_rows=1,
+                total_rows=1,
+                current_item_text="apple",
+            )
+        )
         return SimpleNamespace(
             created=0,
             updated=0,
@@ -186,7 +214,9 @@ def test_apply_shows_progress_status_before_completion(tmp_path: Path, monkeypat
         )
 
     monkeypatch.setattr("englishbot.bulk_edit_handlers.validate_family_workbook_import", fake_validate)
-    monkeypatch.setattr("englishbot.bulk_edit_handlers.apply_family_workbook_import", fake_apply)
+    monkeypatch.setattr("englishbot.bulk_edit_handlers.create_bulk_edit_backup", fake_backup)
+    monkeypatch.setattr("englishbot.bulk_edit_handlers.prepare_family_workbook_import", fake_prepare)
+    monkeypatch.setattr("englishbot.bulk_edit_handlers.apply_prepared_family_workbook_import", fake_apply)
 
     callback_message = FakeMessage(owner)
     callback = FakeCallback(owner, "bulk_edit:apply", callback_message)
@@ -194,7 +224,9 @@ def test_apply_shows_progress_status_before_completion(tmp_path: Path, monkeypat
 
     assert callback.answers == [{"text": None, "show_alert": False}]
     assert any(
-        "Processed:" in edit["text"]
+        "Creating safety backup" in edit["text"]
+        or "Preparing assets" in edit["text"]
+        or "Applying database changes" in edit["text"]
         for edit in callback_message.bot.edits
     )
     assert callback_message.bot.edits[-1]["text"].startswith("Bulk edit completed.")

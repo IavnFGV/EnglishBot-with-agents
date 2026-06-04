@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-06-03
+- Hardened family workbook import into a two-phase pipeline: `/bulk_edit` now requires a successful SQLite backup before any processing starts, prepares remote workbook assets outside the DB write transaction into staged local files, keeps the final DB apply short and atomic, surfaces phase-aware backup/prepare/apply progress in the reused control message, and adds a guarded backup-restore helper for emergency recovery only.
+- Added `chain_of_commands/052-bulk-edit-two-phase-import-and-recovery.md`, a replayable prompt for the next bulk-edit reliability slice: mandatory backup before processing, remote-asset prepare/staging outside the DB write transaction, short atomic apply, phase-aware Telegram progress, and a guarded backup-restore fallback only for emergency recovery.
 - Hardened long-running bulk-edit imports under DEBUG logging: audit middleware now skips non-critical interaction writes when SQLite is temporarily locked by the workbook apply transaction, and `PIL` image-parser debug noise is forced back to `INFO` so remote image downloads no longer flood logs with low-level PNG chunk traces.
 - Upgraded the `/bulk_edit` apply indicator from a static waiting note to live row progress: the control message now updates while import runs and shows `processed/total` rows plus elapsed seconds, which makes large workbook applies with remote image downloads much easier to trust and monitor.
 - Improved large family bulk-edit apply UX: `/bulk_edit` now acknowledges the Apply callback immediately, runs workbook apply off the event loop, and keeps the reused control message updated with an in-progress status so long imports with remote image downloads no longer look frozen or fail with expired Telegram callback queries.

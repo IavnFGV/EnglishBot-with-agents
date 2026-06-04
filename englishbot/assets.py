@@ -407,13 +407,7 @@ def store_remote_asset(
     parsed_url = urlparse(source_url)
     if parsed_url.scheme not in {"http", "https"}:
         raise ValueError(f"{asset_type} url must be http or https")
-
-    with urlopen(source_url, timeout=15) as response:
-        content = response.read()
-    if not content:
-        raise ValueError(f"{asset_type} content is required")
-    if asset_type == ASSET_TYPE_IMAGE:
-        _validate_image_content(content, source_url=source_url)
+    content = download_remote_asset_content(asset_type, source_url)
 
     suffix = Path(parsed_url.path).suffix.lower() or default_extension
     relative_dir = preferred_dir or REMOTE_ASSET_SUBDIR_BY_TYPE[asset_type]
@@ -425,6 +419,27 @@ def store_remote_asset(
     output_path = asset_dir / filename
     output_path.write_bytes(content)
     return str((relative_dir / filename).as_posix())
+
+
+def download_remote_asset_content(
+    asset_type: str,
+    source_url: str,
+    *,
+    timeout_seconds: int = 15,
+) -> bytes:
+    if asset_type not in SUPPORTED_ASSET_TYPES:
+        raise ValueError("unsupported asset_type")
+    parsed_url = urlparse(source_url)
+    if parsed_url.scheme not in {"http", "https"}:
+        raise ValueError(f"{asset_type} url must be http or https")
+
+    with urlopen(source_url, timeout=timeout_seconds) as response:
+        content = response.read()
+    if not content:
+        raise ValueError(f"{asset_type} content is required")
+    if asset_type == ASSET_TYPE_IMAGE:
+        _validate_image_content(content, source_url=source_url)
+    return content
 
 
 def is_valid_local_image_path(image_path: str | Path) -> bool:
@@ -464,6 +479,10 @@ def store_workbook_import_asset(
     output_path = asset_dir / filename
     output_path.write_bytes(content)
     return str((WORKBOOK_IMPORT_ASSET_DIR / asset_type / filename).as_posix())
+
+
+def resolve_runtime_asset_path(asset_path: str | Path) -> Path:
+    return _get_runtime_root() / Path(str(asset_path))
 
 
 def _delete_orphaned_assets(connection, asset_ids: list[int]) -> None:
