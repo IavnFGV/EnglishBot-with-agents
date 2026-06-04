@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-03
+- Hardened long-running bulk-edit imports under DEBUG logging: audit middleware now skips non-critical interaction writes when SQLite is temporarily locked by the workbook apply transaction, and `PIL` image-parser debug noise is forced back to `INFO` so remote image downloads no longer flood logs with low-level PNG chunk traces.
 - Upgraded the `/bulk_edit` apply indicator from a static waiting note to live row progress: the control message now updates while import runs and shows `processed/total` rows plus elapsed seconds, which makes large workbook applies with remote image downloads much easier to trust and monitor.
 - Improved large family bulk-edit apply UX: `/bulk_edit` now acknowledges the Apply callback immediately, runs workbook apply off the event loop, and keeps the reused control message updated with an in-progress status so long imports with remote image downloads no longer look frozen or fail with expired Telegram callback queries.
 - Fixed the deploy-owned placeholder sync for runtime assets: `assets/images/no-image.png` is now tracked in git, and the deploy workflow now fails with an explicit source-file error plus directory listing before copying that placeholder into `/srv/services/englishbot/assets/images/no-image.png`.
