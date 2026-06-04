@@ -7,6 +7,10 @@ SOURCE_DIR="${SOURCE_DIR:-/srv/services/${SERVICE_NAME}/backups}"
 SYNC_DIR="${SYNC_DIR:-/srv/drive-sync/services/${SERVICE_NAME}/backups}"
 KEEP_COUNT="${KEEP_COUNT:-30}"
 
+log() {
+  printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
 if ! [[ "${KEEP_COUNT}" =~ ^[0-9]+$ ]] || [ "${KEEP_COUNT}" -lt 1 ]; then
   echo "KEEP_COUNT must be a positive integer, got: ${KEEP_COUNT}" >&2
   exit 1
@@ -14,13 +18,22 @@ fi
 
 mkdir -p "${SOURCE_DIR}" "${SYNC_DIR}"
 
+count_files() {
+  local target_dir="$1"
+  find "${target_dir}" -maxdepth 1 -type f | wc -l | tr -d ' '
+}
+
 copy_backups() {
   local source_dir="$1"
   local sync_dir="$2"
+  local copied_count=0
 
-  find "${source_dir}" -maxdepth 1 -type f -print0 | while IFS= read -r -d '' file_path; do
+  while IFS= read -r -d '' file_path; do
     cp -p "${file_path}" "${sync_dir}/"
-  done
+    copied_count=$((copied_count + 1))
+  done < <(find "${source_dir}" -maxdepth 1 -type f -print0)
+
+  log "Copied ${copied_count} backup file(s) from ${source_dir} to ${sync_dir}."
 }
 
 prune_backups() {
@@ -32,6 +45,7 @@ prune_backups() {
   )
 
   if [ "${#files[@]}" -le "${keep_count}" ]; then
+    log "Prune skipped for ${target_dir}: ${#files[@]} file(s), keep=${keep_count}."
     return 0
   fi
 
@@ -39,8 +53,16 @@ prune_backups() {
   for ((index = keep_count; index < ${#files[@]}; index += 1)); do
     rm -f "${files[$index]#* }"
   done
+
+  log "Pruned ${#files[@]} -> ${keep_count} file(s) in ${target_dir}."
 }
+
+log "Backup maintenance started for ${SERVICE_NAME}."
+log "Source=${SOURCE_DIR} Sync=${SYNC_DIR} Keep=${KEEP_COUNT}"
+log "Found $(count_files "${SOURCE_DIR}") source backup file(s) before sync."
 
 copy_backups "${SOURCE_DIR}" "${SYNC_DIR}"
 prune_backups "${SOURCE_DIR}" "${KEEP_COUNT}"
 prune_backups "${SYNC_DIR}" "${KEEP_COUNT}"
+
+log "Backup maintenance finished. Source=$(count_files "${SOURCE_DIR}") Sync=$(count_files "${SYNC_DIR}")"
