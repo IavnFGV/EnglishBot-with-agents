@@ -15,6 +15,7 @@ from .assets import (
     PRIMARY_AUDIO_ROLE,
     PRIMARY_IMAGE_ROLE,
     download_remote_asset_content,
+    finalize_workbook_import_asset,
     replace_learning_item_assets_for_role,
     resolve_runtime_asset_path,
     store_workbook_import_asset,
@@ -221,6 +222,7 @@ def apply_prepared_family_workbook_import(
         "archived": 0,
         "unchanged": 0,
     }
+    finalized_asset_paths: list[str] = []
     with get_connection() as connection:
         existing_items = _load_existing_items(connection, family_id)
         existing_topics = _load_existing_topics(connection, family_id)
@@ -235,6 +237,7 @@ def apply_prepared_family_workbook_import(
                     family_id,
                     row,
                     existing_items,
+                    finalized_asset_paths=finalized_asset_paths,
                 )
                 imported_item_ids.add(imported_item_id)
                 summary[change_kind] += 1
@@ -262,6 +265,9 @@ def apply_prepared_family_workbook_import(
             connection.commit()
         except Exception:
             connection.rollback()
+            _cleanup_staged_asset_paths(
+                [*prepared_import.staged_asset_paths, *finalized_asset_paths]
+            )
             raise
 
     return FamilyWorkbookImportSummary(
@@ -438,12 +444,19 @@ def _upsert_learning_item(
     family_id: int,
     row: PreparedWorkbookImportRow,
     existing_items: dict[int, sqlite3.Row],
+    *,
+    finalized_asset_paths: list[str],
 ) -> tuple[int, str]:
     existing_item = existing_items.get(_parse_item_key(row.item_key) or -1)
     if existing_item is None:
         item_id = _create_learning_item(connection, family_id, row)
         _sync_translations(connection, item_id, row.translations)
-        _sync_media_assets(connection, item_id, row)
+        _sync_media_assets(
+            connection,
+            item_id,
+            row,
+            finalized_asset_paths=finalized_asset_paths,
+        )
         return item_id, "created"
 
     lexeme_id = _get_or_create_lexeme_id(connection, row.text)
@@ -472,7 +485,12 @@ def _upsert_learning_item(
             ),
         )
     translation_changed = _sync_translations(connection, item_id, row.translations)
-    asset_changed = _sync_media_assets(connection, item_id, row)
+    asset_changed = _sync_media_assets(
+        connection,
+        item_id,
+        row,
+        finalized_asset_paths=finalized_asset_paths,
+    )
     if changed or translation_changed or asset_changed:
         return item_id, "updated"
     return item_id, "unchanged"
@@ -571,6 +589,8 @@ def _sync_media_assets(
     connection: sqlite3.Connection,
     learning_item_id: int,
     row: PreparedWorkbookImportRow,
+    *,
+    finalized_asset_paths: list[str],
 ) -> bool:
     image_changed = _replace_asset_ref(
         connection,
@@ -578,6 +598,7 @@ def _sync_media_assets(
         role=PRIMARY_IMAGE_ROLE,
         asset_type=ASSET_TYPE_IMAGE,
         prepared_asset=row.image_asset,
+        finalized_asset_paths=finalized_asset_paths,
     )
     audio_changed = _replace_asset_ref(
         connection,
@@ -585,6 +606,7 @@ def _sync_media_assets(
         role=PRIMARY_AUDIO_ROLE,
         asset_type=ASSET_TYPE_AUDIO,
         prepared_asset=row.audio_asset,
+        finalized_asset_paths=finalized_asset_paths,
     )
     return image_changed or audio_changed
 
@@ -596,6 +618,7 @@ def _replace_asset_ref(
     role: str,
     asset_type: str,
     prepared_asset: PreparedAssetRef | None,
+    finalized_asset_paths: list[str],
 ) -> bool:
     existing_assets = connection.execute(
         """
@@ -630,6 +653,49 @@ def _replace_asset_ref(
     desired_local_path = prepared_asset.local_path
     if current_local_path == desired_local_path and current_source_url == (desired_source_url or ""):
         return False
+
+    if prepared_asset.staged_local_path:
+        cursor = connection.execute(
+            """
+            INSERT INTO assets (
+                workbook_key,
+                asset_type,
+                source_url,
+                local_path,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                None,
+                asset_type,
+                desired_source_url,
+                prepared_asset.staged_local_path,
+                utc_now(),
+            ),
+        )
+        asset_id = int(cursor.lastrowid)
+        desired_local_path = finalize_workbook_import_asset(
+            asset_id,
+            asset_type,
+            prepared_asset.staged_local_path,
+        )
+        connection.execute(
+            """
+            UPDATE assets
+            SET local_path = ?
+            WHERE id = ?
+            """,
+            (desired_local_path, asset_id),
+        )
+        finalized_asset_paths.append(desired_local_path)
+        replace_learning_item_assets_for_role(
+            learning_item_id,
+            role,
+            assets=[{"asset_id": asset_id}],
+            connection=connection,
+        )
+        return True
 
     replace_learning_item_assets_for_role(
         learning_item_id,

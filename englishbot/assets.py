@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import shutil
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -12,7 +13,7 @@ from . import db
 
 TEACHER_CONTENT_IMAGE_DIR = Path("assets/images/teacher-content")
 NO_IMAGE_PLACEHOLDER_PATH = Path("assets/images/no-image.png")
-WORKBOOK_IMPORT_ASSET_DIR = Path("assets/workbook-import")
+WORKBOOK_IMPORT_STAGING_DIR = Path("assets/import-staging")
 ASSET_TYPE_IMAGE = "image"
 ASSET_TYPE_AUDIO = "audio"
 ASSET_TYPE_VOICE = "voice"
@@ -33,6 +34,13 @@ REMOTE_ASSET_SUBDIR_BY_TYPE = {
     ASSET_TYPE_AUDIO: Path("assets/audio/remote"),
     ASSET_TYPE_VOICE: Path("assets/voice/remote"),
     ASSET_TYPE_VIDEO: Path("assets/video/remote"),
+}
+
+IMPORTED_ASSET_SUBDIR_BY_TYPE = {
+    ASSET_TYPE_IMAGE: Path("assets/images/imported"),
+    ASSET_TYPE_AUDIO: Path("assets/audio/imported"),
+    ASSET_TYPE_VOICE: Path("assets/voice/imported"),
+    ASSET_TYPE_VIDEO: Path("assets/video/imported"),
 }
 
 
@@ -305,17 +313,8 @@ def replace_learning_item_assets_for_role(
         for link in existing_assets
     ]
     replacement_links.extend(
-        [
-            {
-                "asset_type": str(asset["asset_type"]),
-                "source_url": asset.get("source_url"),
-                "local_path": asset.get("local_path"),
-                "workbook_key": asset.get("workbook_key"),
-                "role": role,
-                "sort_order": index,
-            }
-            for index, asset in enumerate(assets)
-        ]
+        _build_asset_replacement_link(role, asset, index)
+        for index, asset in enumerate(assets)
     )
     replace_learning_item_assets(learning_item_id, replacement_links, connection=connection)
 
@@ -400,7 +399,7 @@ def store_remote_asset(
     *,
     preferred_dir: Path | None = None,
     filename_prefix: str | None = None,
-    default_extension: str = ".bin",
+    default_extension: str | None = None,
 ) -> str:
     if asset_type not in SUPPORTED_ASSET_TYPES:
         raise ValueError("unsupported asset_type")
@@ -409,7 +408,12 @@ def store_remote_asset(
         raise ValueError(f"{asset_type} url must be http or https")
     content = download_remote_asset_content(asset_type, source_url)
 
-    suffix = Path(parsed_url.path).suffix.lower() or default_extension
+    suffix = _resolve_asset_extension(
+        asset_type,
+        source_url=source_url,
+        content=content,
+        default_extension=default_extension,
+    )
     relative_dir = preferred_dir or REMOTE_ASSET_SUBDIR_BY_TYPE[asset_type]
     asset_dir = _get_runtime_root() / relative_dir
     asset_dir.mkdir(parents=True, exist_ok=True)
@@ -465,20 +469,36 @@ def store_workbook_import_asset(
     if not content:
         raise ValueError("asset content is required")
 
-    suffix = Path(urlparse(source_url).path).suffix.lower()
-    if not suffix:
-        if asset_type == ASSET_TYPE_IMAGE:
-            suffix = ".bin"
-        elif asset_type == ASSET_TYPE_AUDIO:
-            suffix = ".bin"
-        else:
-            suffix = ".txt"
-    asset_dir = _get_runtime_root() / WORKBOOK_IMPORT_ASSET_DIR / asset_type
+    suffix = _resolve_asset_extension(
+        asset_type,
+        source_url=source_url,
+        content=content,
+    )
+    asset_dir = _get_runtime_root() / WORKBOOK_IMPORT_STAGING_DIR / asset_type
     asset_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{asset_type}-{uuid4().hex}{suffix}"
+    filename = f"staged-{uuid4().hex}{suffix}"
     output_path = asset_dir / filename
     output_path.write_bytes(content)
-    return str((WORKBOOK_IMPORT_ASSET_DIR / asset_type / filename).as_posix())
+    return str((WORKBOOK_IMPORT_STAGING_DIR / asset_type / filename).as_posix())
+
+
+def finalize_workbook_import_asset(
+    asset_id: int,
+    asset_type: str,
+    staged_local_path: str,
+) -> str:
+    if asset_type not in SUPPORTED_ASSET_TYPES:
+        raise ValueError("unsupported asset_type")
+    staged_path = resolve_runtime_asset_path(staged_local_path)
+    suffix = staged_path.suffix.lower() or _default_extension_for_asset_type(asset_type)
+    relative_dir = IMPORTED_ASSET_SUBDIR_BY_TYPE[asset_type]
+    final_relative_path = relative_dir / f"asset-{int(asset_id)}{suffix}"
+    final_path = _get_runtime_root() / final_relative_path
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    if staged_path.resolve() != final_path.resolve():
+        final_path.unlink(missing_ok=True)
+        shutil.move(str(staged_path), str(final_path))
+    return str(final_relative_path.as_posix())
 
 
 def resolve_runtime_asset_path(asset_path: str | Path) -> Path:
@@ -520,3 +540,87 @@ def _get_runtime_root() -> Path:
     if db_parent.name == "data":
         return db_parent.parent
     return db_parent
+
+
+def _build_asset_replacement_link(
+    role: str,
+    asset: dict[str, object],
+    sort_order: int,
+) -> dict[str, object]:
+    asset_id = asset.get("asset_id")
+    if asset_id is not None:
+        return {
+            "asset_id": int(asset_id),
+            "role": role,
+            "sort_order": sort_order,
+        }
+    return {
+        "asset_type": str(asset["asset_type"]),
+        "source_url": asset.get("source_url"),
+        "local_path": asset.get("local_path"),
+        "workbook_key": asset.get("workbook_key"),
+        "role": role,
+        "sort_order": sort_order,
+    }
+
+
+def _resolve_asset_extension(
+    asset_type: str,
+    *,
+    source_url: str,
+    content: bytes,
+    default_extension: str | None = None,
+) -> str:
+    parsed_suffix = Path(urlparse(source_url).path).suffix.lower()
+    if parsed_suffix and parsed_suffix != ".bin":
+        return parsed_suffix
+    sniffed_extension = _sniff_asset_extension(asset_type, content)
+    if sniffed_extension:
+        return sniffed_extension
+    if default_extension:
+        normalized = default_extension.lower()
+        return normalized if normalized.startswith(".") else f".{normalized}"
+    return _default_extension_for_asset_type(asset_type)
+
+
+def _sniff_asset_extension(asset_type: str, content: bytes) -> str | None:
+    if asset_type == ASSET_TYPE_IMAGE:
+        try:
+            with Image.open(BytesIO(content)) as image:
+                detected = str(image.format or "").upper()
+        except (OSError, SyntaxError, UnidentifiedImageError):
+            return None
+        image_extensions = {
+            "JPEG": ".jpg",
+            "PNG": ".png",
+            "GIF": ".gif",
+            "BMP": ".bmp",
+            "WEBP": ".webp",
+            "TIFF": ".tiff",
+        }
+        return image_extensions.get(detected)
+    if asset_type in {ASSET_TYPE_AUDIO, ASSET_TYPE_VOICE}:
+        if content.startswith(b"ID3") or content[:2] == b"\xff\xfb":
+            return ".mp3"
+        if content.startswith(b"OggS"):
+            return ".ogg"
+        if content.startswith(b"RIFF") and content[8:12] == b"WAVE":
+            return ".wav"
+        if content.startswith(b"fLaC"):
+            return ".flac"
+        if len(content) > 8 and content[4:8] == b"ftyp":
+            return ".m4a"
+        return None
+    if asset_type == ASSET_TYPE_VIDEO and len(content) > 8 and content[4:8] == b"ftyp":
+        return ".mp4"
+    return None
+
+
+def _default_extension_for_asset_type(asset_type: str) -> str:
+    defaults = {
+        ASSET_TYPE_IMAGE: ".jpg",
+        ASSET_TYPE_AUDIO: ".mp3",
+        ASSET_TYPE_VOICE: ".ogg",
+        ASSET_TYPE_VIDEO: ".mp4",
+    }
+    return defaults.get(asset_type, ".dat")

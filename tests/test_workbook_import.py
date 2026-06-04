@@ -10,7 +10,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
-from englishbot.assets import PRIMARY_IMAGE_ROLE, resolve_asset_ref_for_role, resolve_runtime_asset_path
+from englishbot.assets import PRIMARY_AUDIO_ROLE, PRIMARY_IMAGE_ROLE, resolve_asset_ref_for_role, resolve_runtime_asset_path
 from englishbot.families import create_family, create_family_learning_item, create_family_topic, list_family_topics, replace_topic_items
 from englishbot.topics import get_topic_learning_item_ids
 from englishbot.vocabulary import get_learning_item, list_learning_item_translations, create_learning_item_translation, create_lexeme
@@ -58,6 +58,10 @@ def make_png_bytes() -> bytes:
     image = Image.new("RGB", (1, 1), color="red")
     image.save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def make_mp3_like_bytes() -> bytes:
+    return b"ID3" + b"\x00" * 32
 
 
 def test_import_updates_creates_archives_and_ignores_display_only_image_column(tmp_path: Path, monkeypatch) -> None:
@@ -248,7 +252,7 @@ def test_failed_remote_asset_download_leaves_sqlite_unchanged_and_cleans_staging
 
     assert get_learning_item(first_item_id)["text"] == "apple"
     assert get_learning_item(second_item_id)["text"] == "pear"
-    staged_dir = resolve_runtime_asset_path("assets/workbook-import/image")
+    staged_dir = resolve_runtime_asset_path("assets/import-staging/image")
     assert not staged_dir.exists() or list(staged_dir.iterdir()) == []
 
 
@@ -300,4 +304,91 @@ def test_apply_phase_uses_prepared_local_asset_refs_without_network(tmp_path: Pa
     )
 
     assert summary.updated == 1
-    assert resolve_asset_ref_for_role(first_item_id, PRIMARY_IMAGE_ROLE).startswith("assets/workbook-import/image/")
+    assert resolve_asset_ref_for_role(first_item_id, PRIMARY_IMAGE_ROLE).startswith("assets/images/imported/")
+
+
+def test_remote_image_import_uses_persistent_imported_path_and_asset_id_filename(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    first_item_id, _ = seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-imported-image.xlsx").file_path
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["learning_items"]
+    sheet["G2"] = "https://example.com/image-without-extension"
+    workbook.save(workbook_path)
+
+    monkeypatch.setattr(
+        "englishbot.workbook_import.download_remote_asset_content",
+        lambda *args, **kwargs: make_png_bytes(),
+    )
+
+    summary = apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
+
+    image_ref = resolve_asset_ref_for_role(first_item_id, PRIMARY_IMAGE_ROLE)
+    assert summary.updated == 1
+    assert image_ref is not None
+    assert image_ref.startswith("assets/images/imported/")
+    assert image_ref.endswith(".png")
+    with db.get_connection() as connection:
+        asset_row = connection.execute(
+            """
+            SELECT assets.id, assets.local_path, assets.source_url
+            FROM learning_item_assets
+            JOIN assets ON assets.id = learning_item_assets.asset_id
+            WHERE learning_item_assets.learning_item_id = ?
+              AND learning_item_assets.role = ?
+            """,
+            (first_item_id, PRIMARY_IMAGE_ROLE),
+        ).fetchone()
+    assert asset_row is not None
+    assert asset_row["source_url"] == "https://example.com/image-without-extension"
+    assert asset_row["local_path"] == f"assets/images/imported/asset-{int(asset_row['id'])}.png"
+    assert resolve_runtime_asset_path(str(asset_row["local_path"])).exists()
+    image_staging_dir = resolve_runtime_asset_path("assets/import-staging/image")
+    assert not image_staging_dir.exists() or list(image_staging_dir.iterdir()) == []
+
+
+def test_remote_audio_import_uses_persistent_imported_path_and_sensible_extension(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    first_item_id, _ = seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-imported-audio.xlsx").file_path
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["learning_items"]
+    sheet["I2"] = "https://example.com/audio-without-extension"
+    workbook.save(workbook_path)
+
+    monkeypatch.setattr(
+        "englishbot.workbook_import.download_remote_asset_content",
+        lambda *args, **kwargs: make_mp3_like_bytes(),
+    )
+
+    summary = apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
+
+    audio_ref = resolve_asset_ref_for_role(first_item_id, PRIMARY_AUDIO_ROLE)
+    assert summary.updated == 1
+    assert audio_ref is not None
+    assert audio_ref.startswith("assets/audio/imported/")
+    assert audio_ref.endswith(".mp3")
+    assert not audio_ref.endswith(".bin")
+    with db.get_connection() as connection:
+        asset_row = connection.execute(
+            """
+            SELECT assets.id, assets.local_path, assets.source_url
+            FROM learning_item_assets
+            JOIN assets ON assets.id = learning_item_assets.asset_id
+            WHERE learning_item_assets.learning_item_id = ?
+              AND learning_item_assets.role = ?
+            """,
+            (first_item_id, PRIMARY_AUDIO_ROLE),
+        ).fetchone()
+    assert asset_row is not None
+    assert asset_row["source_url"] == "https://example.com/audio-without-extension"
+    assert asset_row["local_path"] == f"assets/audio/imported/asset-{int(asset_row['id'])}.mp3"
+    assert resolve_runtime_asset_path(str(asset_row["local_path"])).exists()
+    audio_staging_dir = resolve_runtime_asset_path("assets/import-staging/audio")
+    assert not audio_staging_dir.exists() or list(audio_staging_dir.iterdir()) == []
