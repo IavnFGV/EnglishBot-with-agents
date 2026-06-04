@@ -1,6 +1,6 @@
 # Deploy
 
-`englishbot` is a service repo. It deploys as one Dockge stack into `/opt/dockge/stacks/englishbot`, while persistent runtime data lives outside the repo in `/srv/services/englishbot`.
+`englishbot` is a service repo. It deploys as one Dockge stack into `/opt/dockge/stacks/englishbot`, while persistent runtime data lives outside the repo in `/srv/services/englishbot` and static runtime assets live in `/srv/service-static/englishbot`.
 
 External routing stays outside this repository. The shared infra repo owns nginx, HTTPS, certificates, the service registry, and the central host scheduler.
 
@@ -18,7 +18,12 @@ Persistent service data:
 /srv/services/englishbot/data
 /srv/services/englishbot/logs
 /srv/services/englishbot/backups
-/srv/services/englishbot/assets
+```
+
+Persistent static assets:
+
+```text
+/srv/service-static/englishbot
 ```
 
 Backup sync target on the host:
@@ -41,7 +46,7 @@ Inside the container:
 - SQLite is used at `/app/data/englishbot.sqlite3`, backed by the host bind mount `/srv/services/englishbot/data`.
 - App logs go to `/app/logs`, backed by `/srv/services/englishbot/logs`.
 - SQLite backup files should be created by application code in `/app/backups`, backed by `/srv/services/englishbot/backups`.
-- Runtime media files live in `/app/assets`, backed by `/srv/services/englishbot/assets`.
+- Runtime media files live in `/app/assets`, backed by `/srv/service-static/englishbot`.
 
 On the host:
 
@@ -56,7 +61,8 @@ On the host:
 
 - does not publish `80` or `443`
 - exposes `8080` only to the shared Docker network
-- bind-mounts `data`, `logs`, `backups`, and `assets` from `/srv/services/englishbot/...`
+- bind-mounts `data`, `logs`, and `backups` from `/srv/services/englishbot/...`
+- bind-mounts `assets` from `/srv/service-static/englishbot`
 - passes build metadata env vars into the container for status/build reporting
 
 ## Scheduled tasks
@@ -110,11 +116,11 @@ Deploy behavior:
 - `push` to `main` or `workflow_dispatch` runs tests first, then deploys
 - deploy clones or updates the repo in `/opt/dockge/stacks/englishbot`
 - deploy ensures `/srv/services/englishbot/{data,logs,backups}` exists
-- deploy ensures `/srv/services/englishbot/{data,logs,backups,assets}` exists
+- deploy ensures `/srv/service-static/englishbot` exists
 - deploy ensures `/srv/drive-sync/services/englishbot/backups` exists
 - deploy bootstraps those host paths with `sudo` before running git operations as the SSH user
 - deploy prints whether each key directory already existed or was created, plus `ls -ld` for the final ownership and mode state
-- deploy copies `assets/images/no-image.png` from the checked-out repo into the host bind mount so fresh VPS assets keep the teacher-content fallback placeholder without app-side bootstrap logic
+- deploy copies `assets/images/no-image.png` from the checked-out repo into `/srv/service-static/englishbot/images/no-image.png` so fresh VPS assets keep the teacher-content fallback placeholder without app-side bootstrap logic
 - deploy verifies that `/opt/dockge/stacks/englishbot/scheduled-tasks` exists before calling the infra helper
 - deploy runs `docker compose up -d --build`
 - deploy calls `/usr/local/bin/infra-vps-register-service-scheduled-tasks`

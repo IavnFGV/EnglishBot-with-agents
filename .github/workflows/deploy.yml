@@ -54,6 +54,7 @@ jobs:
             REPO_URL="https://github.com/${{ github.repository }}.git"
             REGISTER_HELPER="/usr/local/bin/infra-vps-register-service-scheduled-tasks"
             DATA_ROOT="/srv/services/${SERVICE_NAME}"
+            STATIC_ROOT="/srv/service-static/${SERVICE_NAME}"
             SYNC_ROOT="/srv/drive-sync/services/${SERVICE_NAME}"
 
             log_dir_state() {
@@ -106,22 +107,23 @@ jobs:
             log_dir_state "${DATA_ROOT}/data"
             log_dir_state "${DATA_ROOT}/logs"
             log_dir_state "${DATA_ROOT}/backups"
-            log_dir_state "${DATA_ROOT}/assets"
+            log_dir_state "${STATIC_ROOT}"
             log_dir_state "${SYNC_ROOT}"
             log_dir_state "${SYNC_ROOT}/backups"
             sudo mkdir -p "${DATA_ROOT}/data"
             sudo mkdir -p "${DATA_ROOT}/logs"
             sudo mkdir -p "${DATA_ROOT}/backups"
-            sudo mkdir -p "${DATA_ROOT}/assets"
+            sudo mkdir -p "${STATIC_ROOT}"
             sudo mkdir -p "${SYNC_ROOT}/backups"
             sudo chown -R "${USER}:${USER}" "${DATA_ROOT}" || true
+            sudo chown -R "${USER}:${USER}" "${STATIC_ROOT}" || true
             sudo chown -R "${USER}:${USER}" "${SYNC_ROOT}" || true
             sudo chown -R "${USER}:${USER}" "${SERVICE_DIR}" || true
             show_dir_state "${DATA_ROOT}"
             show_dir_state "${DATA_ROOT}/data"
             show_dir_state "${DATA_ROOT}/logs"
             show_dir_state "${DATA_ROOT}/backups"
-            show_dir_state "${DATA_ROOT}/assets"
+            show_dir_state "${STATIC_ROOT}"
             show_dir_state "${SYNC_ROOT}"
             show_dir_state "${SYNC_ROOT}/backups"
 
@@ -133,11 +135,11 @@ jobs:
               ls -la "${SERVICE_DIR}/assets/images" || true
               exit 1
             fi
-            sudo mkdir -p "${DATA_ROOT}/assets/images"
-            sudo cp "${PLACEHOLDER_SOURCE}" "${DATA_ROOT}/assets/images/no-image.png"
-            sudo chmod 644 "${DATA_ROOT}/assets/images/no-image.png"
-            sudo chown "${USER}:${USER}" "${DATA_ROOT}/assets/images/no-image.png" || true
-            ls -l "${DATA_ROOT}/assets/images/no-image.png"
+            sudo mkdir -p "${STATIC_ROOT}/images"
+            sudo cp "${PLACEHOLDER_SOURCE}" "${STATIC_ROOT}/images/no-image.png"
+            sudo chmod 644 "${STATIC_ROOT}/images/no-image.png"
+            sudo chown "${USER}:${USER}" "${STATIC_ROOT}/images/no-image.png" || true
+            ls -l "${STATIC_ROOT}/images/no-image.png"
 
             export ENGLISHBOT_VERSION="main-${{ github.run_number }}"
             export ENGLISHBOT_GIT_COMMIT="${{ github.sha }}"
