@@ -26,7 +26,7 @@ services:
       - /srv/services/englishbot/data:/app/data
       - /srv/services/englishbot/logs:/app/logs
       - /srv/services/englishbot/backups:/app/backups
-      - /srv/services/englishbot/assets:/app/assets
+      - /srv/service-static/englishbot:/app/assets
     expose:
       - "8080"
     networks:
