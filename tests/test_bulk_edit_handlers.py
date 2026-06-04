@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,7 @@ from englishbot.bulk_edit import get_active_bulk_edit_session
 from englishbot.bulk_edit_handlers import handle_bulk_edit_callback, start_bulk_edit, upload_bulk_edit_workbook
 from englishbot.families import create_family, create_family_learning_item
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme, list_learning_items
+from englishbot.workbook_import import WorkbookImportRow
 
 
 class FakeBot:
@@ -139,3 +141,60 @@ def test_control_message_is_reused_instead_of_spamming_new_messages(tmp_path: Pa
 
     assert len(start_message.answers) == 2
     assert bot.edits[-1]["text"] == "Workbook file received. Review it if needed, then apply it or cancel the session."
+
+
+def test_apply_shows_progress_status_before_completion(tmp_path: Path, monkeypatch) -> None:
+    owner = setup_db(tmp_path, monkeypatch)
+    start_message = FakeMessage(owner)
+
+    asyncio.run(start_bulk_edit(start_message))
+
+    session = get_active_bulk_edit_session()
+    assert session is not None
+    export_file = Path(str(session["export_file_path"]))
+    upload_message = FakeMessage(
+        owner,
+        bot=FakeBot(export_file.read_bytes()),
+        document=SimpleNamespace(file_name="family.xlsx"),
+    )
+    asyncio.run(upload_bulk_edit_workbook(upload_message))
+
+    validated_rows = [
+        WorkbookImportRow(
+            row_number=2,
+            item_key="item-1",
+            text="apple",
+            translations={"ru": "яблоко"},
+            topic_titles=[],
+            image_ref="",
+            audio_ref="",
+            is_archived=False,
+        )
+    ]
+
+    def fake_validate(*args, **kwargs):
+        return validated_rows
+
+    def fake_apply(*args, **kwargs):
+        time.sleep(0.05)
+        return SimpleNamespace(
+            created=0,
+            updated=0,
+            archived=0,
+            unchanged=1,
+            backup_file_path=tmp_path / "backups" / "fake.sqlite3",
+        )
+
+    monkeypatch.setattr("englishbot.bulk_edit_handlers.validate_family_workbook_import", fake_validate)
+    monkeypatch.setattr("englishbot.bulk_edit_handlers.apply_family_workbook_import", fake_apply)
+
+    callback_message = FakeMessage(owner)
+    callback = FakeCallback(owner, "bulk_edit:apply", callback_message)
+    asyncio.run(handle_bulk_edit_callback(callback))
+
+    assert callback.answers == [{"text": None, "show_alert": False}]
+    assert any(
+        edit["text"].startswith("Applying workbook")
+        for edit in callback_message.bot.edits
+    )
+    assert callback_message.bot.edits[-1]["text"].startswith("Bulk edit completed.")

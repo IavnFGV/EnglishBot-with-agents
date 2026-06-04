@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from io import BytesIO
 from pathlib import Path
 
@@ -36,7 +37,11 @@ from .families import get_user_family
 from .i18n import translate_for_user
 from .runtime import router
 from .workbook_export import export_family_workbook
-from .workbook_import import WorkbookImportValidationError, apply_family_workbook_import
+from .workbook_import import (
+    WorkbookImportValidationError,
+    apply_family_workbook_import,
+    validate_family_workbook_import,
+)
 
 
 @router.message(Command(BULK_EDIT_COMMAND.name))
@@ -198,12 +203,11 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
         return
 
     ensure_bulk_edit_session_ready_for_apply(session)
-    mark_bulk_edit_applying(int(session["id"]))
+    await callback.answer()
     try:
-        summary = apply_family_workbook_import(
+        validated_rows = validate_family_workbook_import(
             Path(str(session["uploaded_file_path"])),
             int(session["family_id"]),
-            int(session["started_by_user_id"]),
         )
     except WorkbookImportValidationError as exc:
         session = restore_bulk_edit_uploaded(int(session["id"]))
@@ -214,9 +218,30 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
             actor_user_id=callback.from_user.id,
             error_lines="\n".join(exc.errors),
         )
-        await callback.answer()
         return
+
+    session = mark_bulk_edit_applying(int(session["id"]))
+    progress_stop = asyncio.Event()
+    progress_task = asyncio.create_task(
+        _run_apply_progress_indicator(
+            callback.message,
+            session,
+            actor_user_id=callback.from_user.id,
+            row_count=len(validated_rows),
+            stop_event=progress_stop,
+        )
+    )
+    try:
+        summary = await asyncio.to_thread(
+            apply_family_workbook_import,
+            Path(str(session["uploaded_file_path"])),
+            int(session["family_id"]),
+            int(session["started_by_user_id"]),
+            validated_rows,
+        )
     except Exception:
+        progress_stop.set()
+        await progress_task
         session = fail_bulk_edit_session(int(session["id"]))
         await _upsert_control_message(
             callback.message,
@@ -225,9 +250,10 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
             include_controls=False,
             actor_user_id=callback.from_user.id,
         )
-        await callback.answer()
         raise
 
+    progress_stop.set()
+    await progress_task
     set_bulk_edit_backup_path(int(session["id"]), str(summary.backup_file_path))
     session = complete_bulk_edit_session(int(session["id"]), str(summary.backup_file_path))
     await _upsert_control_message(
@@ -241,7 +267,6 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
         archived=summary.archived,
         unchanged=summary.unchanged,
     )
-    await callback.answer()
 
 
 def _build_controls_markup(session) -> InlineKeyboardMarkup:
@@ -306,3 +331,34 @@ async def _upsert_control_message(
         chat_id=int(target_chat.id),
         message_id=int(target_message_id),
     )
+
+
+async def _run_apply_progress_indicator(
+    source_message: Message | None,
+    session,
+    *,
+    actor_user_id: int,
+    row_count: int,
+    stop_event: asyncio.Event,
+) -> None:
+    elapsed_seconds = 0
+    frames = ("...", "..", ".")
+    frame_index = 0
+    while True:
+        await _upsert_control_message(
+            source_message,
+            session,
+            "bulk_edit.apply.in_progress",
+            actor_user_id=actor_user_id,
+            row_count=row_count,
+            elapsed_seconds=elapsed_seconds,
+            indicator=frames[frame_index],
+        )
+        if stop_event.is_set():
+            return
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=5)
+            return
+        except asyncio.TimeoutError:
+            elapsed_seconds += 5
+            frame_index = (frame_index + 1) % len(frames)

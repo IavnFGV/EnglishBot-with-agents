@@ -126,8 +126,10 @@ def apply_family_workbook_import(
     file_path: Path,
     family_id: int,
     started_by_user_id: int,
+    rows: list[WorkbookImportRow] | None = None,
 ) -> FamilyWorkbookImportSummary:
-    rows = validate_family_workbook_import(file_path, family_id)
+    if rows is None:
+        rows = validate_family_workbook_import(file_path, family_id)
     backup_file_path = create_bulk_edit_backup(family_id=family_id, user_id=started_by_user_id)
 
     summary = {
