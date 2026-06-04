@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-04
+- Added concise host-task observability to `scheduled-tasks/backup-maintenance.sh`: each run now logs UTC start/finish markers plus source/sync paths, source file count before sync, copied-file count, and whether retention pruning was skipped or how many files were trimmed in each directory.
 - Fixed the production `/teacher_content` topics pager regression after the navigation cleanup: the topic-list `Prev` and `Next` buttons now use distinct `aiogram-dialog` widget ids while page state stays on one explicit dialog key, so tapping `Next` no longer no-ops with `MessageNotModified` and real Telegram callbacks now advance pages predictably.
 - Cleaned up family-first `/teacher_content` topic navigation: the topics screen now uses one compact selection list plus one manual page model, removes the duplicated topic rendering from `screen_text`, drops the extra `ScrollingGroup` pager that produced the confusing `1 < 1 > 1` control, and keeps topic selection working correctly from later pages with focused handler coverage for next/prev paging, second-page selection, and empty/single-page behavior.
 - Added learner training image cards to the active family-first flow: `/learn`, topic launches, and homework-backed training now render the linked learning-item image inside the question card when `image_ref` resolves to a usable local runtime file, while keeping the existing staged exercise engine and keyboards unchanged.
