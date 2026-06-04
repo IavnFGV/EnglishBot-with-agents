@@ -88,6 +88,17 @@ def test_build_medium_exercise_returns_jumbled_letters_and_localized_hint() -> N
     assert sorted(exercise.prompt_payload.jumbled_letters) == sorted("planet")
 
 
+def test_build_medium_exercise_excludes_spaces_from_jumbled_letters() -> None:
+    random.seed(4)
+    learning_item = make_learning_item(headword="action figure")
+
+    exercise = build_exercise(learning_item, "medium", "ru", [])
+
+    assert exercise.prompt_payload.jumbled_letters is not None
+    assert " " not in exercise.prompt_payload.jumbled_letters
+    assert sorted(exercise.prompt_payload.jumbled_letters) == sorted("actionfigure")
+
+
 def test_build_hard_exercise_returns_first_letter_and_localized_hint() -> None:
     learning_item = make_learning_item(headword="banana")
 

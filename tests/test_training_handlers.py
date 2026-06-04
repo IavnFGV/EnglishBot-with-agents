@@ -713,6 +713,52 @@ def test_medium_check_uses_assembled_answer_and_advances(tmp_path: Path) -> None
     assert updated_question["medium_correct_count"] == 1
 
 
+def test_medium_stage_with_space_in_answer_does_not_expose_space_as_selectable_letter(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(423, "Learner")
+    teacher = user
+    db.save_user(teacher)
+    family = create_family("Home", teacher.id)
+    lexeme_id = create_lexeme("action figure")
+    learning_item_id = create_family_learning_item(
+        int(family["id"]),
+        lexeme_id,
+        "action figure",
+    )
+    create_learning_item_translation(learning_item_id, "ru", "фигурка")
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+    submit_training_answer(user.id, "action figure")
+    submit_training_answer(user.id, "action figure")
+    asyncio.run(render_started_training_session(message, user.id))
+
+    question = get_current_question(user.id)
+    assert question is not None
+    assert question["exercise_type"] == "jumbled_letters"
+    assert " " not in str(question["jumbled_letters"])
+    assert question["medium_answer_mask"].count("_") == len("actionfigure")
+
+    remaining_indexes = list(enumerate(str(question["jumbled_letters"])))
+    for character in "actionfigure":
+        for position, candidate in remaining_indexes:
+            if candidate == character:
+                asyncio.run(
+                    answer_training_medium_add(
+                        FakeCallback(user, f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{position}", message)
+                    )
+                )
+                remaining_indexes.remove((position, candidate))
+                break
+
+    completed_question = get_current_question(user.id)
+    assert completed_question is not None
+    assert completed_question["medium_answer"] == "actionfigure"
+    assert completed_question["medium_answer_mask"].replace(" ", "") == "actionfigure"
+
+
 def test_text_answers_render_hint_and_first_letter_for_hard_stage(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(406, "Learner")

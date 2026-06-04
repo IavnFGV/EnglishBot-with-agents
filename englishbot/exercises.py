@@ -158,9 +158,9 @@ def _build_multiple_choice_options(
 
 
 def _build_jumbled_letters(expected_answer: str) -> str:
-    letters = list(expected_answer)
+    letters = [character for character in expected_answer if not character.isspace()]
     if len(letters) < 2:
-        return expected_answer
+        return "".join(letters)
 
     original_letters = letters[:]
     randomizer = random.Random(_build_deterministic_seed(expected_answer, original_letters))
