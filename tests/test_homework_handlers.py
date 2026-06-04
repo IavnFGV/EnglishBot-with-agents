@@ -20,6 +20,7 @@ from englishbot.homework_dialog import HomeworkDialogSG
 from englishbot.homework_handlers import (
     HOMEWORK_OPEN_CALLBACK,
     build_homework_button,
+    open_homework_command,
     open_homework,
     start,
     start_homework,
@@ -143,6 +144,52 @@ def test_open_homework_starts_dialog_flow(tmp_path: Path) -> None:
 
     assert callback.answered is True
     assert callback_message.answers == []
+    assert manager.start_calls == [
+        {
+            "state": HomeworkDialogSG.assignments,
+            "mode": StartMode.RESET_STACK,
+            "data": None,
+            "kwargs": {},
+        }
+    ]
+
+
+def test_homework_command_starts_existing_dialog_flow(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    learning_item_id = create_family_learning_item(int(family["id"]), create_lexeme("pear-family"), "pear")
+    create_learning_item_translation(learning_item_id, "ru", "груша")
+    create_family_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        [learning_item_id],
+    )
+    message = FakeMessage(child)
+    manager = FakeDialogManager()
+
+    asyncio.run(open_homework_command(message, manager))
+
+    assert message.answers == []
+    assert manager.start_calls == [
+        {
+            "state": HomeworkDialogSG.assignments,
+            "mode": StartMode.RESET_STACK,
+            "data": None,
+            "kwargs": {},
+        }
+    ]
+
+
+def test_homework_command_opens_dialog_even_without_assignments(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    student = make_user(760, "Student")
+    message = FakeMessage(student)
+    manager = FakeDialogManager()
+
+    asyncio.run(open_homework_command(message, manager))
+
+    assert message.answers == []
     assert manager.start_calls == [
         {
             "state": HomeworkDialogSG.assignments,

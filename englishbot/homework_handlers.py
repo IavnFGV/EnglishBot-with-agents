@@ -1,6 +1,8 @@
+from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram_dialog import DialogManager, StartMode
 
+from .command_registry import HOMEWORK_COMMAND
 from .homework_dialog import HomeworkDialogSG
 from .homework import (
     AssignmentNotFoundError,
@@ -47,16 +49,28 @@ async def start(message: Message) -> None:
         )
     )
 
+
+async def _start_homework_dialog(dialog_manager: DialogManager) -> None:
+    await dialog_manager.start(
+        HomeworkDialogSG.assignments,
+        mode=StartMode.RESET_STACK,
+    )
+
+
+@router.message(Command(HOMEWORK_COMMAND.name))
+async def open_homework_command(message: Message, dialog_manager: DialogManager) -> None:
+    if message.from_user is None:
+        return
+    await _start_homework_dialog(dialog_manager)
+
+
 @router.callback_query(lambda callback: callback.data == HOMEWORK_OPEN_CALLBACK)
 async def open_homework(callback: CallbackQuery, dialog_manager: DialogManager) -> None:
     await callback.answer()
     if callback.from_user is None:
         return
 
-    await dialog_manager.start(
-        HomeworkDialogSG.assignments,
-        mode=StartMode.RESET_STACK,
-    )
+    await _start_homework_dialog(dialog_manager)
 
 
 @router.callback_query(

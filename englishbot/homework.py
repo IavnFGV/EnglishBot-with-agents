@@ -6,6 +6,8 @@ from .training import (
     HARD_STAGE,
     EASY_STAGE,
     MEDIUM_STAGE,
+    HOMEWORK_EASY_CORRECT_REQUIRED,
+    HOMEWORK_MEDIUM_CORRECT_REQUIRED,
     create_training_session_for_learning_items,
     find_latest_incomplete_family_homework_training_session,
     get_current_question,
@@ -344,12 +346,15 @@ def get_assignment_progress_snapshot(
 
 
 def _normalize_assignment_snapshot_stage(row: sqlite3.Row) -> str:
-    current_stage = str(row["current_stage"])
-    if current_stage != HARD_STAGE or bool(row["hard_completed"]):
-        return current_stage
-    if int(row["easy_correct_count"]) >= 2:
+    if bool(row["is_completed"]):
+        if bool(row["hard_completed"]):
+            return HARD_STAGE
         return MEDIUM_STAGE
-    return EASY_STAGE
+    if int(row["easy_correct_count"]) < HOMEWORK_EASY_CORRECT_REQUIRED:
+        return EASY_STAGE
+    if int(row["medium_correct_count"]) < HOMEWORK_MEDIUM_CORRECT_REQUIRED:
+        return MEDIUM_STAGE
+    return MEDIUM_STAGE
 
 
 def normalize_assignment_kind(value: object) -> str:

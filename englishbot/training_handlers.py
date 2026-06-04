@@ -41,6 +41,7 @@ from .training import (
     set_training_session_progress_message_id,
     skip_optional_hard,
     submit_training_answer,
+    submit_medium_answer,
 )
 
 
@@ -944,13 +945,70 @@ async def answer_training_medium_check(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.from_user is None or callback.message is None:
         return
+    session = get_active_training_session(callback.from_user.id)
     question = get_current_question(callback.from_user.id)
-    if question is None or str(question.get("exercise_type")) != "jumbled_letters":
+    if session is None or question is None or str(question.get("exercise_type")) != "jumbled_letters":
         return
-    await _process_training_answer(
+    result = submit_medium_answer(callback.from_user.id)
+    if result is None:
+        return
+    current_question = question
+
+    if result.get("skipped_hard"):
+        feedback = translate_for_user(callback.from_user.id, "training.hard_skipped")
+    elif result["is_correct"]:
+        feedback = translate_for_user(callback.from_user.id, "training.correct")
+    else:
+        feedback = translate_for_user(
+            callback.from_user.id,
+            "training.incorrect",
+            expected_answer=result["expected_answer"],
+        )
+
+    if result["status"] == "completed":
+        await _edit_progress_message(
+            callback.message,
+            callback.from_user.id,
+            session,
+            question_number=int(result["summary"]["total_questions"]),
+            total_questions=int(result["summary"]["total_questions"]),
+            completed_items=int(result["summary"]["total_questions"]),
+            stage_key="completed",
+            hard_unlocked=False,
+        )
+        await _delete_previous_question_message(callback.message, session)
+        await _delete_progress_message(callback.message, session)
+        set_training_session_current_question_message_id(int(session["id"]), None)
+        summary = result["summary"]
+        await callback.message.answer(
+            _render_session_summary_text(
+                callback.from_user.id,
+                session,
+                feedback=feedback,
+                total_questions=summary["total_questions"],
+                correct_answers=summary["correct_answers"],
+            )
+        )
+        return
+
+    next_question = result["next_question"]
+    await _edit_progress_message(
         callback.message,
         callback.from_user.id,
-        str(question["medium_answer"]),
+        session,
+        question_number=int(next_question["question_number"]),
+        total_questions=int(next_question["total_questions"]),
+        completed_items=int(next_question["completed_items"]),
+        stage_key=str(next_question["current_stage"]),
+        hard_unlocked=bool(next_question["hard_unlocked"]),
+    )
+    await _render_question_message(
+        callback.message,
+        callback.from_user.id,
+        session,
+        next_question,
+        previous_question=current_question,
+        feedback=feedback,
     )
 
 

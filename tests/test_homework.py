@@ -200,6 +200,126 @@ def test_homework_progress_image_builder_uses_family_snapshot(tmp_path: Path) ->
     assert len(snapshot.segments) == 2
 
 
+def test_homework_progress_image_does_not_render_hard_pending_word_as_done(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    item_id = seed_family_learning_items(int(family["id"]), 1, prefix="hard-pending")[0]
+    assignment_id = create_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        [item_id],
+        title="Hard pending homework",
+    )
+    result = start_assignment_training_session(child.id, assignment_id)
+
+    for _ in range(4):
+        question = get_current_question(child.id)
+        assert question is not None
+        submit_training_answer(child.id, str(question["expected_answer"]))
+
+    snapshot = build_assignment_progress_image_snapshot(child.id, assignment_id, int(result["session_id"]))
+
+    assert snapshot.completed_word_count == 0
+    assert snapshot.combo_hard_active is True
+    assert len(snapshot.segments) == 1
+    assert snapshot.segments[0].progress_value == 0.8
+    assert snapshot.segments[0].hard_clear is False
+
+
+def test_homework_progress_image_uses_step_based_fill_levels(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    item_id = seed_family_learning_items(int(family["id"]), 1, prefix="step-fill")[0]
+    assignment_id = create_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        [item_id],
+        title="Step fill homework",
+    )
+    result = start_assignment_training_session(child.id, assignment_id)
+
+    initial_snapshot = build_assignment_progress_image_snapshot(child.id, assignment_id, int(result["session_id"]))
+    assert initial_snapshot.segments[0].progress_value == 0.0
+
+    expected_progress = [0.2, 0.4, 0.6, 0.8, 1.0]
+    for progress_value in expected_progress:
+        question = get_current_question(child.id)
+        assert question is not None
+        submit_training_answer(child.id, str(question["expected_answer"]))
+        current_snapshot = build_assignment_progress_image_snapshot(
+            child.id,
+            assignment_id,
+            int(result["session_id"]),
+        )
+        assert current_snapshot.segments[0].progress_value == progress_value
+
+
+def test_homework_enters_global_hard_mode_after_four_total_correct_answers(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    learning_item_ids = seed_family_learning_items(int(family["id"]), 2, prefix="no-global-hard")
+    assignment_id = create_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        learning_item_ids,
+        title="No global hard",
+    )
+    result = start_assignment_training_session(child.id, assignment_id)
+
+    for _ in range(4):
+        question = get_current_question(child.id)
+        assert question is not None
+        submit_training_answer(child.id, str(question["expected_answer"]))
+
+    snapshot = get_assignment_progress_snapshot(assignment_id, int(result["session_id"]))
+
+    assert snapshot["homework_hard_mode"] is True
+    assert snapshot["homework_correct_streak"] == 4
+    assert snapshot["current_stage"] == "hard"
+    assert snapshot["items"][0]["current_stage"] == "hard"
+    assert snapshot["items"][1]["current_stage"] == "easy"
+    assert snapshot["items"][0]["hard_unlocked"] is True
+    assert snapshot["items"][1]["hard_unlocked"] is True
+
+
+def test_homework_boost_continues_across_words_after_hard_completion(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    learning_item_ids = seed_family_learning_items(int(family["id"]), 5, prefix="boost-flow")
+    assignment_id = create_homework_assignment(
+        int(family["id"]),
+        parent.id,
+        child.id,
+        learning_item_ids,
+        title="Boost flow",
+    )
+    start_assignment_training_session(child.id, assignment_id)
+
+    for _ in range(4):
+        question = get_current_question(child.id)
+        assert question is not None
+        submit_training_answer(child.id, str(question["expected_answer"]))
+
+    boosted_question = get_current_question(child.id)
+    assert boosted_question is not None
+    assert boosted_question["learning_item_id"] == learning_item_ids[4]
+    assert boosted_question["current_stage"] == "hard"
+
+    submit_training_answer(child.id, str(boosted_question["expected_answer"]))
+
+    next_question = get_current_question(child.id)
+    assert next_question is not None
+    assert next_question["learning_item_id"] == learning_item_ids[0]
+    assert next_question["current_stage"] == "hard"
+
+
 def test_render_homework_progress_image_passes_built_snapshot(tmp_path: Path) -> None:
     setup_db(tmp_path)
     family, parent, child = seed_family_parent_and_child()

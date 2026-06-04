@@ -713,6 +713,63 @@ def test_medium_check_uses_assembled_answer_and_advances(tmp_path: Path) -> None
     assert updated_question["medium_correct_count"] == 1
 
 
+def test_homework_medium_check_completion_shows_summary(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    parent, child, family_id = seed_family_parent_and_child()
+    lexeme_id = create_lexeme("always")
+    learning_item_id = create_family_learning_item(family_id, lexeme_id, "always")
+    create_learning_item_translation(learning_item_id, "ru", "всегда")
+    assignment_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        [learning_item_id],
+        title="Always homework",
+    )
+    start_assignment_training_session(child.id, f"family:{assignment_id}")
+    message = FakeMessage(child)
+
+    asyncio.run(render_started_training_session(message, child.id))
+    submit_training_answer(child.id, "always")
+    submit_training_answer(child.id, "always")
+    submit_training_answer(child.id, "always")
+    asyncio.run(render_started_training_session(message, child.id))
+
+    session = get_active_training_session(child.id)
+    assert session is not None
+    message.message_id = int(session["current_question_message_id"])
+    submit_training_answer(child.id, "always")
+    session = get_active_training_session(child.id)
+    assert session is not None
+    message.message_id = int(session["current_question_message_id"])
+    asyncio.run(answer_training_hard_skip(FakeCallback(child, TRAINING_HARD_SKIP_CALLBACK, message)))
+
+    session = get_active_training_session(child.id)
+    assert session is not None
+    message.message_id = int(session["current_question_message_id"])
+    question = get_current_question(child.id)
+    assert question is not None
+    assert question["current_stage"] == "medium"
+    remaining_indexes = list(enumerate(str(question["jumbled_letters"])))
+    for character in str(question["expected_answer"]):
+        for position, candidate in remaining_indexes:
+            if candidate == character:
+                asyncio.run(
+                    answer_training_medium_add(
+                        FakeCallback(child, f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{position}", message)
+                    )
+                )
+                remaining_indexes.remove((position, candidate))
+                break
+
+    asyncio.run(answer_training_medium_check(FakeCallback(child, TRAINING_MEDIUM_CHECK_CALLBACK, message)))
+
+    assert get_active_training_session(child.id) is None
+    assert message.answers[-1]["text"] == (
+        'Correct.\nHomework "Always homework" completed.\nResult: 1 questions, 5 correct answers.'
+    )
+
+
 def test_medium_stage_with_space_in_answer_does_not_expose_space_as_selectable_letter(
     tmp_path: Path,
 ) -> None:
@@ -757,6 +814,51 @@ def test_medium_stage_with_space_in_answer_does_not_expose_space_as_selectable_l
     assert completed_question is not None
     assert completed_question["medium_answer"] == "actionfigure"
     assert completed_question["medium_answer_mask"].replace(" ", "") == "actionfigure"
+
+
+def test_medium_check_with_space_in_answer_treats_space_as_auto_filled(
+    tmp_path: Path,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(424, "Learner")
+    db.save_user(user)
+    family = create_family("Home", user.id)
+    lexeme_id = create_lexeme("action figure")
+    learning_item_id = create_family_learning_item(
+        int(family["id"]),
+        lexeme_id,
+        "action figure",
+    )
+    create_learning_item_translation(learning_item_id, "ru", "фигурка")
+    message = FakeMessage(user)
+
+    asyncio.run(learn(message))
+    submit_training_answer(user.id, "action figure")
+    submit_training_answer(user.id, "action figure")
+    asyncio.run(render_started_training_session(message, user.id))
+    session = get_active_training_session(user.id)
+    assert session is not None
+    message.message_id = int(session["current_question_message_id"])
+    question = get_current_question(user.id)
+    assert question is not None
+
+    remaining_indexes = list(enumerate(str(question["jumbled_letters"])))
+    for character in "actionfigure":
+        for position, candidate in remaining_indexes:
+            if candidate == character:
+                asyncio.run(
+                    answer_training_medium_add(
+                        FakeCallback(user, f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{position}", message)
+                    )
+                )
+                remaining_indexes.remove((position, candidate))
+                break
+
+    asyncio.run(answer_training_medium_check(FakeCallback(user, TRAINING_MEDIUM_CHECK_CALLBACK, message)))
+
+    updated_question = get_current_question(user.id)
+    assert updated_question is not None
+    assert updated_question["medium_correct_count"] == 1
 
 
 def test_text_answers_render_hint_and_first_letter_for_hard_stage(tmp_path: Path) -> None:
@@ -872,6 +974,44 @@ def test_homework_completion_uses_homework_specific_summary(tmp_path: Path) -> N
         {"chat_id": child.id, "message_id": 2},
         {"chat_id": child.id, "message_id": 1},
     ]
+
+
+def test_homework_hard_skip_returns_same_word_to_normal_flow(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    parent, child, family_id = seed_family_parent_and_child()
+    lexeme_id = create_lexeme("homework-skip")
+    learning_item_id = create_family_learning_item(family_id, lexeme_id, "homework-skip")
+    create_learning_item_translation(learning_item_id, "ru", "пропуск")
+    assignment_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        [learning_item_id],
+        title="Homework skip",
+    )
+    start_assignment_training_session(child.id, f"family:{assignment_id}")
+    start_message = FakeMessage(child)
+    asyncio.run(render_started_training_session(start_message, child.id))
+
+    submit_training_answer(child.id, "homework-skip")
+    submit_training_answer(child.id, "homework-skip")
+    submit_training_answer(child.id, "homework-skip")
+    submit_training_answer(child.id, "homework-skip")
+    session = get_active_training_session(child.id)
+    assert session is not None
+    start_message.message_id = int(session["current_question_message_id"])
+    callback = FakeCallback(child, TRAINING_HARD_SKIP_CALLBACK, start_message)
+
+    asyncio.run(answer_training_hard_skip(callback))
+
+    active_session = get_active_training_session(child.id)
+    next_question = get_current_question(child.id)
+
+    assert active_session is not None
+    assert next_question is not None
+    assert next_question["current_stage"] == "medium"
+    assert next_question["can_skip_hard"] is False
+    assert active_session["correct_answers"] == 4
 
 
 def test_homework_start_renders_one_progress_photo_and_one_question(tmp_path: Path) -> None:

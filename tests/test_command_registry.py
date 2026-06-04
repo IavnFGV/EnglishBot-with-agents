@@ -11,6 +11,7 @@ from englishbot.command_registry import (
     CANCEL_COMMAND,
     CREATE_ASSIGNMENT_COMMAND,
     HELP_COMMAND,
+    HOMEWORK_COMMAND,
     LEARN_COMMAND,
     ME_COMMAND,
     SEED_DEMO_COMMAND,
@@ -29,6 +30,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "start",
         "help",
         "learn",
+        "homework",
         "me",
         "settings",
         "cancel",
@@ -50,6 +52,7 @@ def test_bot_command_collection_stays_consistent_with_registry() -> None:
         START_COMMAND,
         HELP_COMMAND,
         LEARN_COMMAND,
+        HOMEWORK_COMMAND,
         ME_COMMAND,
         SETTINGS_COMMAND,
         CANCEL_COMMAND,
@@ -67,6 +70,10 @@ def test_bot_commands_use_centralized_i18n_descriptions() -> None:
     assert BOT_COMMANDS[0].description == translate("command.start", "en")
     assert CREATE_ASSIGNMENT_COMMAND.to_bot_command("en").description == translate(
         "command.create_assignment",
+        "en",
+    )
+    assert HOMEWORK_COMMAND.to_bot_command("en").description == translate(
+        "command.homework",
         "en",
     )
     assert SEED_DEMO_COMMAND.to_bot_command("en").description == translate(

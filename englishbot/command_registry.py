@@ -41,6 +41,12 @@ LEARN_COMMAND = CommandDefinition(
     scope="student",
     register_after_startup=True,
 )
+HOMEWORK_COMMAND = CommandDefinition(
+    name="homework",
+    description_key="command.homework",
+    scope="student",
+    register_after_startup=True,
+)
 ME_COMMAND = CommandDefinition(
     name="me",
     description_key="command.me",
@@ -100,6 +106,7 @@ ALL_COMMANDS = (
     START_COMMAND,
     HELP_COMMAND,
     LEARN_COMMAND,
+    HOMEWORK_COMMAND,
     ME_COMMAND,
     SETTINGS_COMMAND,
     CANCEL_COMMAND,
@@ -117,6 +124,7 @@ def get_registered_commands(*, include_owner_commands: bool = False) -> tuple[Co
         START_COMMAND,
         HELP_COMMAND,
         LEARN_COMMAND,
+        HOMEWORK_COMMAND,
         ME_COMMAND,
         SETTINGS_COMMAND,
         CANCEL_COMMAND,
