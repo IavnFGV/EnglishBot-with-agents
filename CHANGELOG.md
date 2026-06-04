@@ -1,6 +1,12 @@
 # Changelog
 
+## 2026-06-04
+- Added learner training image cards to the active family-first flow: `/learn`, topic launches, and homework-backed training now render the linked learning-item image inside the question card when `image_ref` resolves to a usable local runtime file, while keeping the existing staged exercise engine and keyboards unchanged.
+- Hardened question-card rendering fallbacks in `training_handlers.py`: invalid or missing local image files, unusable refs, and Telegram photo send/edit failures now fail closed to the existing text-only question card instead of breaking the learner session.
+- Tightened focused learner-flow coverage in `tests/test_training_handlers.py` for photo-based question rendering, `image <-> text` transitions, invalid-image fallback, medium/hard interaction on photo cards, and no regression to the separate homework progress-photo UI.
+
 ## 2026-06-03
+- Added `chain_of_commands/053-learner-flow-training-image-cards.md`, a replayable prompt for the next learner-flow polish slice: render learning item images in training question cards when `image_ref` exists, preserve compact Telegram UI behavior, and fail closed to text-only questions when media cannot be shown.
 - Hardened family workbook import into a two-phase pipeline: `/bulk_edit` now requires a successful SQLite backup before any processing starts, prepares remote workbook assets outside the DB write transaction into staged local files, keeps the final DB apply short and atomic, surfaces phase-aware backup/prepare/apply progress in the reused control message, and adds a guarded backup-restore helper for emergency recovery only.
 - Added `chain_of_commands/052-bulk-edit-two-phase-import-and-recovery.md`, a replayable prompt for the next bulk-edit reliability slice: mandatory backup before processing, remote-asset prepare/staging outside the DB write transaction, short atomic apply, phase-aware Telegram progress, and a guarded backup-restore fallback only for emergency recovery.
 - Hardened long-running bulk-edit imports under DEBUG logging: audit middleware now skips non-critical interaction writes when SQLite is temporarily locked by the workbook apply transaction, and `PIL` image-parser debug noise is forced back to `INFO` so remote image downloads no longer flood logs with low-level PNG chunk traces.

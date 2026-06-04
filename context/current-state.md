@@ -23,6 +23,8 @@
 - Bot-level error handling now also ignores Telegram's exact `message is not modified` no-op globally, so harmless repeated UI edits do not flood logs with stack traces.
 - The active family-first persistence layer is now the only live product model: SQLite bootstraps `families`, `family_members`, family-owned `learning_items`, family-owned `topics`, `topic_items`, `user_progress`, `homework_assignments`, and `homework_assignment_items`, with focused helpers in `englishbot/families.py`.
 - Plain `/learn` is now family-only on the active path: users train only on family-owned learning items, and users outside a family setup get the normal no-items response instead of a legacy workspace fallback.
+- Learner training question cards now show the linked learning item image when `image_ref` resolves to a usable local runtime file, and `/learn`, `/topics`, and homework-backed training all share that same image-aware renderer.
+- If a learner question image is missing, invalid, or Telegram rejects the media render, the flow now falls back safely to the existing text-only question card; the separate homework progress photo remains unchanged.
 - Learner homework flows are now family-first end to end: active homework lists, start callbacks, progress snapshots, and training-session completion all run only on `homework_assignments`.
 - The focused learner-homework UI tests now exercise family homework directly, so the homework list, overview dialog, and homework start handler no longer rely on invite/join scaffolding for their main coverage.
 - The homework-specific `training_handlers` tests now also use family homework directly, so learner progress-photo and homework-summary coverage no longer depends on teacher-student invite setup.
@@ -71,6 +73,7 @@
 - `chain_of_commands/050-unknown-intent-recovery-notice.md` now captures the expired-dialog recovery slice for `UnknownIntent` logging plus user-facing restart guidance.
 - `chain_of_commands/051-family-bulk-edit-via-xlsx.md` now captures the planned return of workbook-based bulk editing from project history, adapted to the current family-first runtime with one global bulk-edit session, bot-wide gating, backup-before-apply, archive-on-missing, and a display-only `image` column exported as a Google Sheets `IMAGE()` formula next to `image_ref`.
 - `chain_of_commands/052-bulk-edit-two-phase-import-and-recovery.md` now captures the next planned bulk-edit hardening slice: mandatory backup before processing, remote asset preparation outside the DB write transaction, short atomic DB apply, phase-aware Telegram progress, and a guarded backup-restore fallback for emergency recovery only.
+- `chain_of_commands/053-learner-flow-training-image-cards.md` now captures the learner-flow image-card slice: render linked learning item images in training question cards when available, keep the Telegram screen compact, and fall back safely to text-only questions if an image cannot be shown.
 - `docs/family-first-rebuild.md` records the approved direction: keep this repository and deploy path, but replace the old workspace/publish-centric product model with a family-first core built around shared family content plus personal progress and homework.
 
 ## Data and ownership constraints
