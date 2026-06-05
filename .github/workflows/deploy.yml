@@ -159,8 +159,8 @@ jobs:
             echo "[deploy] docker compose ps"
             docker compose ps
 
-            if [ ! -x "${REGISTER_SERVICE_HELPER}" ]; then
-              echo "ERROR: ${REGISTER_SERVICE_HELPER} is missing or not executable on the VPS."
+            if [ ! -x "${REGISTER_HELPER}" ]; then
+              echo "ERROR: ${REGISTER_HELPER} is missing or not executable on the VPS."
               exit 1
             fi
 
@@ -171,7 +171,7 @@ jobs:
 
             echo "[deploy] service registration card: ${SERVICE_DIR}/infra/service.env"
             ls -la "${SERVICE_DIR}/infra"
-            echo "[deploy] registering service with ${REGISTER_SERVICE_HELPER}"
-            sudo "${REGISTER_SERVICE_HELPER}" \
+            echo "[deploy] registering service with ${REGISTER_HELPER}"
+            sudo "${REGISTER_HELPER}" \
               --card "${SERVICE_DIR}/infra/service.env" \
               --service-dir "${SERVICE_DIR}"

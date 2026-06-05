@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-06-05
+- Fixed the GitHub Actions VPS deploy workflow after a recent edit: the SSH script now consistently uses the declared `REGISTER_HELPER` variable when validating and invoking the infra service-registration helper, so deploy no longer crashes after `docker compose up -d --build` with `REGISTER_SERVICE_HELPER: unbound variable`.
+
 ## 2026-06-04
 - Fixed a silent homework completion regression on medium `Check`: when a jumbled-letters homework answer completed the active session, the callback handler no longer loses the pre-submit session object and exit quietly without updating the UI or sending the final summary.
 - Fixed homework progress-wheel fill semantics to match the current staged flow precisely: each word now fills by completed step count after the answer (`0/5`, `1/5`, `2/5`, `3/5`, `4/5`, `5/5` for the current `3 easy + 2 medium` assumption), so the ring no longer jumps early by coarse status buckets before the learner has actually earned that step.
