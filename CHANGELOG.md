@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-06-06
+- Restored homework-entry compatibility after the learner-TTS UI refresh: the homework open button is plain-text again instead of emoji-prefixed, and `homework_handlers.start_homework(...)` now still supports the older direct-callback path without a dialog manager by falling back to the existing non-dialog training renderer.
 - Added persistent learner TTS storage variants on top of the live internal service path: one `learning_item` can now keep multiple local synthesized `voice` assets distinguished by `learning_item + voice_id + tts_model_key + source_text_hash`, the first `Listen` generates and stores the exact variant on demand, later listens reuse that local file, and Telegram `voice` `file_id`s remain only a separate cache layer above the persisted asset.
 - Extended the optional TTS config with `ENGLISHBOT_TTS_MODEL_KEY`, so operators can bump the persisted variant identity when the backing TTS engine/model changes without pretending old audio is still current.
 - Moved the active learner quiz UI onto `aiogram-dialog`: `/learn` now starts the quiz through a dedicated learner dialog, homework launches reuse that same dialog shell, and the shared learner control block now exposes inline `Listen` plus per-word `Voice` switching on the current card.

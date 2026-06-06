@@ -13,6 +13,7 @@ from .homework import (
 from .i18n import translate_for_user
 from .learner_training_dialog import start_training_dialog
 from .runtime import router
+from .training_handlers import render_started_training_session
 
 
 HOMEWORK_OPEN_CALLBACK = "homework:open"
@@ -77,7 +78,10 @@ async def open_homework(callback: CallbackQuery, dialog_manager: DialogManager) 
     lambda callback: callback.data is not None
     and callback.data.startswith(HOMEWORK_START_PREFIX)
 )
-async def start_homework(callback: CallbackQuery, dialog_manager: DialogManager) -> None:
+async def start_homework(
+    callback: CallbackQuery,
+    dialog_manager: DialogManager | None = None,
+) -> None:
     await callback.answer()
     if callback.from_user is None or callback.message is None or callback.data is None:
         return
@@ -103,4 +107,8 @@ async def start_homework(callback: CallbackQuery, dialog_manager: DialogManager)
         )
         return
 
-    await start_training_dialog(callback.message, dialog_manager, callback.from_user.id)
+    if dialog_manager is not None:
+        await start_training_dialog(callback.message, dialog_manager, callback.from_user.id)
+        return
+
+    await render_started_training_session(callback.message, callback.from_user.id)
