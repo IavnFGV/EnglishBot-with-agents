@@ -18,7 +18,7 @@ from .learner_homework import (
     get_learner_homework_overview,
     list_learner_homework,
 )
-from .training_handlers import render_started_training_session
+from .learner_training_dialog import start_training_dialog
 
 
 LIST_PAGE_SIZE = 5
@@ -107,8 +107,7 @@ async def _launch_assignment(
         return
 
     await callback.message.delete()
-    await dialog_manager.done(show_mode=ShowMode.NO_UPDATE)
-    await render_started_training_session(callback.message, callback.from_user.id)
+    await start_training_dialog(callback.message, dialog_manager, callback.from_user.id)
 
 
 async def get_assignments_window_data(

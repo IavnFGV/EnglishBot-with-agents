@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from aiogram_dialog import StartMode
 from aiogram_dialog import ShowMode
 from aiogram.types import User
 
@@ -16,6 +17,7 @@ from englishbot.families import (
     create_homework_assignment as create_family_homework_assignment,
 )
 from englishbot.homework import start_assignment_training_session
+from englishbot.learner_training_dialog import LearnerTrainingDialogSG
 from englishbot.homework_dialog import (
     HomeworkDialogSG,
     get_assignments_window_data,
@@ -34,8 +36,14 @@ class FakeDialogManager:
     def __init__(self, user: User) -> None:
         self.event = SimpleNamespace(from_user=user, chat=SimpleNamespace(id=user.id))
         self.dialog_data: dict[str, object] = {}
+        self.start_calls: list[dict[str, object]] = []
         self.switch_calls: list[dict[str, object]] = []
         self.done_calls: list[dict[str, object]] = []
+
+    async def start(self, state, mode=None, show_mode=None, data=None) -> None:
+        if data:
+            self.dialog_data.update(data)
+        self.start_calls.append({"state": state, "mode": mode, "show_mode": show_mode})
 
     async def switch_to(self, state, show_mode=None) -> None:
         self.switch_calls.append({"state": state, "show_mode": show_mode})
@@ -120,8 +128,8 @@ def test_assignments_window_renders_titles_progress_and_selection_indexes(tmp_pa
     view = asyncio.run(get_assignments_window_data(manager))
 
     assert "Homework" in view["screen_text"]
-    assert "1. Fresh • 0/2 • Start" in view["screen_text"]
-    assert "2. Resume me • 0/1 • Continue" in view["screen_text"]
+    assert "1. Fresh • 0/2 • 🚀 Start" in view["screen_text"]
+    assert "2. Resume me • 0/1 • 🌟 Continue" in view["screen_text"]
     assert [item["index_label"] for item in view["assignment_items"]] == ["1", "2"]
 
 
@@ -148,9 +156,9 @@ def test_selecting_assignment_opens_overview_with_continue_state(tmp_path: Path)
     assert "Title: Overview" in view["screen_text"]
     assert "Items: 1" in view["screen_text"]
     assert "Progress: 0/1" in view["screen_text"]
-    assert "Action: Continue" in view["screen_text"]
+    assert "Action: 🌟 Continue" in view["screen_text"]
     assert "Current item: 1/1" in view["screen_text"]
-    assert view["action_label"] == "Continue"
+    assert view["action_label"] == "🌟 Continue"
 
 
 def test_launch_selected_homework_reuses_existing_session(tmp_path: Path) -> None:
@@ -180,14 +188,17 @@ def test_launch_selected_homework_reuses_existing_session(tmp_path: Path) -> Non
     assert active_session is not None
     assert int(active_session["id"]) == int(first_session["id"])
     assert message.deleted is True
-    assert manager.done_calls == [{"result": None, "show_mode": ShowMode.NO_UPDATE}]
+    assert manager.done_calls == []
+    assert manager.start_calls == [
+        {
+            "state": LearnerTrainingDialogSG.quiz,
+            "mode": StartMode.RESET_STACK,
+            "show_mode": ShowMode.SEND,
+        }
+    ]
     assert message.answers == [
         {
             "text": "Homework: Reuse session\nDone 0/1\nCurrent item 1/1\nStage: easy\nItems: 1 warm-up",
             "kwargs": {},
-        },
-        {
-            "text": "Hint: слово-1\nFirst letter: d",
-            "kwargs": {"reply_markup": None},
-        },
+        }
     ]

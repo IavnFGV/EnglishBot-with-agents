@@ -14,6 +14,7 @@ from .db import count_text_interactions, get_user, save_user
 from .families import ensure_user_family, get_user_family
 from .homework_dialog import homework_dialog
 from .i18n import translate_for_user
+from .learner_training_dialog import learner_training_dialog
 from .runtime import dispatcher, router
 from .teacher_assignment_dialog import teacher_assignment_dialog
 from .teacher_content_dialog import teacher_content_dialog
@@ -35,6 +36,7 @@ unhandled_router = Router()
 
 dispatcher.include_router(teacher_assignment_dialog)
 dispatcher.include_router(homework_dialog)
+dispatcher.include_router(learner_training_dialog)
 dispatcher.include_router(teacher_content_dialog)
 dispatcher.include_router(unhandled_router)
 setup_dialogs(dispatcher, media_id_storage=telegram_media_id_storage)

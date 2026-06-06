@@ -1,6 +1,10 @@
 # Changelog
 
 ## 2026-06-06
+- Moved the active learner quiz UI onto `aiogram-dialog`: `/learn` now starts the quiz through a dedicated learner dialog, homework launches reuse that same dialog shell, and the shared learner control block now exposes inline `Listen` plus per-word `Voice` switching on the current card.
+- Kept learner TTS fail-closed through the dialog migration: selecting a voice inside the quiz persists `user_profiles.tts_voice_id`, the next `Listen` uses that new voice immediately, and stale pronunciation `voice` messages are still deleted automatically when the learner advances or finishes.
+- Made the active learner-facing buttons friendlier for kids: the current training and homework actions now use playful emoji labels such as `🔊 Listen`, `🎤 Voice`, `🚀 Start`, and `🌟 Continue` through shared i18n keys instead of hardcoded text.
+- Added `chain_of_commands/059-persisted-tts-audio-variants-and-telegram-cache.md` as the next replayable learner-TTS UI prompt: move `/learn` quiz UI onto `aiogram-dialog` and introduce a reusable inline `Listen + Voice` control block for both `learn` and homework quiz surfaces, with per-word voice switching that persists the selected learner voice.
 - Tightened the first learner TTS UX so the last synthesized `voice` message is now tracked in `training_sessions` and deleted automatically when the learner advances to the next word or finishes the session, keeping the chat from filling up with stale pronunciation messages.
 - Implemented the first optional family-first TTS learner slice: `training_handlers.py` now adds a fail-closed `Listen` action on active training cards when `ENGLISHBOT_TTS_BASE_URL` is configured, sends only the current English answer text to the internal TTS service as Telegram `voice`, and keeps learner sessions intact when TTS or Telegram delivery fails.
 - Added a narrow internal TTS integration layer in `englishbot/tts.py` plus optional config helpers in `englishbot/config.py`, using compact stdlib HTTP requests, short timeouts, voice-catalog fallback to the service default, and no startup health gate so core runtime still works with TTS disabled or unavailable.

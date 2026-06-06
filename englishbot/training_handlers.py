@@ -14,6 +14,7 @@ from aiogram.types import (
     InputMediaPhoto,
     Message,
 )
+from aiogram_dialog import DialogManager
 
 from .assets import (
     TELEGRAM_MEDIA_KIND_PHOTO,
@@ -57,7 +58,7 @@ TRAINING_LISTEN_CALLBACK = "training:listen"
 logger = logging.getLogger(__name__)
 
 
-def _resolve_question_photo_path(question: dict[str, object]) -> str | None:
+def resolve_question_photo_path(question: dict[str, object]) -> str | None:
     image_ref = str(question.get("image_ref") or "").strip()
     if not image_ref:
         return None
@@ -75,7 +76,7 @@ def _resolve_question_photo_path(question: dict[str, object]) -> str | None:
     return str(candidate)
 
 
-def _resolve_question_photo_asset_id(question: dict[str, object]) -> int | None:
+def resolve_question_photo_asset_id(question: dict[str, object]) -> int | None:
     asset_id = question.get("image_asset_id")
     if isinstance(asset_id, int):
         return asset_id
@@ -411,7 +412,7 @@ def _render_session_progress_text(
     )
 
 
-def _render_session_summary_text(
+def render_session_summary_text(
     telegram_user_id: int,
     session: object,
     *,
@@ -438,7 +439,7 @@ def _render_session_summary_text(
     )
 
 
-def _render_question_text(
+def render_question_text(
     telegram_user_id: int,
     question: dict[str, object],
     *,
@@ -480,10 +481,10 @@ async def _send_question_message(
     *,
     feedback: str | None = None,
 ):
-    question_text = _render_question_text(telegram_user_id, question, feedback=feedback)
+    question_text = render_question_text(telegram_user_id, question, feedback=feedback)
     reply_markup = _build_question_keyboard(telegram_user_id, question)
-    photo_path = _resolve_question_photo_path(question)
-    asset_id = _resolve_question_photo_asset_id(question)
+    photo_path = resolve_question_photo_path(question)
+    asset_id = resolve_question_photo_asset_id(question)
     if photo_path is not None:
         try:
             return await _send_question_photo(
@@ -509,10 +510,10 @@ async def _edit_question_message_in_place(
     if question_message_id is None:
         return False
 
-    question_text = _render_question_text(telegram_user_id, question, feedback=feedback)
+    question_text = render_question_text(telegram_user_id, question, feedback=feedback)
     reply_markup = _build_question_keyboard(telegram_user_id, question)
-    photo_path = _resolve_question_photo_path(question)
-    asset_id = _resolve_question_photo_asset_id(question)
+    photo_path = resolve_question_photo_path(question)
+    asset_id = resolve_question_photo_asset_id(question)
     try:
         if photo_path is None:
             await anchor_message.bot.edit_message_text(
@@ -547,7 +548,7 @@ async def _replace_question_message(
     *,
     feedback: str | None = None,
 ) -> None:
-    await _delete_previous_question_message(anchor_message, session)
+    await delete_previous_question_message(anchor_message, session)
     question_message = await _send_question_message(
         anchor_message,
         telegram_user_id,
@@ -570,11 +571,11 @@ async def _render_question_message(
     feedback: str | None = None,
 ) -> None:
     previous_has_photo = (
-        _resolve_question_photo_path(previous_question) is not None
+        resolve_question_photo_path(previous_question) is not None
         if previous_question is not None
         else None
     )
-    next_has_photo = _resolve_question_photo_path(question) is not None
+    next_has_photo = resolve_question_photo_path(question) is not None
     question_with_message_id = dict(question)
     question_with_message_id["question_message_id"] = session["current_question_message_id"]
 
@@ -601,52 +602,9 @@ async def _render_question_message(
 
 
 async def render_started_training_session(message: Message, telegram_user_id: int) -> None:
-    session = get_active_training_session(telegram_user_id)
-    question = get_current_question(telegram_user_id)
+    session, question = await ensure_training_progress_message(message, telegram_user_id)
     if session is None or question is None:
         return
-
-    assignment_ref = get_session_homework_ref(session)
-    if assignment_ref is None:
-        progress_message = await message.answer(
-            _render_session_progress_text(
-                telegram_user_id,
-                session,
-                question_number=int(question["question_number"]),
-                total_questions=int(question["total_questions"]),
-                completed_items=int(question["completed_items"]),
-                stage_key=str(question["current_stage"]),
-                hard_unlocked=bool(question["hard_unlocked"]),
-            )
-        )
-    else:
-        progress_image = FSInputFile(
-            render_homework_progress_image(
-                telegram_user_id,
-                assignment_ref,
-                int(session["id"]),
-            )
-        )
-        answer_photo = getattr(message, "answer_photo", None)
-        if callable(answer_photo):
-            progress_message = await answer_photo(progress_image)
-        else:
-            # Some focused dialog tests use a minimal fake message without photo support.
-            progress_message = await message.answer(
-                _render_session_progress_text(
-                    telegram_user_id,
-                    session,
-                    question_number=int(question["question_number"]),
-                    total_questions=int(question["total_questions"]),
-                    completed_items=int(question["completed_items"]),
-                    stage_key=str(question["current_stage"]),
-                    hard_unlocked=bool(question["hard_unlocked"]),
-                )
-            )
-    set_training_session_progress_message_id(
-        int(question["session_id"]),
-        getattr(progress_message, "message_id", None),
-    )
 
     question_message = await _send_question_message(
         message,
@@ -659,7 +617,43 @@ async def render_started_training_session(message: Message, telegram_user_id: in
     )
 
 
-async def _edit_progress_message(
+async def ensure_training_progress_message(
+    message: Message,
+    telegram_user_id: int,
+) -> tuple[object | None, dict[str, object] | None]:
+    session = get_active_training_session(telegram_user_id)
+    question = get_current_question(telegram_user_id)
+    if session is None or question is None:
+        return None, None
+    await edit_progress_message(
+        message,
+        telegram_user_id,
+        session,
+        question_number=int(question["question_number"]),
+        total_questions=int(question["total_questions"]),
+        completed_items=int(question["completed_items"]),
+        stage_key=str(question["current_stage"]),
+        hard_unlocked=bool(question["hard_unlocked"]),
+    )
+    return session, question
+
+
+def build_training_feedback_text(
+    telegram_user_id: int,
+    result: dict[str, object],
+) -> str:
+    if result.get("skipped_hard"):
+        return translate_for_user(telegram_user_id, "training.hard_skipped")
+    if result["is_correct"]:
+        return translate_for_user(telegram_user_id, "training.correct")
+    return translate_for_user(
+        telegram_user_id,
+        "training.incorrect",
+        expected_answer=result["expected_answer"],
+    )
+
+
+async def edit_progress_message(
     anchor_message: Message,
     telegram_user_id: int,
     session: object,
@@ -694,7 +688,19 @@ async def _edit_progress_message(
         if progress_image_path is None:
             progress_message = await anchor_message.answer(str(progress_text))
         else:
-            progress_message = await anchor_message.answer_photo(FSInputFile(progress_image_path))
+            answer_photo = getattr(anchor_message, "answer_photo", None)
+            if callable(answer_photo):
+                progress_message = await answer_photo(FSInputFile(progress_image_path))
+            else:
+                progress_message = await anchor_message.answer(str(_render_session_progress_text(
+                    telegram_user_id,
+                    session,
+                    question_number=question_number,
+                    total_questions=total_questions,
+                    completed_items=completed_items,
+                    stage_key=stage_key,
+                    hard_unlocked=hard_unlocked,
+                )))
         set_training_session_progress_message_id(
             int(session["id"]),
             getattr(progress_message, "message_id", None),
@@ -742,7 +748,7 @@ async def _edit_progress_message(
         )
 
 
-async def _delete_previous_question_message(anchor_message: Message, session: object) -> None:
+async def delete_previous_question_message(anchor_message: Message, session: object) -> None:
     question_message_id = session["current_question_message_id"]
     if question_message_id is None:
         return
@@ -755,7 +761,7 @@ async def _delete_previous_question_message(anchor_message: Message, session: ob
         return
 
 
-async def _delete_progress_message(anchor_message: Message, session: object) -> None:
+async def delete_progress_message(anchor_message: Message, session: object) -> None:
     progress_message_id = session["progress_message_id"]
     if progress_message_id is None:
         return
@@ -768,7 +774,7 @@ async def _delete_progress_message(anchor_message: Message, session: object) -> 
         return
 
 
-async def _delete_voice_message(anchor_message: Message, session: object) -> None:
+async def delete_training_voice_message(anchor_message: Message, session: object) -> None:
     try:
         voice_message_id = session["voice_message_id"]
     except (KeyError, IndexError, TypeError):
@@ -800,19 +806,10 @@ async def _process_training_answer(
     if result is None:
         return
 
-    if result.get("skipped_hard"):
-        feedback = translate_for_user(telegram_user_id, "training.hard_skipped")
-    elif result["is_correct"]:
-        feedback = translate_for_user(telegram_user_id, "training.correct")
-    else:
-        feedback = translate_for_user(
-            telegram_user_id,
-            "training.incorrect",
-            expected_answer=result["expected_answer"],
-        )
+    feedback = build_training_feedback_text(telegram_user_id, result)
 
     if result["status"] == "completed":
-        await _edit_progress_message(
+        await edit_progress_message(
             anchor_message,
             telegram_user_id,
             session,
@@ -822,13 +819,13 @@ async def _process_training_answer(
             stage_key="completed",
             hard_unlocked=False,
         )
-        await _delete_voice_message(anchor_message, session)
-        await _delete_previous_question_message(anchor_message, session)
-        await _delete_progress_message(anchor_message, session)
+        await delete_training_voice_message(anchor_message, session)
+        await delete_previous_question_message(anchor_message, session)
+        await delete_progress_message(anchor_message, session)
         set_training_session_current_question_message_id(int(session["id"]), None)
         summary = result["summary"]
         await anchor_message.answer(
-            _render_session_summary_text(
+            render_session_summary_text(
                 telegram_user_id,
                 session,
                 feedback=feedback,
@@ -839,8 +836,8 @@ async def _process_training_answer(
         return
 
     next_question = result["next_question"]
-    await _delete_voice_message(anchor_message, session)
-    await _edit_progress_message(
+    await delete_training_voice_message(anchor_message, session)
+    await edit_progress_message(
         anchor_message,
         telegram_user_id,
         session,
@@ -861,7 +858,7 @@ async def _process_training_answer(
 
 
 @router.message(Command(LEARN_COMMAND.name))
-async def learn(message: Message) -> None:
+async def learn(message: Message, dialog_manager: DialogManager | None = None) -> None:
     if message.from_user is None:
         return
 
@@ -877,14 +874,22 @@ async def learn(message: Message) -> None:
         await message.answer(translate_for_user(message.from_user.id, "training.start_failed"))
         return
 
-    await render_started_training_session(message, message.from_user.id)
+    if dialog_manager is None:
+        await render_started_training_session(message, message.from_user.id)
+        return
+
+    from .learner_training_dialog import start_training_dialog
+
+    await start_training_dialog(message, dialog_manager, message.from_user.id)
 
 
 @router.message(
     F.text,
     ~F.text.startswith("/"),
     lambda message: (
-        message.from_user is not None and get_active_training_session(message.from_user.id) is not None
+        message.from_user is not None
+        and (session := get_active_training_session(message.from_user.id)) is not None
+        and session["current_question_message_id"] is not None
     ),
 )
 async def answer_training_question(message: Message) -> None:
@@ -991,19 +996,10 @@ async def answer_training_medium_check(callback: CallbackQuery) -> None:
         return
     current_question = question
 
-    if result.get("skipped_hard"):
-        feedback = translate_for_user(callback.from_user.id, "training.hard_skipped")
-    elif result["is_correct"]:
-        feedback = translate_for_user(callback.from_user.id, "training.correct")
-    else:
-        feedback = translate_for_user(
-            callback.from_user.id,
-            "training.incorrect",
-            expected_answer=result["expected_answer"],
-        )
+    feedback = build_training_feedback_text(callback.from_user.id, result)
 
     if result["status"] == "completed":
-        await _edit_progress_message(
+        await edit_progress_message(
             callback.message,
             callback.from_user.id,
             session,
@@ -1013,13 +1009,13 @@ async def answer_training_medium_check(callback: CallbackQuery) -> None:
             stage_key="completed",
             hard_unlocked=False,
         )
-        await _delete_voice_message(callback.message, session)
-        await _delete_previous_question_message(callback.message, session)
-        await _delete_progress_message(callback.message, session)
+        await delete_training_voice_message(callback.message, session)
+        await delete_previous_question_message(callback.message, session)
+        await delete_progress_message(callback.message, session)
         set_training_session_current_question_message_id(int(session["id"]), None)
         summary = result["summary"]
         await callback.message.answer(
-            _render_session_summary_text(
+            render_session_summary_text(
                 callback.from_user.id,
                 session,
                 feedback=feedback,
@@ -1030,8 +1026,8 @@ async def answer_training_medium_check(callback: CallbackQuery) -> None:
         return
 
     next_question = result["next_question"]
-    await _delete_voice_message(callback.message, session)
-    await _edit_progress_message(
+    await delete_training_voice_message(callback.message, session)
+    await edit_progress_message(
         callback.message,
         callback.from_user.id,
         session,
@@ -1066,7 +1062,7 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
         return
 
     if result["status"] == "completed":
-        await _edit_progress_message(
+        await edit_progress_message(
             callback.message,
             callback.from_user.id,
             session,
@@ -1076,12 +1072,12 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
             stage_key="completed",
             hard_unlocked=False,
         )
-        await _delete_voice_message(callback.message, session)
-        await _delete_previous_question_message(callback.message, session)
-        await _delete_progress_message(callback.message, session)
+        await delete_training_voice_message(callback.message, session)
+        await delete_previous_question_message(callback.message, session)
+        await delete_progress_message(callback.message, session)
         set_training_session_current_question_message_id(int(session["id"]), None)
         await callback.message.answer(
-            _render_session_summary_text(
+            render_session_summary_text(
                 callback.from_user.id,
                 session,
                 feedback=translate_for_user(callback.from_user.id, "training.hard_skipped"),
@@ -1092,8 +1088,8 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
         return
 
     next_question = result["next_question"]
-    await _delete_voice_message(callback.message, session)
-    await _edit_progress_message(
+    await delete_training_voice_message(callback.message, session)
+    await edit_progress_message(
         callback.message,
         callback.from_user.id,
         session,
@@ -1137,7 +1133,7 @@ async def play_training_tts(callback: CallbackQuery) -> None:
         catalog = client.fetch_voices()
         voice_id = catalog.resolve_voice_id(get_user_tts_voice_id(callback.from_user.id))
         audio_bytes = client.synthesize(text=text_to_speak, voice_id=voice_id)
-        await _delete_voice_message(callback.message, session)
+        await delete_training_voice_message(callback.message, session)
         voice_message = await callback.message.answer_voice(
             BufferedInputFile(audio_bytes, filename="tts.ogg")
         )

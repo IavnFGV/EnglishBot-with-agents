@@ -19,7 +19,7 @@
 - Learning domain: `vocabulary.py`, `topics.py`, `assets.py`, `exercises.py`, `training.py`
 - Family-first workflows: `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`, `bulk_edit.py`, `workbook_export.py`, `workbook_import.py`
 - Telegram orchestration: `*_handlers.py`
-- Multi-step Telegram UI: `homework_dialog.py`, `teacher_assignment_dialog.py`, `teacher_content_dialog.py`
+- Multi-step Telegram UI: `learner_training_dialog.py`, `homework_dialog.py`, `teacher_assignment_dialog.py`, `teacher_content_dialog.py`
 - Operations: `logging_setup.py`, `build_info.py`, `status_server.py`
 
 ## Data ownership boundaries
@@ -38,7 +38,7 @@
 - Assignment creation: `/create_assignment` persists family homework assignments for family members.
 - The active authoring and assignment flows resolve directly through family membership without invite/join, grants, or workspace bootstrap.
 - Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`.
-- Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`.
+- Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`; the active `/learn` and homework quiz surfaces now render through a shared learner `aiogram-dialog` shell with reusable inline TTS controls.
 - Family homework uses `training_sessions.family_homework_assignment_id` as the only active homework session link, while the staged exercise engine remains shared.
 
 ## Business logic vs Telegram/UI

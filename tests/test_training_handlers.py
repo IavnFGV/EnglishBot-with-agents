@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from aiogram_dialog import ShowMode, StartMode
 from aiogram.types import User
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -26,6 +27,15 @@ from englishbot.families import (
     create_homework_assignment as create_family_homework_assignment,
 )
 from englishbot.homework import start_assignment_training_session
+from englishbot.learner_training_dialog import (
+    LearnerTrainingDialogSG,
+    _listen_to_current_word,
+    _select_voice,
+    _submit_easy_answer,
+    get_quiz_window_data,
+    get_voice_window_data,
+    start_training_dialog,
+)
 from englishbot.training import get_active_training_session, get_current_question, submit_training_answer
 from englishbot.training_handlers import (
     TRAINING_EASY_CALLBACK_PREFIX,
@@ -44,7 +54,8 @@ from englishbot.training_handlers import (
     play_training_tts,
     render_started_training_session,
 )
-from englishbot.user_profiles import set_user_hint_language
+from englishbot.tts import TTSUnavailableError, TTSVoice, TTSVoiceCatalog
+from englishbot.user_profiles import get_user_tts_voice_id, set_user_hint_language
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
 
@@ -173,6 +184,30 @@ class FakeCallback:
         self.answered = True
 
 
+class FakeDialogManager:
+    def __init__(self, user: User) -> None:
+        self.event = SimpleNamespace(from_user=user, chat=SimpleNamespace(id=user.id))
+        self.dialog_data: dict[str, object] = {}
+        self.start_calls: list[dict[str, object]] = []
+        self.switch_calls: list[dict[str, object]] = []
+        self.done_calls: list[dict[str, object]] = []
+
+    async def start(self, state, mode=None, show_mode=None, data=None) -> None:
+        if data:
+            self.dialog_data.update(data)
+        self.start_calls.append({"state": state, "mode": mode, "show_mode": show_mode})
+
+    async def switch_to(self, state, show_mode=None) -> None:
+        self.switch_calls.append({"state": state, "show_mode": show_mode})
+
+    async def done(self, result=None, show_mode=None) -> None:
+        self.done_calls.append({"result": result, "show_mode": show_mode})
+
+    async def update(self, data=None, **kwargs) -> None:
+        if data:
+            self.dialog_data.update(data)
+
+
 def make_user(user_id: int, first_name: str) -> User:
     return User(id=user_id, is_bot=False, first_name=first_name, username=first_name.lower())
 
@@ -217,6 +252,187 @@ def _find_keyboard_index_by_label(keyboard, label: str) -> int:
         if row[0].text == label:
             return index
     raise AssertionError(f"Option {label!r} not found")
+
+
+def test_dialog_based_learn_starts_quiz_state_with_shared_tts_controls(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(430, "Learner")
+    seed_learning_items(3, user=user)
+    message = FakeMessage(user)
+    manager = FakeDialogManager(user)
+
+    monkeypatch.setattr("englishbot.learner_training_dialog.is_tts_enabled", lambda: True)
+
+    asyncio.run(learn(message, manager))
+    view = asyncio.run(get_quiz_window_data(manager))
+
+    assert manager.start_calls == [
+        {
+            "state": LearnerTrainingDialogSG.quiz,
+            "mode": StartMode.RESET_STACK,
+            "show_mode": ShowMode.SEND,
+        }
+    ]
+    assert message.answers == [
+        {
+            "text": "Item 1/3\nDone 0/3\nStage: easy",
+            "kwargs": {},
+            "message_id": 1,
+        }
+    ]
+    assert view["show_tts_controls"] is True
+    assert view["listen_label"] == "🔊 Listen"
+    assert view["voice_label"] == "🎤 Voice"
+    assert view["screen_text"] == "слово-1"
+
+
+def test_homework_quiz_dialog_uses_same_tts_control_block(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    parent, child, family_id = seed_family_parent_and_child()
+    assignment_id = create_family_homework_assignment(
+        family_id,
+        parent.id,
+        child.id,
+        [create_family_learning_item(family_id, create_lexeme("dialog-word"), "dialog-word")],
+        title="Dialog homework",
+    )
+    create_learning_item_translation(1, "ru", "слово-1")
+    start_assignment_training_session(child.id, f"family:{assignment_id}")
+    message = FakeMessage(child)
+    manager = FakeDialogManager(child)
+
+    monkeypatch.setattr("englishbot.learner_training_dialog.is_tts_enabled", lambda: True)
+
+    started = asyncio.run(start_training_dialog(message, manager, child.id))
+    view = asyncio.run(get_quiz_window_data(manager))
+
+    assert started is True
+    assert view["show_tts_controls"] is True
+    assert view["listen_label"] == "🔊 Listen"
+    assert view["voice_label"] == "🎤 Voice"
+
+
+def test_dialog_voice_selection_persists_and_listen_uses_selected_voice(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(431, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+    manager = FakeDialogManager(user)
+    captured: dict[str, str] = {}
+
+    class FakeClient:
+        def fetch_voices(self):
+            return TTSVoiceCatalog(
+                default_voice_id="en_US_lessac",
+                voices=(
+                    TTSVoice(voice_id="en_US_lessac", label="Emma"),
+                    TTSVoice(voice_id="en_GB_alan", label="Alan"),
+                ),
+            )
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            captured["text"] = text
+            captured["voice_id"] = voice_id
+            return b"ogg-bytes"
+
+    monkeypatch.setattr("englishbot.learner_training_dialog.build_tts_client", lambda: FakeClient())
+    monkeypatch.setattr("englishbot.learner_training_dialog.is_tts_enabled", lambda: True)
+
+    asyncio.run(learn(message, manager))
+    voice_view = asyncio.run(get_voice_window_data(manager))
+    assert "Choose pronunciation voice:" in voice_view["screen_text"]
+
+    callback = FakeCallback(user, "voice", message)
+    asyncio.run(_select_voice(callback, None, manager, "en_GB_alan"))
+    asyncio.run(_listen_to_current_word(callback, None, manager))
+
+    assert get_user_tts_voice_id(user.id) == "en_GB_alan"
+    assert captured == {"text": "word-1", "voice_id": "en_GB_alan"}
+    assert len(message.voice_answers) == 1
+
+
+def test_dialog_listen_failure_keeps_active_question(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(432, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+    manager = FakeDialogManager(user)
+
+    class FakeClient:
+        def fetch_voices(self):
+            return TTSVoiceCatalog(
+                default_voice_id="en_US_lessac",
+                voices=(TTSVoice(voice_id="en_US_lessac", label="Emma"),),
+            )
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            raise TTSUnavailableError("down")
+
+    monkeypatch.setattr("englishbot.learner_training_dialog.build_tts_client", lambda: FakeClient())
+    monkeypatch.setattr("englishbot.learner_training_dialog.is_tts_enabled", lambda: True)
+
+    asyncio.run(learn(message, manager))
+    current_question = get_current_question(user.id)
+    assert current_question is not None
+
+    callback = FakeCallback(user, "listen", message)
+    asyncio.run(_listen_to_current_word(callback, None, manager))
+
+    assert get_current_question(user.id)["learning_item_id"] == current_question["learning_item_id"]
+    assert message.answers[-1]["text"] == "Could not play audio right now. Please try again."
+
+
+def test_dialog_answer_transition_cleans_up_previous_voice_message(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(433, "Learner")
+    seed_learning_items(3, user=user)
+    message = FakeMessage(user)
+    manager = FakeDialogManager(user)
+
+    class FakeClient:
+        def fetch_voices(self):
+            return TTSVoiceCatalog(
+                default_voice_id="en_US_lessac",
+                voices=(TTSVoice(voice_id="en_US_lessac", label="Emma"),),
+            )
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            return b"ogg-bytes"
+
+    monkeypatch.setattr("englishbot.learner_training_dialog.build_tts_client", lambda: FakeClient())
+    monkeypatch.setattr("englishbot.learner_training_dialog.is_tts_enabled", lambda: True)
+
+    asyncio.run(learn(message, manager))
+    callback = FakeCallback(user, "listen", message)
+    asyncio.run(_listen_to_current_word(callback, None, manager))
+    session = get_active_training_session(user.id)
+    assert session is not None
+    assert session["voice_message_id"] == 2
+
+    question = get_current_question(user.id)
+    assert question is not None
+    option_index = str(question["options"].index(question["expected_answer"]))
+    asyncio.run(_submit_easy_answer(callback, None, manager, option_index))
+
+    session = get_active_training_session(user.id)
+    assert session is not None
+    assert session["voice_message_id"] is None
+    assert message.bot.deleted_messages[-1] == {"chat_id": user.id, "message_id": 2}
 
 
 def test_learn_renders_one_progress_message_and_one_easy_question(tmp_path: Path) -> None:
@@ -347,9 +563,9 @@ def test_invalid_cached_photo_file_id_during_edit_replaces_message_and_refreshes
         )
     )
 
-    assert first_message.bot.deleted_messages[-1] == {"chat_id": user.id, "message_id": 4}
-    assert first_message.photo_answers[-1]["message_id"] == 5
-    assert get_cached_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO) == "uploaded-photo-5"
+    assert first_message.bot.deleted_messages[-1] == {"chat_id": user.id, "message_id": 3}
+    assert first_message.photo_answers[-1]["message_id"] == 4
+    assert get_cached_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO) == "uploaded-photo-4"
 
 
 def test_invalid_question_image_falls_back_to_text_only_card(tmp_path: Path) -> None:
@@ -378,7 +594,7 @@ def test_listen_button_is_added_to_training_question_when_tts_enabled(
     asyncio.run(learn(message))
 
     keyboard = message.answers[1]["kwargs"]["reply_markup"]
-    assert keyboard.inline_keyboard[-1][0].text == "Listen"
+    assert keyboard.inline_keyboard[-1][0].text == "🔊 Listen"
     assert keyboard.inline_keyboard[-1][0].callback_data == TRAINING_LISTEN_CALLBACK
 
 
