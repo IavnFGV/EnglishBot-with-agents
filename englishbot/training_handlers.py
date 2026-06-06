@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import (
+    BufferedInputFile,
     CallbackQuery,
     FSInputFile,
     InlineKeyboardButton,
@@ -29,6 +30,7 @@ from .homework import (
 from .i18n import translate_for_user
 from .homework_progress_image import render_homework_progress_image
 from .runtime import router
+from .tts import TTSClientError, build_tts_client, is_tts_enabled
 from .training import (
     NoLearningItemsError,
     append_medium_answer_letter,
@@ -39,6 +41,7 @@ from .training import (
     pop_medium_answer_letter,
     set_training_session_current_question_message_id,
     set_training_session_progress_message_id,
+    set_training_session_voice_message_id,
     skip_optional_hard,
     submit_training_answer,
     submit_medium_answer,
@@ -50,6 +53,7 @@ TRAINING_MEDIUM_ADD_CALLBACK_PREFIX = "training:medium:add:"
 TRAINING_MEDIUM_BACKSPACE_CALLBACK = "training:medium:backspace"
 TRAINING_MEDIUM_CHECK_CALLBACK = "training:medium:check"
 TRAINING_HARD_SKIP_CALLBACK = "training:hard:skip"
+TRAINING_LISTEN_CALLBACK = "training:listen"
 logger = logging.getLogger(__name__)
 
 
@@ -291,11 +295,24 @@ def _build_question_keyboard(
     telegram_user_id: int,
     question: dict[str, object],
 ) -> InlineKeyboardMarkup | None:
-    return (
+    primary_keyboard = (
         _build_easy_options_keyboard(question)
         or _build_medium_keyboard(telegram_user_id, question)
         or _build_hard_keyboard(telegram_user_id, question)
     )
+    rows = [] if primary_keyboard is None else list(primary_keyboard.inline_keyboard)
+    if is_tts_enabled():
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=translate_for_user(telegram_user_id, "training.action.listen"),
+                    callback_data=TRAINING_LISTEN_CALLBACK,
+                )
+            ]
+        )
+    if not rows:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _render_progress_text(
@@ -751,6 +768,24 @@ async def _delete_progress_message(anchor_message: Message, session: object) -> 
         return
 
 
+async def _delete_voice_message(anchor_message: Message, session: object) -> None:
+    try:
+        voice_message_id = session["voice_message_id"]
+    except (KeyError, IndexError, TypeError):
+        voice_message_id = None
+    if voice_message_id is None:
+        return
+    try:
+        await anchor_message.bot.delete_message(
+            chat_id=anchor_message.chat.id,
+            message_id=int(voice_message_id),
+        )
+    except Exception:
+        return
+    finally:
+        set_training_session_voice_message_id(int(session["id"]), None)
+
+
 async def _process_training_answer(
     anchor_message: Message,
     telegram_user_id: int,
@@ -787,6 +822,7 @@ async def _process_training_answer(
             stage_key="completed",
             hard_unlocked=False,
         )
+        await _delete_voice_message(anchor_message, session)
         await _delete_previous_question_message(anchor_message, session)
         await _delete_progress_message(anchor_message, session)
         set_training_session_current_question_message_id(int(session["id"]), None)
@@ -803,6 +839,7 @@ async def _process_training_answer(
         return
 
     next_question = result["next_question"]
+    await _delete_voice_message(anchor_message, session)
     await _edit_progress_message(
         anchor_message,
         telegram_user_id,
@@ -976,6 +1013,7 @@ async def answer_training_medium_check(callback: CallbackQuery) -> None:
             stage_key="completed",
             hard_unlocked=False,
         )
+        await _delete_voice_message(callback.message, session)
         await _delete_previous_question_message(callback.message, session)
         await _delete_progress_message(callback.message, session)
         set_training_session_current_question_message_id(int(session["id"]), None)
@@ -992,6 +1030,7 @@ async def answer_training_medium_check(callback: CallbackQuery) -> None:
         return
 
     next_question = result["next_question"]
+    await _delete_voice_message(callback.message, session)
     await _edit_progress_message(
         callback.message,
         callback.from_user.id,
@@ -1037,6 +1076,7 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
             stage_key="completed",
             hard_unlocked=False,
         )
+        await _delete_voice_message(callback.message, session)
         await _delete_previous_question_message(callback.message, session)
         await _delete_progress_message(callback.message, session)
         set_training_session_current_question_message_id(int(session["id"]), None)
@@ -1052,6 +1092,7 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
         return
 
     next_question = result["next_question"]
+    await _delete_voice_message(callback.message, session)
     await _edit_progress_message(
         callback.message,
         callback.from_user.id,
@@ -1070,3 +1111,54 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
         previous_question=current_question,
         feedback=translate_for_user(callback.from_user.id, "training.hard_skipped"),
     )
+
+
+@router.callback_query(lambda callback: callback.data == TRAINING_LISTEN_CALLBACK)
+async def play_training_tts(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.from_user is None or callback.message is None:
+        return
+    question = get_current_question(callback.from_user.id)
+    session = get_active_training_session(callback.from_user.id)
+    if question is None or session is None:
+        return
+
+    client = build_tts_client()
+    if client is None:
+        return
+
+    text_to_speak = str(question.get("expected_answer") or "").strip()
+    if not text_to_speak:
+        return
+
+    try:
+        from .user_profiles import get_user_tts_voice_id
+
+        catalog = client.fetch_voices()
+        voice_id = catalog.resolve_voice_id(get_user_tts_voice_id(callback.from_user.id))
+        audio_bytes = client.synthesize(text=text_to_speak, voice_id=voice_id)
+        await _delete_voice_message(callback.message, session)
+        voice_message = await callback.message.answer_voice(
+            BufferedInputFile(audio_bytes, filename="tts.ogg")
+        )
+        set_training_session_voice_message_id(
+            int(session["id"]),
+            getattr(voice_message, "message_id", None),
+        )
+    except TTSClientError as exc:
+        logger.warning(
+            "Could not synthesize training audio for user %s: %s",
+            callback.from_user.id,
+            exc,
+        )
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "training.audio_unavailable")
+        )
+    except Exception:
+        logger.exception(
+            "Could not deliver training audio for user %s",
+            callback.from_user.id,
+        )
+        await callback.message.answer(
+            translate_for_user(callback.from_user.id, "training.audio_unavailable")
+        )

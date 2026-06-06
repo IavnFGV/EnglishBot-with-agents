@@ -10,15 +10,25 @@ from englishbot import db
 from englishbot.settings_handlers import (
     SETTINGS_BOT_LANGUAGE_CALLBACK,
     SETTINGS_HINT_LANGUAGE_CALLBACK,
+    SETTINGS_SET_TTS_DEFAULT_CALLBACK,
     SETTINGS_SET_BOT_LANGUAGE_PREFIX,
     SETTINGS_SET_HINT_LANGUAGE_PREFIX,
+    SETTINGS_SET_TTS_VOICE_PREFIX,
+    SETTINGS_TTS_VOICE_CALLBACK,
     open_bot_language_settings,
     open_hint_language_settings,
+    open_tts_voice_settings,
     set_bot_language,
     set_hint_language,
+    set_tts_default_voice,
+    set_tts_voice,
     settings,
 )
-from englishbot.user_profiles import get_user_hint_language, get_user_language
+from englishbot.user_profiles import (
+    get_user_hint_language,
+    get_user_language,
+    get_user_tts_voice_id,
+)
 
 
 class FakeMessage:
@@ -68,6 +78,28 @@ def test_settings_handler_shows_bot_and_hint_language_entries(tmp_path: Path) ->
     keyboard = message.answers[0]["kwargs"]["reply_markup"]
     assert keyboard.inline_keyboard[0][0].text == "Bot language: English"
     assert keyboard.inline_keyboard[1][0].text == "Hint language: English"
+
+
+def test_settings_handler_shows_tts_voice_entry_when_enabled(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(1106, "Learner")
+    message = FakeMessage(user)
+
+    class FakeClient:
+        def fetch_voices(self):
+            class FakeCatalog:
+                def find_voice(self, voice_id: str):
+                    return type("Voice", (), {"display_name": "Emma"})() if voice_id else None
+
+            return FakeCatalog()
+
+    monkeypatch.setattr("englishbot.settings_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.settings_handlers.build_tts_client", lambda: FakeClient())
+
+    asyncio.run(settings(message))
+
+    keyboard = message.answers[0]["kwargs"]["reply_markup"]
+    assert keyboard.inline_keyboard[2][0].text == "Voice: Default voice"
 
 
 def test_open_bot_language_settings_shows_supported_language_options(tmp_path: Path) -> None:
@@ -150,3 +182,88 @@ def test_set_hint_language_persists_choice_without_changing_bot_language(tmp_pat
     keyboard = callback_message.answers[0]["kwargs"]["reply_markup"]
     assert keyboard.inline_keyboard[0][0].text == "Bot language: English"
     assert keyboard.inline_keyboard[1][0].text == "Hint language: Български"
+
+
+def test_open_tts_voice_settings_shows_available_voices(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(1107, "Learner")
+    callback_message = FakeMessage(user)
+    callback = FakeCallback(user, SETTINGS_TTS_VOICE_CALLBACK, callback_message)
+
+    class FakeVoice:
+        def __init__(self, voice_id: str, button_label: str) -> None:
+            self.voice_id = voice_id
+            self.button_label = button_label
+
+    class FakeCatalog:
+        voices = (
+            FakeVoice("en_US_lessac", "Emma - Female, US"),
+            FakeVoice("en_GB_alan", "Alan - Male, UK"),
+        )
+
+    class FakeClient:
+        def fetch_voices(self):
+            return FakeCatalog()
+
+    monkeypatch.setattr("englishbot.settings_handlers.build_tts_client", lambda: FakeClient())
+
+    asyncio.run(open_tts_voice_settings(callback))
+
+    assert callback.answered is True
+    assert callback_message.answers[0]["text"] == "Choose pronunciation voice:"
+    keyboard = callback_message.answers[0]["kwargs"]["reply_markup"]
+    assert keyboard.inline_keyboard[0][0].text == "✓ Use service default"
+    assert keyboard.inline_keyboard[1][0].text == "Emma - Female, US"
+    assert keyboard.inline_keyboard[2][0].text == "Alan - Male, UK"
+
+
+def test_set_tts_voice_persists_choice(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(1108, "Learner")
+    db.save_user(user)
+    callback_message = FakeMessage(user)
+    callback = FakeCallback(
+        user,
+        f"{SETTINGS_SET_TTS_VOICE_PREFIX}en_US_lessac",
+        callback_message,
+    )
+
+    class FakeVoice:
+        voice_id = "en_US_lessac"
+        display_name = "Emma"
+
+    class FakeCatalog:
+        def find_voice(self, voice_id: str):
+            return FakeVoice() if voice_id == "en_US_lessac" else None
+
+    class FakeClient:
+        def fetch_voices(self):
+            return FakeCatalog()
+
+    monkeypatch.setattr("englishbot.settings_handlers.build_tts_client", lambda: FakeClient())
+    monkeypatch.setattr("englishbot.settings_handlers.is_tts_enabled", lambda: True)
+
+    asyncio.run(set_tts_voice(callback))
+
+    assert callback.answered is True
+    assert get_user_tts_voice_id(user.id) == "en_US_lessac"
+    assert callback_message.answers[0]["text"] == "Voice set to Emma."
+
+
+def test_set_tts_default_voice_clears_saved_choice(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(1109, "Learner")
+    db.save_user(user)
+    callback_message = FakeMessage(user)
+    callback = FakeCallback(user, SETTINGS_SET_TTS_DEFAULT_CALLBACK, callback_message)
+    monkeypatch.setattr("englishbot.settings_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.settings_handlers.build_tts_client", lambda: None)
+
+    from englishbot.user_profiles import set_user_tts_voice_id
+
+    set_user_tts_voice_id(user.id, "en_US_lessac")
+    asyncio.run(set_tts_default_voice(callback))
+
+    assert callback.answered is True
+    assert get_user_tts_voice_id(user.id) is None
+    assert callback_message.answers[0]["text"] == "Voice set to Default voice."

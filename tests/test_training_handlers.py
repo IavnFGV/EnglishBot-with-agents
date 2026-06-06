@@ -30,6 +30,7 @@ from englishbot.training import get_active_training_session, get_current_questio
 from englishbot.training_handlers import (
     TRAINING_EASY_CALLBACK_PREFIX,
     TRAINING_HARD_SKIP_CALLBACK,
+    TRAINING_LISTEN_CALLBACK,
     TRAINING_MEDIUM_ADD_CALLBACK_PREFIX,
     TRAINING_MEDIUM_BACKSPACE_CALLBACK,
     TRAINING_MEDIUM_CHECK_CALLBACK,
@@ -40,6 +41,7 @@ from englishbot.training_handlers import (
     answer_training_medium_check,
     answer_training_question,
     learn,
+    play_training_tts,
     render_started_training_session,
 )
 from englishbot.user_profiles import set_user_hint_language
@@ -108,8 +110,10 @@ class FakeMessage:
         self.chat = SimpleNamespace(id=user.id)
         self.answers: list[dict[str, object]] = []
         self.photo_answers: list[dict[str, object]] = []
+        self.voice_answers: list[dict[str, object]] = []
         self.photo_attempts: list[object] = []
         self.fail_photo_file_ids: set[str] = set()
+        self.fail_voice = False
         self._next_message_id = 1
         self.message_id = 0
 
@@ -131,6 +135,14 @@ class FakeMessage:
             file_id = f"uploaded-photo-{message.message_id}"
         message.photo = [SimpleNamespace(file_id=file_id)]
         self.photo_answers.append({"photo": photo, "kwargs": kwargs, "message_id": message.message_id})
+        return message
+
+    async def answer_voice(self, voice, **kwargs: object) -> SimpleNamespace:
+        if self.fail_voice:
+            raise RuntimeError("voice failed")
+        message = SimpleNamespace(message_id=self._next_message_id)
+        self._next_message_id += 1
+        self.voice_answers.append({"voice": voice, "kwargs": kwargs, "message_id": message.message_id})
         return message
 
 
@@ -353,6 +365,110 @@ def test_invalid_question_image_falls_back_to_text_only_card(tmp_path: Path) -> 
     assert message.answers[-1]["text"] == "слово-1"
 
 
+def test_listen_button_is_added_to_training_question_when_tts_enabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(423, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+
+    asyncio.run(learn(message))
+
+    keyboard = message.answers[1]["kwargs"]["reply_markup"]
+    assert keyboard.inline_keyboard[-1][0].text == "Listen"
+    assert keyboard.inline_keyboard[-1][0].callback_data == TRAINING_LISTEN_CALLBACK
+
+
+def test_listen_callback_sends_voice_for_current_expected_answer(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(424, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+
+    class FakeCatalog:
+        def resolve_voice_id(self, preferred_voice_id: str | None) -> str:
+            assert preferred_voice_id is None
+            return "en_US_lessac"
+
+    class FakeClient:
+        def fetch_voices(self):
+            return FakeCatalog()
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            assert text == "word-1"
+            assert voice_id == "en_US_lessac"
+            return b"ogg-bytes"
+
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
+    asyncio.run(learn(message))
+
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+
+    session = get_active_training_session(user.id)
+    assert session is not None
+    assert len(message.voice_answers) == 1
+    assert message.voice_answers[0]["voice"].filename == "tts.ogg"
+    assert session["voice_message_id"] == 3
+
+
+def test_next_training_question_deletes_previous_tts_voice_message(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(426, "Learner")
+    seed_learning_items(3, user=user)
+    message = FakeMessage(user)
+
+    class FakeCatalog:
+        def resolve_voice_id(self, preferred_voice_id: str | None) -> str:
+            return "en_US_lessac"
+
+    class FakeClient:
+        def fetch_voices(self):
+            return FakeCatalog()
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            return b"ogg-bytes"
+
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
+    asyncio.run(learn(message))
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+
+    question = get_current_question(user.id)
+    assert question is not None
+    keyboard = message.answers[1]["kwargs"]["reply_markup"]
+    correct_index = _find_keyboard_index_by_label(keyboard, str(question["expected_answer"]))
+    asyncio.run(answer_training_easy(FakeCallback(user, f"{TRAINING_EASY_CALLBACK_PREFIX}{correct_index}", message)))
+
+    session = get_active_training_session(user.id)
+    assert session is not None
+    assert {"chat_id": user.id, "message_id": 3} in message.bot.deleted_messages
+    assert session["voice_message_id"] is None
+
+
+def test_listen_callback_fails_closed_when_tts_unavailable(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(425, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+
+    class FakeClient:
+        def fetch_voices(self):
+            raise RuntimeError("tts down")
+
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
+    asyncio.run(learn(message))
+
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+
+    assert len(message.voice_answers) == 0
+    assert message.answers[-1]["text"] == "Could not play audio right now. Please try again."
+
+
 def test_telegram_photo_cache_table_stays_separate_from_assets_and_supports_future_media_kinds(
     tmp_path: Path,
 ) -> None:
@@ -409,6 +525,7 @@ def test_easy_callback_delegates_selected_option_to_training_logic(tmp_path: Pat
             "id": 7,
             "progress_message_id": None,
             "current_question_message_id": None,
+            "voice_message_id": None,
         },
     )
 

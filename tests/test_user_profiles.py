@@ -12,9 +12,11 @@ from englishbot.user_profiles import (
     get_user_language,
     get_user_profile,
     get_user_role,
+    get_user_tts_voice_id,
     set_user_hint_language,
     set_user_language,
     set_user_role,
+    set_user_tts_voice_id,
 )
 
 
@@ -104,6 +106,7 @@ def test_init_db_backfills_hint_language_from_legacy_bot_language(tmp_path: Path
     assert profile is not None
     assert profile["bot_language"] == "uk"
     assert profile["hint_language"] == "uk"
+    assert profile["tts_voice_id"] is None
 
 
 def test_set_user_role_updates_profile_without_touching_telegram_user_row(tmp_path: Path) -> None:
@@ -215,6 +218,31 @@ def test_save_interaction_creates_stub_user_for_new_telegram_user_id(tmp_path: P
     assert profile["role"] == "student"
     assert profile["bot_language"] == "en"
     assert profile["hint_language"] == "en"
+    assert profile["tts_voice_id"] is None
     assert telegram_user is not None
     assert telegram_user["telegram_user_id"] == 999001
     assert telegram_user["username"] is None
+
+
+def test_set_user_tts_voice_id_persists_choice(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(308, "Learner")
+
+    db.save_user(user)
+    set_user_tts_voice_id(user.id, "en_US_lessac")
+
+    profile = get_user_profile(user.id)
+    assert profile is not None
+    assert profile["tts_voice_id"] == "en_US_lessac"
+    assert get_user_tts_voice_id(user.id) == "en_US_lessac"
+
+
+def test_set_user_tts_voice_id_allows_reset_to_default(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    user = make_user(309, "Learner")
+
+    db.save_user(user)
+    set_user_tts_voice_id(user.id, "en_US_lessac")
+    set_user_tts_voice_id(user.id, None)
+
+    assert get_user_tts_voice_id(user.id) is None

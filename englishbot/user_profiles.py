@@ -29,7 +29,14 @@ def get_user_profile(telegram_user_id: int) -> sqlite3.Row | None:
         try:
             return connection.execute(
                 """
-                SELECT telegram_user_id, role, bot_language, hint_language, created_at, updated_at
+                SELECT
+                    telegram_user_id,
+                    role,
+                    bot_language,
+                    hint_language,
+                    tts_voice_id,
+                    created_at,
+                    updated_at
                 FROM user_profiles
                 WHERE telegram_user_id = ?
                 """,
@@ -66,6 +73,19 @@ def get_user_hint_language(telegram_user_id: int) -> str:
     return DEFAULT_HINT_LANGUAGE
 
 
+def get_user_tts_voice_id(telegram_user_id: int) -> str | None:
+    profile = get_user_profile(telegram_user_id)
+    if profile is None:
+        return None
+    raw_value = profile["tts_voice_id"]
+    if raw_value is None:
+        return None
+    normalized_value = str(raw_value).strip()
+    if not normalized_value:
+        return None
+    return normalized_value
+
+
 def set_user_role(telegram_user_id: int, role: str) -> None:
     timestamp = utc_now()
     normalized_role = role or DEFAULT_USER_ROLE
@@ -77,10 +97,11 @@ def set_user_role(telegram_user_id: int, role: str) -> None:
                 role,
                 bot_language,
                 hint_language,
+                tts_voice_id,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(telegram_user_id) DO UPDATE SET
                 role = excluded.role,
                 updated_at = excluded.updated_at
@@ -90,6 +111,7 @@ def set_user_role(telegram_user_id: int, role: str) -> None:
                 normalized_role,
                 DEFAULT_BOT_LANGUAGE,
                 DEFAULT_HINT_LANGUAGE,
+                None,
                 timestamp,
                 timestamp,
             ),
@@ -108,10 +130,11 @@ def set_user_language(telegram_user_id: int, language_code: str) -> None:
                 role,
                 bot_language,
                 hint_language,
+                tts_voice_id,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(telegram_user_id) DO UPDATE SET
                 bot_language = excluded.bot_language,
                 hint_language = CASE
@@ -128,6 +151,7 @@ def set_user_language(telegram_user_id: int, language_code: str) -> None:
                 DEFAULT_USER_ROLE,
                 normalized_language,
                 normalized_language,
+                None,
                 timestamp,
                 timestamp,
             ),
@@ -146,10 +170,11 @@ def set_user_hint_language(telegram_user_id: int, language_code: str) -> None:
                 role,
                 bot_language,
                 hint_language,
+                tts_voice_id,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(telegram_user_id) DO UPDATE SET
                 hint_language = excluded.hint_language,
                 updated_at = excluded.updated_at
@@ -159,6 +184,44 @@ def set_user_hint_language(telegram_user_id: int, language_code: str) -> None:
                 DEFAULT_USER_ROLE,
                 DEFAULT_BOT_LANGUAGE,
                 normalized_language,
+                None,
+                timestamp,
+                timestamp,
+            ),
+        )
+
+
+def set_user_tts_voice_id(telegram_user_id: int, voice_id: str | None) -> None:
+    timestamp = utc_now()
+    normalized_voice_id = None
+    if voice_id is not None:
+        stripped_voice_id = str(voice_id).strip()
+        if stripped_voice_id:
+            normalized_voice_id = stripped_voice_id
+    ensure_user_exists(telegram_user_id)
+    with get_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO user_profiles (
+                telegram_user_id,
+                role,
+                bot_language,
+                hint_language,
+                tts_voice_id,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(telegram_user_id) DO UPDATE SET
+                tts_voice_id = excluded.tts_voice_id,
+                updated_at = excluded.updated_at
+            """,
+            (
+                telegram_user_id,
+                DEFAULT_USER_ROLE,
+                DEFAULT_BOT_LANGUAGE,
+                DEFAULT_HINT_LANGUAGE,
+                normalized_voice_id,
                 timestamp,
                 timestamp,
             ),

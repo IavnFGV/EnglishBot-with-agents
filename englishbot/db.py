@@ -466,6 +466,7 @@ def init_db() -> None:
                 role TEXT NOT NULL DEFAULT 'student',
                 bot_language TEXT NOT NULL DEFAULT 'en',
                 hint_language TEXT NOT NULL DEFAULT 'en',
+                tts_voice_id TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (telegram_user_id) REFERENCES users (telegram_user_id)
@@ -487,6 +488,13 @@ def init_db() -> None:
                 """
                 ALTER TABLE user_profiles
                 ADD COLUMN hint_language TEXT NOT NULL DEFAULT 'en'
+                """
+            )
+        if "tts_voice_id" not in user_profile_columns:
+            connection.execute(
+                """
+                ALTER TABLE user_profiles
+                ADD COLUMN tts_voice_id TEXT
                 """
             )
         if added_hint_language:
@@ -754,6 +762,7 @@ def init_db() -> None:
                 total_questions INTEGER NOT NULL,
                 progress_message_id INTEGER,
                 current_question_message_id INTEGER,
+                voice_message_id INTEGER,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -777,6 +786,7 @@ def init_db() -> None:
                     total_questions INTEGER NOT NULL,
                     progress_message_id INTEGER,
                     current_question_message_id INTEGER,
+                    voice_message_id INTEGER,
                     status TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -798,6 +808,7 @@ def init_db() -> None:
                     total_questions,
                     progress_message_id,
                     current_question_message_id,
+                    voice_message_id,
                     status,
                     created_at,
                     updated_at
@@ -813,6 +824,7 @@ def init_db() -> None:
                     total_questions,
                     progress_message_id,
                     current_question_message_id,
+                    voice_message_id,
                     status,
                     created_at,
                     updated_at
@@ -841,6 +853,13 @@ def init_db() -> None:
                 """
                 ALTER TABLE training_sessions
                 ADD COLUMN current_question_message_id INTEGER
+                """
+            )
+        if "voice_message_id" not in training_session_columns:
+            connection.execute(
+                """
+                ALTER TABLE training_sessions
+                ADD COLUMN voice_message_id INTEGER
                 """
             )
         if "homework_correct_streak" not in training_session_columns:
@@ -1118,16 +1137,18 @@ def save_user(user: User) -> None:
                 role,
                 bot_language,
                 hint_language,
+                tts_voice_id,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user.id,
                 DEFAULT_USER_ROLE,
                 DEFAULT_BOT_LANGUAGE,
                 DEFAULT_HINT_LANGUAGE,
+                None,
                 timestamp,
                 timestamp,
             ),
@@ -1158,16 +1179,18 @@ def ensure_user_exists(telegram_user_id: int) -> None:
                 role,
                 bot_language,
                 hint_language,
+                tts_voice_id,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 telegram_user_id,
                 DEFAULT_USER_ROLE,
                 DEFAULT_BOT_LANGUAGE,
                 DEFAULT_HINT_LANGUAGE,
+                None,
                 timestamp,
                 timestamp,
             ),

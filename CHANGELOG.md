@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-06-06
+- Tightened the first learner TTS UX so the last synthesized `voice` message is now tracked in `training_sessions` and deleted automatically when the learner advances to the next word or finishes the session, keeping the chat from filling up with stale pronunciation messages.
+- Implemented the first optional family-first TTS learner slice: `training_handlers.py` now adds a fail-closed `Listen` action on active training cards when `ENGLISHBOT_TTS_BASE_URL` is configured, sends only the current English answer text to the internal TTS service as Telegram `voice`, and keeps learner sessions intact when TTS or Telegram delivery fails.
+- Added a narrow internal TTS integration layer in `englishbot/tts.py` plus optional config helpers in `englishbot/config.py`, using compact stdlib HTTP requests, short timeouts, voice-catalog fallback to the service default, and no startup health gate so core runtime still works with TTS disabled or unavailable.
+- Extended learner settings and persistence for pronunciation voice preference: `user_profiles` now stores optional `tts_voice_id`, `/settings` can open a compact voice chooser when TTS is enabled, and `.env.example` now documents `ENGLISHBOT_TTS_BASE_URL` plus `ENGLISHBOT_TTS_TIMEOUT_SECONDS`.
+- Added `chain_of_commands/058-internal-tts-service-integration.md`, a replayable prompt for the next optional learner-audio slice: integrate the separate internal-only TTS service into the active family-first learner flow with a minimal `Listen` action, persisted user voice selection, internal-hostname HTTP client wiring, and fail-closed behavior that never makes TTS a required runtime dependency.
+- Narrowed `chain_of_commands/058-internal-tts-service-integration.md` so the first TTS iteration stays live-request-first and explicitly defers persistent synthesized-audio storage variants instead of folding a new asset model into the initial integration slice.
+- Added `chain_of_commands/059-persisted-tts-audio-variants-and-telegram-cache.md`, a replayable follow-up prompt for the heavier TTS storage slice: one `learning_item` may own multiple local synthesized audio variants distinguished by composed identity such as `learning_item` + `voice_id` + model/engine key, with Telegram `file_id` reuse kept as a separate transport cache above those persisted variants.
+
 ## 2026-06-05
 - Fixed the GitHub Actions VPS deploy workflow after a recent edit: the SSH script now consistently uses the declared `REGISTER_HELPER` variable when validating and invoking the infra service-registration helper, so deploy no longer crashes after `docker compose up -d --build` with `REGISTER_SERVICE_HELPER: unbound variable`.
 

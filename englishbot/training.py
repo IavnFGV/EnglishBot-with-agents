@@ -150,6 +150,7 @@ def get_active_training_session(telegram_user_id: int) -> sqlite3.Row | None:
                 total_questions,
                 progress_message_id,
                 current_question_message_id,
+                voice_message_id,
                 status,
                 created_at,
                 updated_at
@@ -177,6 +178,7 @@ def get_training_session(session_id: int) -> sqlite3.Row | None:
                 total_questions,
                 progress_message_id,
                 current_question_message_id,
+                voice_message_id,
                 status,
                 created_at,
                 updated_at
@@ -207,6 +209,7 @@ def find_latest_incomplete_family_homework_training_session(
                 training_sessions.total_questions,
                 training_sessions.progress_message_id,
                 training_sessions.current_question_message_id,
+                training_sessions.voice_message_id,
                 training_sessions.status,
                 training_sessions.created_at,
                 training_sessions.updated_at
@@ -616,6 +619,21 @@ def set_training_session_current_question_message_id(
         )
 
 
+def set_training_session_voice_message_id(
+    session_id: int,
+    message_id: int | None,
+) -> None:
+    with get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET voice_message_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (message_id, utc_now(), session_id),
+        )
+
+
 def cancel_active_training_session(telegram_user_id: int) -> bool:
     session = get_active_training_session(telegram_user_id)
     if session is None:
@@ -627,6 +645,7 @@ def cancel_active_training_session(telegram_user_id: int) -> bool:
             SET current_index = total_questions,
                 progress_message_id = NULL,
                 current_question_message_id = NULL,
+                voice_message_id = NULL,
                 status = ?,
                 updated_at = ?
             WHERE id = ?
@@ -885,6 +904,7 @@ def _mark_session_completed(session: sqlite3.Row) -> None:
             UPDATE training_sessions
             SET current_index = total_questions,
                 current_question_message_id = NULL,
+                voice_message_id = NULL,
                 status = ?,
                 updated_at = ?
             WHERE id = ?
