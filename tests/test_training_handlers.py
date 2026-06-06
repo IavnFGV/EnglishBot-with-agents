@@ -16,6 +16,7 @@ from englishbot.assets import (
     TELEGRAM_MEDIA_KIND_PHOTO,
     TELEGRAM_MEDIA_KIND_VOICE,
     cache_telegram_file_id,
+    get_learning_item_tts_variant,
     create_asset,
     get_cached_telegram_file_id,
     link_asset_to_learning_item,
@@ -122,8 +123,10 @@ class FakeMessage:
         self.answers: list[dict[str, object]] = []
         self.photo_answers: list[dict[str, object]] = []
         self.voice_answers: list[dict[str, object]] = []
+        self.voice_attempts: list[object] = []
         self.photo_attempts: list[object] = []
         self.fail_photo_file_ids: set[str] = set()
+        self.fail_voice_file_ids: set[str] = set()
         self.fail_voice = False
         self._next_message_id = 1
         self.message_id = 0
@@ -149,10 +152,18 @@ class FakeMessage:
         return message
 
     async def answer_voice(self, voice, **kwargs: object) -> SimpleNamespace:
+        self.voice_attempts.append(voice)
         if self.fail_voice:
             raise RuntimeError("voice failed")
+        if isinstance(voice, str) and voice in self.fail_voice_file_ids:
+            raise RuntimeError("Bad Request: wrong file identifier/HTTP URL specified")
         message = SimpleNamespace(message_id=self._next_message_id)
         self._next_message_id += 1
+        if isinstance(voice, str):
+            file_id = voice
+        else:
+            file_id = f"uploaded-voice-{message.message_id}"
+        message.voice = SimpleNamespace(file_id=file_id)
         self.voice_answers.append({"voice": voice, "kwargs": kwargs, "message_id": message.message_id})
         return message
 
@@ -344,6 +355,7 @@ def test_dialog_voice_selection_persists_and_listen_uses_selected_voice(
             captured["voice_id"] = voice_id
             return b"ogg-bytes"
 
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
     monkeypatch.setattr("englishbot.learner_training_dialog.build_tts_client", lambda: FakeClient())
     monkeypatch.setattr("englishbot.learner_training_dialog.is_tts_enabled", lambda: True)
 
@@ -380,7 +392,7 @@ def test_dialog_listen_failure_keeps_active_question(
         def synthesize(self, *, text: str, voice_id: str) -> bytes:
             raise TTSUnavailableError("down")
 
-    monkeypatch.setattr("englishbot.learner_training_dialog.build_tts_client", lambda: FakeClient())
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
     monkeypatch.setattr("englishbot.learner_training_dialog.is_tts_enabled", lambda: True)
 
     asyncio.run(learn(message, manager))
@@ -414,7 +426,7 @@ def test_dialog_answer_transition_cleans_up_previous_voice_message(
         def synthesize(self, *, text: str, voice_id: str) -> bytes:
             return b"ogg-bytes"
 
-    monkeypatch.setattr("englishbot.learner_training_dialog.build_tts_client", lambda: FakeClient())
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
     monkeypatch.setattr("englishbot.learner_training_dialog.is_tts_enabled", lambda: True)
 
     asyncio.run(learn(message, manager))
@@ -627,8 +639,281 @@ def test_listen_callback_sends_voice_for_current_expected_answer(tmp_path: Path,
     session = get_active_training_session(user.id)
     assert session is not None
     assert len(message.voice_answers) == 1
-    assert message.voice_answers[0]["voice"].filename == "tts.ogg"
+    assert message.voice_answers[0]["voice"].filename.endswith(".ogg")
     assert session["voice_message_id"] == 3
+    variant = get_learning_item_tts_variant(
+        1,
+        voice_id="en_US_lessac",
+        tts_model_key="internal-tts",
+        source_text="word-1",
+    )
+    assert variant is not None
+    assert get_cached_telegram_file_id(int(variant["asset_id"]), TELEGRAM_MEDIA_KIND_VOICE) == (
+        "uploaded-voice-3"
+    )
+
+
+def test_second_listen_reuses_persisted_tts_variant_without_resynthesizing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(434, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+    synthesize_calls: list[tuple[str, str]] = []
+
+    class FakeCatalog:
+        def resolve_voice_id(self, preferred_voice_id: str | None) -> str:
+            return "en_US_lessac"
+
+    class FakeClient:
+        def fetch_voices(self):
+            return FakeCatalog()
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            synthesize_calls.append((text, voice_id))
+            return b"ogg-bytes"
+
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
+    asyncio.run(learn(message))
+
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+
+    assert synthesize_calls == [("word-1", "en_US_lessac")]
+    variant = get_learning_item_tts_variant(
+        1,
+        voice_id="en_US_lessac",
+        tts_model_key="internal-tts",
+        source_text="word-1",
+    )
+    assert variant is not None
+    assert len(message.voice_answers) == 2
+    assert message.voice_attempts[1] == "uploaded-voice-3"
+    assert get_cached_telegram_file_id(int(variant["asset_id"]), TELEGRAM_MEDIA_KIND_VOICE) == (
+        "uploaded-voice-3"
+    )
+
+
+def test_different_voice_ids_create_distinct_persisted_tts_variants(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(435, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+
+    class FakeCatalog:
+        def __init__(self) -> None:
+            self.next_voice_id = "en_US_lessac"
+
+        def resolve_voice_id(self, preferred_voice_id: str | None) -> str:
+            return self.next_voice_id
+
+    catalog = FakeCatalog()
+
+    class FakeClient:
+        def fetch_voices(self):
+            return catalog
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            return f"ogg-{voice_id}".encode("utf-8")
+
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
+    asyncio.run(learn(message))
+
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+    catalog.next_voice_id = "en_GB_alan"
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+
+    first_variant = get_learning_item_tts_variant(
+        1,
+        voice_id="en_US_lessac",
+        tts_model_key="internal-tts",
+        source_text="word-1",
+    )
+    second_variant = get_learning_item_tts_variant(
+        1,
+        voice_id="en_GB_alan",
+        tts_model_key="internal-tts",
+        source_text="word-1",
+    )
+    assert first_variant is not None
+    assert second_variant is not None
+    assert first_variant["asset_id"] != second_variant["asset_id"]
+
+
+def test_different_model_keys_create_distinct_persisted_tts_variants(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(436, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+
+    class FakeCatalog:
+        def resolve_voice_id(self, preferred_voice_id: str | None) -> str:
+            return "en_US_lessac"
+
+    class FakeClient:
+        def __init__(self, model_key: str) -> None:
+            self.model_key = model_key
+
+        def fetch_voices(self):
+            return FakeCatalog()
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            return f"{self.model_key}:{voice_id}".encode("utf-8")
+
+    clients = iter([FakeClient("internal-tts-v1"), FakeClient("internal-tts-v2")])
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: next(clients))
+    asyncio.run(learn(message))
+
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+
+    first_variant = get_learning_item_tts_variant(
+        1,
+        voice_id="en_US_lessac",
+        tts_model_key="internal-tts-v1",
+        source_text="word-1",
+    )
+    second_variant = get_learning_item_tts_variant(
+        1,
+        voice_id="en_US_lessac",
+        tts_model_key="internal-tts-v2",
+        source_text="word-1",
+    )
+    assert first_variant is not None
+    assert second_variant is not None
+    assert first_variant["asset_id"] != second_variant["asset_id"]
+
+
+def test_changed_source_text_creates_safe_tts_variant_miss(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(437, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+    synthesize_calls: list[str] = []
+
+    class FakeCatalog:
+        def resolve_voice_id(self, preferred_voice_id: str | None) -> str:
+            return "en_US_lessac"
+
+    class FakeClient:
+        def fetch_voices(self):
+            return FakeCatalog()
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            synthesize_calls.append(text)
+            return text.encode("utf-8")
+
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
+    asyncio.run(learn(message))
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+
+    with db.get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE lexemes
+            SET lemma = ?, updated_at = ?
+            WHERE id = 1
+            """,
+            ("word-1-new", db.utc_now()),
+        )
+
+    current_question = get_current_question(user.id)
+    assert current_question is not None
+    assert current_question["expected_answer"] == "word-1"
+
+    with db.get_connection() as connection:
+        connection.execute(
+            """
+            UPDATE training_sessions
+            SET status = ?, updated_at = ?
+            WHERE telegram_user_id = ?
+            """,
+            ("completed", db.utc_now(), user.id),
+        )
+
+    restart_message = FakeMessage(user)
+    asyncio.run(learn(restart_message))
+    restarted_question = get_current_question(user.id)
+    assert restarted_question is not None
+    assert restarted_question["expected_answer"] == "word-1-new"
+
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, restart_message)))
+
+    assert synthesize_calls == ["word-1", "word-1-new"]
+    old_variant = get_learning_item_tts_variant(
+        1,
+        voice_id="en_US_lessac",
+        tts_model_key="internal-tts",
+        source_text="word-1",
+    )
+    new_variant = get_learning_item_tts_variant(
+        1,
+        voice_id="en_US_lessac",
+        tts_model_key="internal-tts",
+        source_text="word-1-new",
+    )
+    assert old_variant is not None
+    assert new_variant is not None
+    assert old_variant["asset_id"] != new_variant["asset_id"]
+
+
+def test_stale_cached_tts_voice_file_id_falls_back_to_local_upload_and_refreshes_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(438, "Learner")
+    seed_learning_items(1, user=user)
+    first_message = FakeMessage(user)
+
+    class FakeCatalog:
+        def resolve_voice_id(self, preferred_voice_id: str | None) -> str:
+            return "en_US_lessac"
+
+    class FakeClient:
+        def fetch_voices(self):
+            return FakeCatalog()
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            return b"ogg-bytes"
+
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
+    asyncio.run(learn(first_message))
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, first_message)))
+
+    variant = get_learning_item_tts_variant(
+        1,
+        voice_id="en_US_lessac",
+        tts_model_key="internal-tts",
+        source_text="word-1",
+    )
+    assert variant is not None
+    asset_id = int(variant["asset_id"])
+    cache_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_VOICE, "stale-voice-file-id")
+
+    second_message = FakeMessage(user)
+    second_message.fail_voice_file_ids.add("stale-voice-file-id")
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, second_message)))
+
+    assert second_message.voice_attempts[0] == "stale-voice-file-id"
+    assert second_message.voice_answers[0]["voice"].filename.endswith(".ogg")
+    assert get_cached_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_VOICE) == "uploaded-voice-1"
 
 
 def test_next_training_question_deletes_previous_tts_voice_message(tmp_path: Path, monkeypatch) -> None:
@@ -717,6 +1002,60 @@ def test_telegram_photo_cache_table_stays_separate_from_assets_and_supports_futu
         ("audio", "audio-file-id"),
         ("photo", "photo-file-id"),
         ("voice", "voice-file-id"),
+    ]
+
+
+def test_tts_variant_table_stays_separate_from_learning_items_and_telegram_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_db(tmp_path)
+    user = make_user(439, "Learner")
+    seed_learning_items(1, user=user)
+    message = FakeMessage(user)
+
+    class FakeCatalog:
+        def resolve_voice_id(self, preferred_voice_id: str | None) -> str:
+            return "en_US_lessac"
+
+    class FakeClient:
+        model_key = "internal-tts-v1"
+
+        def fetch_voices(self):
+            return FakeCatalog()
+
+        def synthesize(self, *, text: str, voice_id: str) -> bytes:
+            return b"ogg-bytes"
+
+    monkeypatch.setattr("englishbot.training_handlers.is_tts_enabled", lambda: True)
+    monkeypatch.setattr("englishbot.training_handlers.build_tts_client", lambda: FakeClient())
+    asyncio.run(learn(message))
+    asyncio.run(play_training_tts(FakeCallback(user, TRAINING_LISTEN_CALLBACK, message)))
+
+    with sqlite3.connect(db.DB_PATH) as connection:
+        learning_item_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(learning_items)").fetchall()
+        }
+        variant_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(learning_item_tts_variants)"
+            ).fetchall()
+        }
+        variant_rows = connection.execute(
+            """
+            SELECT learning_item_id, voice_id, tts_model_key, source_text
+            FROM learning_item_tts_variants
+            """
+        ).fetchall()
+
+    assert "voice_asset_id" not in learning_item_columns
+    assert "telegram_file_id" not in learning_item_columns
+    assert {"learning_item_id", "asset_id", "voice_id", "tts_model_key", "source_text_hash"}.issubset(
+        variant_columns
+    )
+    assert [tuple(row) for row in variant_rows] == [
+        (1, "en_US_lessac", "internal-tts-v1", "word-1")
     ]
 
 

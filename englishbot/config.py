@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 
 DEFAULT_TTS_TIMEOUT_SECONDS = 5.0
+DEFAULT_TTS_MODEL_KEY = "internal-tts"
 
 
 def load_environment() -> None:
@@ -54,3 +55,13 @@ def get_tts_timeout_seconds() -> float:
     if timeout_seconds <= 0:
         return DEFAULT_TTS_TIMEOUT_SECONDS
     return timeout_seconds
+
+
+def get_tts_model_key() -> str:
+    raw_value = os.getenv("ENGLISHBOT_TTS_MODEL_KEY")
+    if raw_value is None:
+        return DEFAULT_TTS_MODEL_KEY
+    normalized = raw_value.strip()
+    if not normalized:
+        return DEFAULT_TTS_MODEL_KEY
+    return normalized

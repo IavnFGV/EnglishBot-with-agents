@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram.enums.content_type import ContentType
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message
 from aiogram_dialog import Dialog, DialogManager, ShowMode, StartMode, Window
 from aiogram_dialog.api.entities.media import MediaAttachment
 from aiogram_dialog.widgets.input import MessageInput
@@ -27,11 +27,12 @@ from .training_handlers import (
     delete_training_voice_message,
     edit_progress_message,
     ensure_training_progress_message,
+    play_current_question_tts,
     render_question_text,
     render_session_summary_text,
     resolve_question_photo_path,
 )
-from .tts import TTSClientError, TTSVoiceCatalog, build_tts_client, is_tts_enabled
+from .tts import TTSVoiceCatalog, build_tts_client, is_tts_enabled
 from .user_profiles import get_user_tts_voice_id, set_user_tts_voice_id
 
 
@@ -448,36 +449,7 @@ async def _listen_to_current_word(
     await callback.answer()
     if callback.from_user is None or callback.message is None:
         return
-    question = get_current_question(callback.from_user.id)
-    session = get_active_training_session(callback.from_user.id)
-    if question is None or session is None:
-        return
-    client = build_tts_client()
-    if client is None:
-        return
-    text_to_speak = str(question.get("expected_answer") or "").strip()
-    if not text_to_speak:
-        return
-    try:
-        catalog = client.fetch_voices()
-        voice_id = catalog.resolve_voice_id(get_user_tts_voice_id(callback.from_user.id))
-        audio_bytes = client.synthesize(text=text_to_speak, voice_id=voice_id)
-        await delete_training_voice_message(callback.message, session)
-        voice_message = await callback.message.answer_voice(
-            BufferedInputFile(audio_bytes, filename="tts.ogg"),
-        )
-        set_training_session_voice_message_id(
-            int(session["id"]),
-            getattr(voice_message, "message_id", None),
-        )
-    except TTSClientError:
-        await callback.message.answer(
-            translate_for_user(callback.from_user.id, "training.audio_unavailable")
-        )
-    except Exception:
-        await callback.message.answer(
-            translate_for_user(callback.from_user.id, "training.audio_unavailable")
-        )
+    await play_current_question_tts(callback.message, callback.from_user.id)
 
 
 async def _open_voice_picker(

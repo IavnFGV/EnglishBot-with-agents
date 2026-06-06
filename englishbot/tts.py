@@ -5,7 +5,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-from .config import get_tts_base_url, get_tts_timeout_seconds
+from .assets import create_learning_item_tts_variant, get_learning_item_tts_variant
+from .config import get_tts_base_url, get_tts_model_key, get_tts_timeout_seconds
 
 
 VOICE_DISPLAY_OVERRIDES: dict[str, tuple[str, str]] = {
@@ -94,6 +95,7 @@ class InternalTTSClient:
     def __init__(self, base_url: str, *, timeout_seconds: float) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+        self.model_key = get_tts_model_key()
 
     def fetch_voices(self) -> TTSVoiceCatalog:
         payload = self._request_json("/voices")
@@ -193,4 +195,35 @@ def build_tts_client() -> InternalTTSClient | None:
     return InternalTTSClient(
         base_url,
         timeout_seconds=get_tts_timeout_seconds(),
+    )
+
+
+def get_or_create_learning_item_tts_variant(
+    *,
+    client: InternalTTSClient,
+    learning_item_id: int,
+    text: str,
+    preferred_voice_id: str | None,
+):
+    normalized_text = str(text).strip()
+    if not normalized_text:
+        raise TTSValidationError("TTS text is empty.")
+    catalog = client.fetch_voices()
+    voice_id = catalog.resolve_voice_id(preferred_voice_id)
+    model_key = str(getattr(client, "model_key", "") or get_tts_model_key()).strip()
+    variant_row = get_learning_item_tts_variant(
+        learning_item_id,
+        voice_id=voice_id,
+        tts_model_key=model_key,
+        source_text=normalized_text,
+    )
+    if variant_row is not None:
+        return variant_row
+    audio_bytes = client.synthesize(text=normalized_text, voice_id=voice_id)
+    return create_learning_item_tts_variant(
+        learning_item_id,
+        voice_id=voice_id,
+        tts_model_key=model_key,
+        source_text=normalized_text,
+        audio_bytes=audio_bytes,
     )

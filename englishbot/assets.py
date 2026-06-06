@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 from io import BytesIO
+import re
 import shutil
 from pathlib import Path
 from urllib.parse import urlparse
@@ -42,6 +44,7 @@ IMPORTED_ASSET_SUBDIR_BY_TYPE = {
     ASSET_TYPE_VOICE: Path("assets/voice/imported"),
     ASSET_TYPE_VIDEO: Path("assets/video/imported"),
 }
+SYNTHESIZED_VOICE_SUBDIR = Path("assets/voice/synthesized")
 TELEGRAM_MEDIA_KIND_PHOTO = "photo"
 TELEGRAM_MEDIA_KIND_AUDIO = "audio"
 TELEGRAM_MEDIA_KIND_VOICE = "voice"
@@ -341,6 +344,185 @@ def delete_cached_telegram_file_id(asset_id: int, telegram_media_kind: str) -> N
             """,
             (asset_id, telegram_media_kind),
         )
+
+
+def get_learning_item_tts_variant(
+    learning_item_id: int,
+    *,
+    voice_id: str,
+    tts_model_key: str,
+    source_text: str,
+    connection=None,
+):
+    normalized_voice_id = str(voice_id).strip()
+    normalized_model_key = str(tts_model_key).strip()
+    normalized_source_text = str(source_text).strip()
+    if not normalized_voice_id:
+        raise ValueError("voice_id is required")
+    if not normalized_model_key:
+        raise ValueError("tts_model_key is required")
+    if not normalized_source_text:
+        raise ValueError("source_text is required")
+    source_text_hash = build_tts_source_text_hash(normalized_source_text)
+    owns_connection = connection is None
+    if connection is None:
+        connection = db.get_connection()
+    try:
+        variant_row = connection.execute(
+            """
+            SELECT
+                learning_item_tts_variants.id,
+                learning_item_tts_variants.learning_item_id,
+                learning_item_tts_variants.asset_id,
+                learning_item_tts_variants.voice_id,
+                learning_item_tts_variants.tts_model_key,
+                learning_item_tts_variants.source_text,
+                learning_item_tts_variants.source_text_hash,
+                learning_item_tts_variants.created_at,
+                learning_item_tts_variants.updated_at,
+                assets.asset_type,
+                assets.source_url,
+                assets.local_path,
+                assets.workbook_key
+            FROM learning_item_tts_variants
+            JOIN assets
+              ON assets.id = learning_item_tts_variants.asset_id
+            WHERE learning_item_tts_variants.learning_item_id = ?
+              AND learning_item_tts_variants.voice_id = ?
+              AND learning_item_tts_variants.tts_model_key = ?
+              AND learning_item_tts_variants.source_text_hash = ?
+            LIMIT 1
+            """,
+            (
+                learning_item_id,
+                normalized_voice_id,
+                normalized_model_key,
+                source_text_hash,
+            ),
+        ).fetchone()
+        if variant_row is None:
+            return None
+        local_path = str(variant_row["local_path"] or "").strip()
+        if not local_path:
+            _delete_learning_item_tts_variant(
+                connection,
+                variant_id=int(variant_row["id"]),
+                asset_id=int(variant_row["asset_id"]),
+            )
+            return None
+        resolved_path = resolve_runtime_asset_path(local_path)
+        if not resolved_path.is_file():
+            _delete_learning_item_tts_variant(
+                connection,
+                variant_id=int(variant_row["id"]),
+                asset_id=int(variant_row["asset_id"]),
+            )
+            return None
+        return variant_row
+    finally:
+        if owns_connection:
+            connection.close()
+
+
+def create_learning_item_tts_variant(
+    learning_item_id: int,
+    *,
+    voice_id: str,
+    tts_model_key: str,
+    source_text: str,
+    audio_bytes: bytes,
+):
+    normalized_voice_id = str(voice_id).strip()
+    normalized_model_key = str(tts_model_key).strip()
+    normalized_source_text = str(source_text).strip()
+    if not normalized_voice_id:
+        raise ValueError("voice_id is required")
+    if not normalized_model_key:
+        raise ValueError("tts_model_key is required")
+    if not normalized_source_text:
+        raise ValueError("source_text is required")
+    if not audio_bytes:
+        raise ValueError("audio_bytes is required")
+
+    source_text_hash = build_tts_source_text_hash(normalized_source_text)
+    existing_variant = get_learning_item_tts_variant(
+        learning_item_id,
+        voice_id=normalized_voice_id,
+        tts_model_key=normalized_model_key,
+        source_text=normalized_source_text,
+    )
+    if existing_variant is not None:
+        return existing_variant
+
+    relative_path = _build_tts_variant_relative_path(
+        learning_item_id=learning_item_id,
+        voice_id=normalized_voice_id,
+        tts_model_key=normalized_model_key,
+        source_text_hash=source_text_hash,
+    )
+    output_path = resolve_runtime_asset_path(relative_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(audio_bytes)
+
+    asset_id: int | None = None
+    try:
+        asset_id = create_asset(ASSET_TYPE_VOICE, local_path=relative_path)
+        timestamp = db.utc_now()
+        with db.get_connection() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO learning_item_tts_variants (
+                    learning_item_id,
+                    asset_id,
+                    voice_id,
+                    tts_model_key,
+                    source_text,
+                    source_text_hash,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    learning_item_id,
+                    asset_id,
+                    normalized_voice_id,
+                    normalized_model_key,
+                    normalized_source_text,
+                    source_text_hash,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            variant_id = int(cursor.lastrowid)
+        variant_row = get_learning_item_tts_variant(
+            learning_item_id,
+            voice_id=normalized_voice_id,
+            tts_model_key=normalized_model_key,
+            source_text=normalized_source_text,
+        )
+        if variant_row is None:
+            raise ValueError("created TTS variant could not be reloaded")
+        return variant_row
+    except Exception:
+        output_path.unlink(missing_ok=True)
+        if asset_id is not None:
+            with db.get_connection() as connection:
+                connection.execute(
+                    """
+                    DELETE FROM assets
+                    WHERE id = ?
+                    """,
+                    (asset_id,),
+                )
+        raise
+
+
+def build_tts_source_text_hash(source_text: str) -> str:
+    normalized_source_text = str(source_text).strip()
+    if not normalized_source_text:
+        raise ValueError("source_text is required")
+    return hashlib.sha256(normalized_source_text.encode("utf-8")).hexdigest()
 
 
 def resolve_asset_ref_for_role(
@@ -672,6 +854,17 @@ def resolve_runtime_asset_path(asset_path: str | Path) -> Path:
 
 def _delete_orphaned_assets(connection, asset_ids: list[int]) -> None:
     for asset_id in asset_ids:
+        tts_variant_linked = connection.execute(
+            """
+            SELECT 1
+            FROM learning_item_tts_variants
+            WHERE asset_id = ?
+            LIMIT 1
+            """,
+            (asset_id,),
+        ).fetchone()
+        if tts_variant_linked is not None:
+            continue
         linked = connection.execute(
             """
             SELECT 1
@@ -729,6 +922,40 @@ def _build_asset_transport_fingerprint(asset_row) -> str:
     if source_url:
         return f"{asset_type}|source_url|{source_url}"
     return f"{asset_type}|asset_id|{int(asset_row['id'])}"
+
+
+def _delete_learning_item_tts_variant(connection, *, variant_id: int, asset_id: int) -> None:
+    connection.execute(
+        """
+        DELETE FROM learning_item_tts_variants
+        WHERE id = ?
+        """,
+        (variant_id,),
+    )
+    _delete_orphaned_assets(connection, [asset_id])
+
+
+def _build_tts_variant_relative_path(
+    *,
+    learning_item_id: int,
+    voice_id: str,
+    tts_model_key: str,
+    source_text_hash: str,
+) -> str:
+    voice_slug = _slugify_tts_identity_part(voice_id)
+    model_slug = _slugify_tts_identity_part(tts_model_key)
+    hash_prefix = source_text_hash[:16]
+    relative_path = (
+        SYNTHESIZED_VOICE_SUBDIR
+        / f"item-{int(learning_item_id)}"
+        / f"item-{int(learning_item_id)}__{voice_slug}__{model_slug}__{hash_prefix}.ogg"
+    )
+    return str(relative_path.as_posix())
+
+
+def _slugify_tts_identity_part(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(value).strip().lower()).strip("-")
+    return normalized or "default"
 
 
 def _build_asset_replacement_link(

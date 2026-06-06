@@ -99,9 +99,13 @@ def test_init_db_creates_training_tables_with_staged_columns(tmp_path: Path) -> 
         training_session_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(training_sessions)")
         }
+        tts_variant_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(learning_item_tts_variants)")
+        }
 
     assert "training_sessions" in table_names
     assert "training_session_items" in table_names
+    assert "learning_item_tts_variants" in table_names
     assert {
         "progress_message_id",
         "current_question_message_id",
@@ -121,6 +125,14 @@ def test_init_db_creates_training_tables_with_staged_columns(tmp_path: Path) -> 
         "answer_state",
         "is_completed",
     }.issubset(training_item_columns)
+    assert {
+        "learning_item_id",
+        "asset_id",
+        "voice_id",
+        "tts_model_key",
+        "source_text",
+        "source_text_hash",
+    }.issubset(tts_variant_columns)
 
 
 def test_new_sessions_initialize_easy_stage_and_zero_counters(tmp_path: Path) -> None:

@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import (
-    BufferedInputFile,
     CallbackQuery,
     FSInputFile,
     InlineKeyboardButton,
@@ -18,9 +17,11 @@ from aiogram_dialog import DialogManager
 
 from .assets import (
     TELEGRAM_MEDIA_KIND_PHOTO,
+    TELEGRAM_MEDIA_KIND_VOICE,
     cache_telegram_file_id,
     delete_cached_telegram_file_id,
     get_cached_telegram_file_id,
+    resolve_runtime_asset_path,
 )
 from .command_registry import LEARN_COMMAND
 from .db import save_user
@@ -31,7 +32,8 @@ from .homework import (
 from .i18n import translate_for_user
 from .homework_progress_image import render_homework_progress_image
 from .runtime import router
-from .tts import TTSClientError, build_tts_client, is_tts_enabled
+from .tts import TTSClientError, build_tts_client, get_or_create_learning_item_tts_variant, is_tts_enabled
+from .user_profiles import get_user_tts_voice_id
 from .training import (
     NoLearningItemsError,
     append_medium_answer_letter,
@@ -152,6 +154,88 @@ async def _send_question_photo(
         if uploaded_file_id is not None:
             cache_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_PHOTO, uploaded_file_id)
     return sent_message
+
+
+async def _send_tts_voice_message(
+    message: Message,
+    *,
+    asset_id: int,
+    voice_path: Path,
+):
+    cached_file_id = get_cached_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_VOICE)
+    if cached_file_id is not None:
+        try:
+            return await message.answer_voice(cached_file_id)
+        except Exception as exc:
+            if _is_invalid_telegram_file_id_error(exc):
+                logger.warning(
+                    "Cached Telegram voice file_id failed for asset %s; retrying upload: %s",
+                    asset_id,
+                    exc,
+                )
+                delete_cached_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_VOICE)
+            else:
+                raise
+
+    sent_message = await message.answer_voice(
+        FSInputFile(voice_path, filename=voice_path.name),
+    )
+    sent_voice = getattr(sent_message, "voice", None)
+    file_id = getattr(sent_voice, "file_id", None)
+    if isinstance(file_id, str) and file_id.strip():
+        cache_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_VOICE, file_id)
+    return sent_message
+
+
+async def play_current_question_tts(message: Message, telegram_user_id: int) -> bool:
+    question = get_current_question(telegram_user_id)
+    session = get_active_training_session(telegram_user_id)
+    if question is None or session is None:
+        return False
+
+    client = build_tts_client()
+    if client is None:
+        return False
+
+    text_to_speak = str(question.get("expected_answer") or "").strip()
+    learning_item_id = question.get("learning_item_id")
+    if not text_to_speak or not isinstance(learning_item_id, int):
+        return False
+
+    try:
+        variant_row = get_or_create_learning_item_tts_variant(
+            client=client,
+            learning_item_id=learning_item_id,
+            text=text_to_speak,
+            preferred_voice_id=get_user_tts_voice_id(telegram_user_id),
+        )
+        await delete_training_voice_message(message, session)
+        voice_message = await _send_tts_voice_message(
+            message,
+            asset_id=int(variant_row["asset_id"]),
+            voice_path=resolve_runtime_asset_path(str(variant_row["local_path"])),
+        )
+        set_training_session_voice_message_id(
+            int(session["id"]),
+            getattr(voice_message, "message_id", None),
+        )
+        return True
+    except TTSClientError as exc:
+        logger.warning(
+            "Could not synthesize training audio for user %s: %s",
+            telegram_user_id,
+            exc,
+        )
+    except Exception:
+        logger.exception(
+            "Could not deliver training audio for user %s",
+            telegram_user_id,
+        )
+
+    await message.answer(
+        translate_for_user(telegram_user_id, "training.audio_unavailable")
+    )
+    return False
 
 
 async def _edit_question_photo_in_place(
@@ -1114,47 +1198,4 @@ async def play_training_tts(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.from_user is None or callback.message is None:
         return
-    question = get_current_question(callback.from_user.id)
-    session = get_active_training_session(callback.from_user.id)
-    if question is None or session is None:
-        return
-
-    client = build_tts_client()
-    if client is None:
-        return
-
-    text_to_speak = str(question.get("expected_answer") or "").strip()
-    if not text_to_speak:
-        return
-
-    try:
-        from .user_profiles import get_user_tts_voice_id
-
-        catalog = client.fetch_voices()
-        voice_id = catalog.resolve_voice_id(get_user_tts_voice_id(callback.from_user.id))
-        audio_bytes = client.synthesize(text=text_to_speak, voice_id=voice_id)
-        await delete_training_voice_message(callback.message, session)
-        voice_message = await callback.message.answer_voice(
-            BufferedInputFile(audio_bytes, filename="tts.ogg")
-        )
-        set_training_session_voice_message_id(
-            int(session["id"]),
-            getattr(voice_message, "message_id", None),
-        )
-    except TTSClientError as exc:
-        logger.warning(
-            "Could not synthesize training audio for user %s: %s",
-            callback.from_user.id,
-            exc,
-        )
-        await callback.message.answer(
-            translate_for_user(callback.from_user.id, "training.audio_unavailable")
-        )
-    except Exception:
-        logger.exception(
-            "Could not deliver training audio for user %s",
-            callback.from_user.id,
-        )
-        await callback.message.answer(
-            translate_for_user(callback.from_user.id, "training.audio_unavailable")
-        )
+    await play_current_question_tts(callback.message, callback.from_user.id)

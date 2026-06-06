@@ -29,6 +29,7 @@
 - `topics` group learning items.
 - The new family-first persistence slice also supports family-owned `learning_items` and `topics`, plus dedicated family membership, personal progress, and family homework tables; active learner flows now read that family-owned content directly.
 - `assets` plus `learning_item_assets` store media metadata.
+- `learning_item_tts_variants` stores persistent synthesized learner-audio variants per `learning_item`, keyed by composed runtime identity such as `voice_id`, `tts_model_key`, and source-text hash, while the linked local `assets` row remains the runtime file truth.
 - Telegram transport reuse is a separate cache layer: asset-linked `file_id`s live outside the core asset tables and do not replace local runtime media.
 - The active schema is family-first: content, homework, and progress no longer depend on `workspaces`, `workspace_members`, or starter-content bootstrap tables.
 
@@ -53,7 +54,7 @@
 - Schema bootstrap and migrations live in `db.py`.
 - The repository uses SQLite through stdlib `sqlite3`.
 - Sessions, homework, topic access, and content all persist in SQLite.
-- Telegram media `file_id`s persist in a separate cache table keyed by `asset_id` plus media kind, so transport reuse stays outside the main learning and asset truth model.
+- Telegram media `file_id`s persist in a separate cache table keyed by `asset_id` plus media kind, so transport reuse stays outside the main learning and asset truth model, including persisted synthesized TTS variants.
 - Bulk edit sessions also persist in SQLite so the bot can enforce one active workbook session globally and recover gating state after restart.
 - The active family-first schema no longer bootstraps `workspaces`, `workspace_members`, `invites`, `student_topic_access`, `assignments`, or `assignment_items`.
 - Workbook files and Telegram message state are integration surfaces, not primary storage; family workbook apply is backup-first, remote assets are prepared outside the DB write transaction into local staged files, the DB apply remains atomic and short, and missing workbook rows archive family content instead of hard-deleting it.

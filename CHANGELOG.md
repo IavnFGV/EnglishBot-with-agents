@@ -1,6 +1,8 @@
 # Changelog
 
 ## 2026-06-06
+- Added persistent learner TTS storage variants on top of the live internal service path: one `learning_item` can now keep multiple local synthesized `voice` assets distinguished by `learning_item + voice_id + tts_model_key + source_text_hash`, the first `Listen` generates and stores the exact variant on demand, later listens reuse that local file, and Telegram `voice` `file_id`s remain only a separate cache layer above the persisted asset.
+- Extended the optional TTS config with `ENGLISHBOT_TTS_MODEL_KEY`, so operators can bump the persisted variant identity when the backing TTS engine/model changes without pretending old audio is still current.
 - Moved the active learner quiz UI onto `aiogram-dialog`: `/learn` now starts the quiz through a dedicated learner dialog, homework launches reuse that same dialog shell, and the shared learner control block now exposes inline `Listen` plus per-word `Voice` switching on the current card.
 - Kept learner TTS fail-closed through the dialog migration: selecting a voice inside the quiz persists `user_profiles.tts_voice_id`, the next `Listen` uses that new voice immediately, and stale pronunciation `voice` messages are still deleted automatically when the learner advances or finishes.
 - Made the active learner-facing buttons friendlier for kids: the current training and homework actions now use playful emoji labels such as `🔊 Listen`, `🎤 Voice`, `🚀 Start`, and `🌟 Continue` through shared i18n keys instead of hardcoded text.

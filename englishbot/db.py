@@ -165,6 +165,41 @@ def _ensure_assets_schema(
         ON telegram_asset_file_cache (telegram_media_kind)
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS learning_item_tts_variants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            learning_item_id INTEGER NOT NULL,
+            asset_id INTEGER NOT NULL,
+            voice_id TEXT NOT NULL,
+            tts_model_key TEXT NOT NULL,
+            source_text TEXT NOT NULL,
+            source_text_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (learning_item_id) REFERENCES learning_items (id) ON DELETE CASCADE,
+            FOREIGN KEY (asset_id) REFERENCES assets (id) ON DELETE CASCADE,
+            UNIQUE (
+                learning_item_id,
+                voice_id,
+                tts_model_key,
+                source_text_hash
+            )
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_learning_item_tts_variants_learning_item
+        ON learning_item_tts_variants (learning_item_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_learning_item_tts_variants_asset
+        ON learning_item_tts_variants (asset_id)
+        """
+    )
 
 
 def _collect_legacy_learning_item_assets(
