@@ -6,6 +6,7 @@ from inspect import signature
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+from urllib.parse import unquote
 
 from openpyxl import load_workbook
 
@@ -21,6 +22,7 @@ from .assets import (
     store_workbook_import_asset,
 )
 from .bulk_edit import create_bulk_edit_backup
+from .config import get_infra_static_base_url
 from .db import get_connection, utc_now
 from .workbook_export import LEARNING_ITEMS_SHEET, LEARNING_ITEM_COLUMNS, META_SHEET
 
@@ -416,6 +418,9 @@ def _prepare_asset_ref(
     normalized_ref = asset_ref.strip()
     if not normalized_ref:
         return None
+    public_local_path = _map_public_asset_url_to_local_path(normalized_ref)
+    if public_local_path is not None:
+        return PreparedAssetRef(source_url=None, local_path=public_local_path)
     if not normalized_ref.startswith(("http://", "https://")):
         return PreparedAssetRef(source_url=None, local_path=normalized_ref)
 
@@ -437,6 +442,22 @@ def _prepare_asset_ref(
         local_path=local_path,
         staged_local_path=local_path,
     )
+
+
+def _map_public_asset_url_to_local_path(asset_ref: str) -> str | None:
+    static_base_url = get_infra_static_base_url()
+    if static_base_url is None:
+        return None
+
+    normalized_ref = asset_ref.strip().rstrip("/")
+    base_prefix = f"{static_base_url}/"
+    if not normalized_ref.startswith(base_prefix):
+        return None
+
+    relative_path = unquote(normalized_ref.removeprefix(base_prefix)).strip("/")
+    if not relative_path:
+        return None
+    return f"assets/{relative_path}"
 
 
 def _upsert_learning_item(

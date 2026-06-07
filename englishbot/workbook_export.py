@@ -53,11 +53,14 @@ def export_family_workbook(family_id: int, *, output_path: Path | None = None) -
 
     topic_titles_by_item_id, topic_count = _load_topic_titles_by_item_id(family_id)
     for row in _list_family_learning_item_rows(family_id):
-        image_ref = str(row["image_ref"] or "")
-        image_formula = _build_image_formula(
-            image_ref=image_ref,
+        image_ref = _build_export_image_ref(
+            image_ref=str(row["image_ref"] or ""),
             image_source_url=str(row["image_source_url"] or ""),
             static_base_url=static_base_url,
+        )
+        image_formula = _build_image_formula(
+            image_ref=image_ref,
+            row_number=learning_items_sheet.max_row + 1,
         )
         learning_items_sheet.append(
             (
@@ -178,16 +181,18 @@ def _load_topic_titles_by_item_id(family_id: int) -> tuple[dict[int, list[str]],
     return topic_titles_by_item_id, topic_count
 
 
-def _build_image_formula(*, image_ref: str, image_source_url: str, static_base_url: str | None) -> str:
-    formula_ref = (
+def _build_export_image_ref(*, image_ref: str, image_source_url: str, static_base_url: str | None) -> str:
+    return (
         _build_public_image_url(image_ref=image_ref, static_base_url=static_base_url)
         or image_source_url.strip()
         or image_ref.strip()
     )
-    if not formula_ref.startswith(("http://", "https://")):
+
+
+def _build_image_formula(*, image_ref: str, row_number: int) -> str:
+    if not image_ref.startswith(("http://", "https://")):
         return ""
-    escaped = formula_ref.replace('"', '""')
-    return f'=IMAGE("{escaped}")'
+    return f"=IMAGE(G{row_number})"
 
 
 def _build_public_image_url(*, image_ref: str, static_base_url: str | None) -> str | None:

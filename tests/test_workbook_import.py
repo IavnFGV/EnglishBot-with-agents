@@ -200,6 +200,27 @@ def test_import_reports_row_level_progress(tmp_path: Path, monkeypatch) -> None:
     ]
 
 
+def test_import_accepts_exported_public_static_asset_urls_without_network(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv(
+        "INFRA_STATIC_BASE_URL",
+        "https://englishbot-178-104-84-123.nip.io/static/hwgpLEf0YVr_FyXgh2ZFSyj-EMwN6IQ8m2leJ6XRS1k",
+    )
+    family_id = setup_db(tmp_path, monkeypatch)
+    first_item_id, second_item_id = seed_family_content(family_id)
+    workbook_path = export_family_workbook(family_id, output_path=tmp_path / "family-static-roundtrip.xlsx").file_path
+
+    def fail_network(*args, **kwargs):
+        raise AssertionError("network should not be used for exported static asset URLs")
+
+    monkeypatch.setattr("englishbot.workbook_import.download_remote_asset_content", fail_network)
+
+    summary = apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
+
+    assert summary.unchanged == 2
+    assert resolve_asset_ref_for_role(first_item_id, PRIMARY_IMAGE_ROLE) == "assets/images/apple.jpg"
+    assert get_learning_item(second_item_id)["text"] == "pear"
+
+
 def test_backup_failure_prevents_any_import_work_from_starting(tmp_path: Path, monkeypatch) -> None:
     family_id = setup_db(tmp_path, monkeypatch)
     first_item_id, _ = seed_family_content(family_id)

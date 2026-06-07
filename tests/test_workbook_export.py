@@ -58,8 +58,8 @@ def test_export_creates_valid_xlsx_with_display_only_image_formula(
         "audio_ref",
         "is_archived",
     ]
-    assert sheet["G2"].value == "assets/images/apple.jpg"
-    assert sheet["H2"].value == '=IMAGE("https://example.com/apple.jpg")'
+    assert sheet["G2"].value == "https://example.com/apple.jpg"
+    assert sheet["H2"].value == "=IMAGE(G2)"
 
 
 def test_export_uses_public_static_url_for_local_image_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -84,8 +84,8 @@ def test_export_uses_public_static_url_for_local_image_refs(tmp_path: Path, monk
     workbook = load_workbook(result.file_path, data_only=False)
     sheet = workbook["learning_items"]
 
-    assert sheet["G2"].value == "assets/images/apple.jpg"
-    assert sheet["H2"].value == (
-        '=IMAGE("https://englishbot-178-104-84-123.nip.io/static/'
-        'hwgpLEf0YVr_FyXgh2ZFSyj-EMwN6IQ8m2leJ6XRS1k/images/apple.jpg")'
+    assert sheet["G2"].value == (
+        "https://englishbot-178-104-84-123.nip.io/static/"
+        "hwgpLEf0YVr_FyXgh2ZFSyj-EMwN6IQ8m2leJ6XRS1k/images/apple.jpg"
     )
+    assert sheet["H2"].value == "=IMAGE(G2)"
