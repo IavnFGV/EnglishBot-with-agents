@@ -12,6 +12,7 @@ from englishbot import db
 from englishbot.bulk_edit import get_active_bulk_edit_session
 from englishbot.bulk_edit_handlers import handle_bulk_edit_callback, start_bulk_edit, upload_bulk_edit_workbook
 from englishbot.families import create_family, create_family_learning_item
+from englishbot.user_profiles import set_user_language
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme, list_learning_items
 from englishbot.workbook_import import WorkbookImportProgress, WorkbookImportRow
 
@@ -141,6 +142,23 @@ def test_control_message_is_reused_instead_of_spamming_new_messages(tmp_path: Pa
 
     assert len(start_message.answers) == 2
     assert bot.edits[-1]["text"] == "Workbook file received. Review it if needed, then apply it or cancel the session."
+
+
+def test_bulk_edit_start_and_active_session_messages_follow_user_language(tmp_path: Path, monkeypatch) -> None:
+    owner = setup_db(tmp_path, monkeypatch)
+    set_user_language(owner.id, "ru")
+    start_message = FakeMessage(owner)
+
+    asyncio.run(start_bulk_edit(start_message))
+
+    assert start_message.answers[0]["text"].startswith("Сессия bulk edit для вашей семьи начата.")
+    assert start_message.documents[0]["kwargs"]["caption"].startswith("Workbook экспортирован.")
+    assert start_message.answers[1]["text"].startswith("Отредактируйте workbook и отправьте обновлённый .xlsx сюда.")
+
+    followup_message = FakeMessage(owner)
+    asyncio.run(start_bulk_edit(followup_message))
+
+    assert followup_message.answers[0]["text"].startswith("Ваша сессия bulk edit всё ещё активна.")
 
 
 def test_apply_shows_progress_status_before_completion(tmp_path: Path, monkeypatch) -> None:

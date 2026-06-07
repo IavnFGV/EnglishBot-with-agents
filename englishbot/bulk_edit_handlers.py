@@ -87,7 +87,7 @@ async def start_bulk_edit_flow(message: Message, *, actor_user: User | None) -> 
                 actor_user.id,
                 "bulk_edit.session.already_active",
             ),
-            reply_markup=_build_controls_markup(active_session),
+            reply_markup=_build_controls_markup(active_session, actor_user_id=actor_user.id),
         )
         return
 
@@ -339,13 +339,13 @@ async def handle_bulk_edit_callback(callback: CallbackQuery) -> None:
         )
 
 
-def _build_controls_markup(session) -> InlineKeyboardMarkup:
+def _build_controls_markup(session, *, actor_user_id: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if str(session["status"]) == "uploaded":
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="Apply",
+                    text=translate_for_user(actor_user_id, "bulk_edit.action.apply"),
                     callback_data=f"{BULK_EDIT_CALLBACK_PREFIX}apply",
                 )
             ]
@@ -353,11 +353,11 @@ def _build_controls_markup(session) -> InlineKeyboardMarkup:
     rows.append(
         [
             InlineKeyboardButton(
-                text="Extend 30m",
+                text=translate_for_user(actor_user_id, "bulk_edit.action.extend"),
                 callback_data=f"{BULK_EDIT_CALLBACK_PREFIX}extend",
             ),
             InlineKeyboardButton(
-                text="Cancel",
+                text=translate_for_user(actor_user_id, "bulk_edit.action.cancel"),
                 callback_data=f"{BULK_EDIT_CALLBACK_PREFIX}cancel",
             ),
         ]
@@ -377,7 +377,7 @@ async def _upsert_control_message(
     if source_message is None:
         return
     text = translate_for_user(actor_user_id, text_key, **params)
-    reply_markup = _build_controls_markup(session) if include_controls else None
+    reply_markup = _build_controls_markup(session, actor_user_id=actor_user_id) if include_controls else None
     chat_id, message_id = get_bulk_edit_control_message_target(session)
     if (
         source_message.bot is not None

@@ -57,6 +57,7 @@
 - On deployed servers, workbook export now prefers the current `INFRA_STATIC_BASE_URL` when projecting those workbook image URLs from local runtime assets under `/app/assets`, while the original asset `source_url` remains only traceability metadata in SQLite.
 - The matching workbook import path now recognizes those exported static URLs as local runtime assets and maps them back to `assets/...` refs without network download, so normal export/edit/import round trips remain stable.
 - Exported family workbooks now also pre-size the image preview layout: the `image` column is widened and data rows are taller so spreadsheet image previews are easier to inspect without manual resizing first.
+- The active family bulk-edit Telegram UI now respects `user_profiles.bot_language` end to end for its session warnings, upload/apply instructions, progress labels, completion/failure summaries, and action buttons instead of leaving that slice in English.
 - A guarded emergency backup-restore helper now exists for family bulk-edit incidents, but it is not part of the normal happy path; the intended flow remains validate, backup, prepare, then short atomic apply.
 - The assignment topic picker now exposes dialog-compatible topic ids again, so `/create_assignment` no longer crashes on the topic-selection screen with `KeyError: 'id'` during `aiogram-dialog` select rendering.
 - The teacher content and assignment flows no longer need starter-content bootstrap or virtual offset ids to reach family data; the focused dialog and handler tests now seed family content directly.

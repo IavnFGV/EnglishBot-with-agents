@@ -7,6 +7,7 @@
 - Adjusted the exported workbook image columns for editor convenience: `image_ref` now exports the ready-to-open public image URL when one is available, and the display-only `image` column now uses a row-local spreadsheet formula like `=IMAGE(G2)` instead of embedding the URL inline.
 - Family workbook import now recognizes those exported public static asset URLs as its own local runtime assets and maps them back to `assets/...` paths without re-downloading them, so export-then-import round trips stay offline and stable.
 - Family workbook export now also pre-sizes the spreadsheet image preview area for easier editing: the `image` column is wider and exported data rows use a taller height so Google Sheets/Excel previews are large enough to review without manual resizing.
+- Localized the active family bulk-edit UI properly through bot language settings: session warnings, upload/apply instructions, progress phases, completion/failure messages, and bulk-edit action buttons now respect the user's selected bot language instead of falling back to English.
 
 ## 2026-06-06
 - Restored homework-entry compatibility after the learner-TTS UI refresh: the homework open button is plain-text again instead of emoji-prefixed, and `homework_handlers.start_homework(...)` now still supports the older direct-callback path without a dialog manager by falling back to the existing non-dialog training renderer.
