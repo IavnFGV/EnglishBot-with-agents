@@ -14,6 +14,10 @@ from .db import get_connection, utc_now
 WORKBOOK_VERSION = "family_bulk_edit_v1"
 META_SHEET = "meta"
 LEARNING_ITEMS_SHEET = "learning_items"
+IMAGE_REF_COLUMN_LETTER = "G"
+IMAGE_COLUMN_LETTER = "H"
+IMAGE_COLUMN_WIDTH = 36
+LEARNING_ITEM_ROW_HEIGHT_POINTS = 192
 LEARNING_ITEM_COLUMNS = (
     "item_key",
     "text",
@@ -50,9 +54,11 @@ def export_family_workbook(family_id: int, *, output_path: Path | None = None) -
 
     learning_items_sheet = workbook.create_sheet(LEARNING_ITEMS_SHEET)
     learning_items_sheet.append(LEARNING_ITEM_COLUMNS)
+    learning_items_sheet.column_dimensions[IMAGE_COLUMN_LETTER].width = IMAGE_COLUMN_WIDTH
 
     topic_titles_by_item_id, topic_count = _load_topic_titles_by_item_id(family_id)
     for row in _list_family_learning_item_rows(family_id):
+        row_number = learning_items_sheet.max_row + 1
         image_ref = _build_export_image_ref(
             image_ref=str(row["image_ref"] or ""),
             image_source_url=str(row["image_source_url"] or ""),
@@ -60,7 +66,7 @@ def export_family_workbook(family_id: int, *, output_path: Path | None = None) -
         )
         image_formula = _build_image_formula(
             image_ref=image_ref,
-            row_number=learning_items_sheet.max_row + 1,
+            row_number=row_number,
         )
         learning_items_sheet.append(
             (
@@ -76,6 +82,7 @@ def export_family_workbook(family_id: int, *, output_path: Path | None = None) -
                 int(row["is_archived"]),
             )
         )
+        learning_items_sheet.row_dimensions[row_number].height = LEARNING_ITEM_ROW_HEIGHT_POINTS
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(output_path)
@@ -192,7 +199,7 @@ def _build_export_image_ref(*, image_ref: str, image_source_url: str, static_bas
 def _build_image_formula(*, image_ref: str, row_number: int) -> str:
     if not image_ref.startswith(("http://", "https://")):
         return ""
-    return f"=IMAGE(G{row_number})"
+    return f"=IMAGE({IMAGE_REF_COLUMN_LETTER}{row_number})"
 
 
 def _build_public_image_url(*, image_ref: str, static_base_url: str | None) -> str | None:

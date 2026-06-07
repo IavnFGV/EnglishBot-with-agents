@@ -9,7 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from englishbot import db
 from englishbot.assets import ASSET_TYPE_IMAGE, PRIMARY_IMAGE_ROLE, create_asset, link_asset_to_learning_item
 from englishbot.families import create_family, create_family_learning_item, create_family_topic, replace_topic_items
-from englishbot.workbook_export import export_family_workbook
+from englishbot.workbook_export import (
+    IMAGE_COLUMN_LETTER,
+    IMAGE_COLUMN_WIDTH,
+    LEARNING_ITEM_ROW_HEIGHT_POINTS,
+    export_family_workbook,
+)
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme
 
 
@@ -60,6 +65,8 @@ def test_export_creates_valid_xlsx_with_display_only_image_formula(
     ]
     assert sheet["G2"].value == "https://example.com/apple.jpg"
     assert sheet["H2"].value == "=IMAGE(G2)"
+    assert sheet.column_dimensions[IMAGE_COLUMN_LETTER].width == IMAGE_COLUMN_WIDTH
+    assert sheet.row_dimensions[2].height == LEARNING_ITEM_ROW_HEIGHT_POINTS
 
 
 def test_export_uses_public_static_url_for_local_image_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -89,3 +96,5 @@ def test_export_uses_public_static_url_for_local_image_refs(tmp_path: Path, monk
         "hwgpLEf0YVr_FyXgh2ZFSyj-EMwN6IQ8m2leJ6XRS1k/images/apple.jpg"
     )
     assert sheet["H2"].value == "=IMAGE(G2)"
+    assert sheet.column_dimensions[IMAGE_COLUMN_LETTER].width == IMAGE_COLUMN_WIDTH
+    assert sheet.row_dimensions[2].height == LEARNING_ITEM_ROW_HEIGHT_POINTS
