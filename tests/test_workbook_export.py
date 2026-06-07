@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 from openpyxl import load_workbook
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -55,3 +56,32 @@ def test_export_creates_valid_xlsx_with_display_only_image_formula(tmp_path: Pat
     ]
     assert sheet["G2"].value == "assets/images/apple.jpg"
     assert sheet["H2"].value == '=IMAGE("https://example.com/apple.jpg")'
+
+
+def test_export_uses_public_static_url_for_local_image_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "INFRA_STATIC_BASE_URL",
+        "https://englishbot-178-104-84-123.nip.io/static/hwgpLEf0YVr_FyXgh2ZFSyj-EMwN6IQ8m2leJ6XRS1k",
+    )
+    setup_db(tmp_path)
+    owner = type("User", (), {"id": 1302, "username": "owner", "first_name": "Owner", "last_name": None})()
+    db.save_user(owner)
+    family = create_family("Home", owner.id)
+    family_id = int(family["id"])
+    item_id = create_family_learning_item(family_id, create_lexeme("apple"), "apple")
+    asset_id = create_asset(
+        ASSET_TYPE_IMAGE,
+        source_url="https://example.com/apple.jpg",
+        local_path="assets/images/apple.jpg",
+    )
+    link_asset_to_learning_item(item_id, asset_id, PRIMARY_IMAGE_ROLE)
+
+    result = export_family_workbook(family_id, output_path=tmp_path / "family.xlsx")
+    workbook = load_workbook(result.file_path, data_only=False)
+    sheet = workbook["learning_items"]
+
+    assert sheet["G2"].value == "assets/images/apple.jpg"
+    assert sheet["H2"].value == (
+        '=IMAGE("https://englishbot-178-104-84-123.nip.io/static/'
+        'hwgpLEf0YVr_FyXgh2ZFSyj-EMwN6IQ8m2leJ6XRS1k/images/apple.jpg")'
+    )

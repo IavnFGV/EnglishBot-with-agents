@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 from openpyxl import Workbook
 
 from .assets import PRIMARY_AUDIO_ROLE, PRIMARY_IMAGE_ROLE
 from .bulk_edit import get_bulk_edit_export_dir
+from .config import get_infra_static_base_url
 from .db import get_connection, utc_now
 
 WORKBOOK_VERSION = "family_bulk_edit_v1"
@@ -37,6 +39,7 @@ def export_family_workbook(family_id: int, *, output_path: Path | None = None) -
     if output_path is None:
         output_path = get_bulk_edit_export_dir() / f"family-{family_id}__{utc_now().replace(':', '-')}.xlsx"
 
+    static_base_url = get_infra_static_base_url()
     workbook = Workbook()
     meta_sheet = workbook.active
     meta_sheet.title = META_SHEET
@@ -54,6 +57,7 @@ def export_family_workbook(family_id: int, *, output_path: Path | None = None) -
         image_formula = _build_image_formula(
             image_ref=image_ref,
             image_source_url=str(row["image_source_url"] or ""),
+            static_base_url=static_base_url,
         )
         learning_items_sheet.append(
             (
@@ -174,9 +178,34 @@ def _load_topic_titles_by_item_id(family_id: int) -> tuple[dict[int, list[str]],
     return topic_titles_by_item_id, topic_count
 
 
-def _build_image_formula(*, image_ref: str, image_source_url: str) -> str:
-    formula_ref = image_source_url.strip() or image_ref.strip()
+def _build_image_formula(*, image_ref: str, image_source_url: str, static_base_url: str | None) -> str:
+    formula_ref = (
+        _build_public_image_url(image_ref=image_ref, static_base_url=static_base_url)
+        or image_source_url.strip()
+        or image_ref.strip()
+    )
     if not formula_ref.startswith(("http://", "https://")):
         return ""
     escaped = formula_ref.replace('"', '""')
     return f'=IMAGE("{escaped}")'
+
+
+def _build_public_image_url(*, image_ref: str, static_base_url: str | None) -> str | None:
+    if static_base_url is None:
+        return None
+
+    normalized_ref = image_ref.strip().replace("\\", "/")
+    if not normalized_ref or normalized_ref.startswith(("http://", "https://")):
+        return None
+
+    if normalized_ref.startswith("/app/assets/"):
+        public_path = normalized_ref.removeprefix("/app/assets/")
+    elif normalized_ref.startswith("assets/"):
+        public_path = normalized_ref.removeprefix("assets/")
+    else:
+        return None
+
+    public_path = public_path.strip("/")
+    if not public_path:
+        return None
+    return f"{static_base_url}/{quote(public_path, safe='/')}"

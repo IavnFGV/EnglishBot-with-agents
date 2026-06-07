@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06-07
+- Family workbook export now keeps `image_ref` as the local runtime source-of-truth path, but when `INFRA_STATIC_BASE_URL` is available it builds the display-only workbook `image` formula from the current nginx static URL instead of the original remote download URL; original `source_url` metadata remains in SQLite for traceability.
+- Runtime infra variables are now available to the app in both supported server-start paths: direct startup also loads `/srv/services/englishbot/infra-runtime.env` when present, and Docker Compose now injects that same host-managed env file into the container environment.
+- Added `chain_of_commands/061-workbook-export-static-image-urls.md`, a replayable prompt for the workbook-export static-URL slice: keep original asset source URLs only as traceability metadata, load infra-managed runtime URLs from `infra-runtime.env`, and export display-only image previews through the current nginx static base.
+
 ## 2026-06-06
 - Restored homework-entry compatibility after the learner-TTS UI refresh: the homework open button is plain-text again instead of emoji-prefixed, and `homework_handlers.start_homework(...)` now still supports the older direct-callback path without a dialog manager by falling back to the existing non-dialog training renderer.
 - Added persistent learner TTS storage variants on top of the live internal service path: one `learning_item` can now keep multiple local synthesized `voice` assets distinguished by `learning_item + voice_id + tts_model_key + source_text_hash`, the first `Listen` generates and stores the exact variant on demand, later listens reuse that local file, and Telegram `voice` `file_id`s remain only a separate cache layer above the persisted asset.

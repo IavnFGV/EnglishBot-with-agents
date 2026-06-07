@@ -1,10 +1,12 @@
 import asyncio
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import bootstrap
+from englishbot import config
 from englishbot.build_info import BuildInfo
 
 
@@ -279,3 +281,23 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
     assert "ENGLISHBOT_ENV_NAME=production" in log_messages[0]
     assert "TELEGRAM_BOT_TOKEN=real-secret-token" in log_messages[0]
     assert "API_KEY=super-secret-key" in log_messages[0]
+
+
+def test_load_environment_reads_optional_infra_runtime_env(tmp_path: Path, monkeypatch) -> None:
+    env_path = tmp_path / ".env"
+    infra_env_path = tmp_path / "infra-runtime.env"
+    env_path.write_text("TELEGRAM_BOT_TOKEN=from-dotenv\n", encoding="utf-8")
+    infra_env_path.write_text(
+        "INFRA_STATIC_BASE_URL=https://example.com/static/runtime\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(config, "DEFAULT_ENV_PATH", env_path)
+    monkeypatch.setattr(config, "DEFAULT_INFRA_RUNTIME_ENV_PATH", infra_env_path)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("INFRA_STATIC_BASE_URL", raising=False)
+
+    config.load_environment()
+
+    assert os.getenv("TELEGRAM_BOT_TOKEN") == "from-dotenv"
+    assert os.getenv("INFRA_STATIC_BASE_URL") == "https://example.com/static/runtime"
