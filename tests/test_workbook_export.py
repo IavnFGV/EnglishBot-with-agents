@@ -18,7 +18,11 @@ def setup_db(tmp_path: Path) -> None:
     db.init_db()
 
 
-def test_export_creates_valid_xlsx_with_display_only_image_formula(tmp_path: Path) -> None:
+def test_export_creates_valid_xlsx_with_display_only_image_formula(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("INFRA_STATIC_BASE_URL", raising=False)
     setup_db(tmp_path)
     owner = type("User", (), {"id": 1301, "username": "owner", "first_name": "Owner", "last_name": None})()
     db.save_user(owner)
