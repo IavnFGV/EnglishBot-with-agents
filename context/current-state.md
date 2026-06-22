@@ -2,9 +2,11 @@
 
 ## Read order
 - Start with `AGENTS.md`.
+- Use the top-level `README.md` for a concise external-engineering overview of the project and its main design choices.
 - Then read `docs/module-map.md`.
 - Use `docs/architecture.md` for structural context.
 - Open task-specific code and tests from the module map.
+- For agent-workflow context, the repository also preserves replayable AI-agent command history under `chain_of_commands/`, while `AGENTS.md` defines separated agent roles and operating rules.
 
 ## Runtime and entrypoints
 - Main entrypoint: `python -m englishbot`.

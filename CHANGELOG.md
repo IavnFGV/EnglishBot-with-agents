@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06-22
+- Added a new top-level `README.md` focused on what the project is, why the family-first Telegram architecture exists, which engineering problems it solves, and how the main runtime pieces fit together for another backend engineer browsing the repository.
+- Updated current-state docs to note the new repository-level README overview so high-level project orientation no longer depends only on internal architecture/context files.
+- Expanded the new `README.md` with project-level context about the documented AI-agent command chain, separated agent roles in repository guidance, and the repository's use as a practical Python sandbox for learning agent-based "vibe coding" on a real codebase.
+
 ## 2026-06-07
 - Family workbook export now keeps `image_ref` as the local runtime source-of-truth path, but when `INFRA_STATIC_BASE_URL` is available it builds the display-only workbook `image` formula from the current nginx static URL instead of the original remote download URL; original `source_url` metadata remains in SQLite for traceability.
 - Runtime infra variables are now available to the app in both supported server-start paths: direct startup also loads `/srv/services/englishbot/infra-runtime.env` when present, and Docker Compose now injects that same host-managed env file into the container environment.
