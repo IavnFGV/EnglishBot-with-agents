@@ -1,89 +1,98 @@
 # EnglishBot
 
-EnglishBot is a Telegram-first English learning bot built as a modular Python monolith. It combines learner practice, family-shared content authoring, homework assignment, and offline workbook editing in one process, with SQLite as the runtime source of truth. The project is opinionated about keeping the product small: Telegram is the UI, not a thin notification layer over a larger web system.
+EnglishBot is the second version of a Telegram bot for learning English. It is a Python application built around Telegram as the primary UI, with SQLite as the runtime source of truth for content, progress, homework, and media metadata.
 
-## Why I built it
+## Why this version exists
 
-I wanted a learning tool that could live where users already are: Telegram. The interesting engineering problem was not building another flashcard app, but making a chat interface behave like a real application while keeping the system easy to run and reason about.
+The first version worked, but too many concerns lived in one place. Application logic, deployment steps, and VPS-specific infrastructure decisions were mixed together in the same bot repository. That was manageable at first, but it made the project harder to reason about and harder to change safely.
 
-The repository also reflects a deliberate simplification. An earlier workspace-heavy model was being replaced with a family-first one: shared family content, personal progress, and personal homework. That reduced coordination logic and made the data model fit the actual product better.
+This version exists to separate those concerns. The shared VPS layer now lives in a different repository, while this repository focuses on the bot itself: learning flows, content editing, persistence, and Telegram-facing behavior.
 
-Another goal of the repository was to make agent-driven development itself inspectable. The project keeps a documented chain of commands for AI agents, separates agent roles and responsibilities in repo guidance, and serves partly as a practical exercise in learning agent-based "vibe coding" in Python on a real codebase rather than in toy examples.
+It was also a rewrite experiment. A large part of the restructuring was done with an agent-assisted workflow, not to automate judgment away, but to make the rewrite more explicit and easier to review.
 
-## Features
+## What it does
 
-- Telegram-first learner flow with `/learn`, `/topics`, `/homework`, `/settings`, and `/me`
-- Shared family-owned dictionary and topics
-- Teacher-side content editing and homework assignment inside Telegram
-- Resumable staged training sessions backed by SQLite
-- Offline bulk editing through `.xlsx` export/import
-- Optional internal TTS integration for pronunciation playback
-- Docker-based deployment with CI test + VPS deploy workflow
-- Documented command-chain history for AI-agent-driven development
-- Repository guidance that separates AI agent roles and working rules
+- Learner practice through `/learn`
+- Topic-based learning through `/topics`
+- Personal homework flow through `/homework`
+- Family-shared learning content and assignments
+- Teacher-side content editing inside Telegram
+- Offline workbook export/import for bulk content editing
+- Optional pronunciation playback through an external TTS service
 
 ## Architecture
 
-The bot runs as a single Python service. `aiogram` handles Telegram transport, domain modules hold product logic, and SQLite stores runtime state for content, sessions, homework, media metadata, and caches. Multi-step Telegram flows use `aiogram-dialog`, while workbook import/export provides an escape hatch for bulk editing without adding a separate web admin panel.
+At a high level, this is still one application process. Telegram is the UI surface, `aiogram` handles bot transport, domain logic stays inside focused Python modules, and SQLite stores runtime state. Bulk editing is intentionally handled through workbook import/export rather than a separate admin app.
 
-Several design choices are pragmatic rather than fashionable:
+The split from the first version is mostly about boundaries:
 
-- SQLite keeps the operational model simple and makes backups, local runs, and migrations straightforward.
-- The codebase stays a modular monolith because the hard part here is product flow and state management, not service isolation.
-- Workbook import is backup-first and validation-first because bulk edits are high leverage and easy to get wrong.
-- TTS is optional and fail-closed so the core bot remains usable without external services.
+- this repository contains the EnglishBot application
+- shared VPS, reverse proxy, HTTPS, WireGuard, and deployment support live in `infra-vps`
+- the bot keeps local runtime data and assets, while deployment wiring stays outside the app code
 
 ```mermaid
 flowchart TD
-    U[Telegram users] --> TG[Telegram Bot API]
-    TG --> B[EnglishBot service]
-    B --> D[SQLite]
-    B --> A[Local assets]
-    B --> X[Workbook export/import]
-    B -. optional .-> T[TTS service]
-    CI[GitHub Actions] --> VPS[Docker Compose on VPS]
-    VPS --> B
+    U[Telegram user] --> TG[Telegram Bot API]
+    TG --> B[EnglishBot application]
+    B --> DB[SQLite]
+    B --> AS[Local assets]
+    B -. optional .-> TTS[External TTS service]
+    B --> XLSX[Workbook export/import]
+    INFRA[infra-vps / VPS infrastructure] --> B
 ```
 
-## Technologies
+## Agent-assisted rewrite
+
+The rewrite used a simple three-role workflow:
+
+- `architect` for shaping the direction of the rewrite
+- `coder` for implementation
+- `complexity guard` for pushing back on unnecessary abstraction and scope growth
+
+The point was not to pretend the agents guarantee correctness. They were used as structured assistants for implementation, review, and iteration. Requests and implementation steps were documented during the rewrite, and that history remains in the repository as part of how the project evolved.
+
+In practice, the most useful part of the setup was the `complexity guard`. It helped keep a personal project from drifting into avoidable architecture and tooling overhead during a large rewrite.
+
+## Tech stack
 
 - Python 3.12
-- `aiogram` and `aiogram-dialog`
-- SQLite via the standard library
-- `openpyxl` for workbook import/export
-- `Pillow` for image handling and progress rendering
-- Docker Compose and GitHub Actions for deployment
+- `aiogram`
+- `aiogram-dialog`
+- SQLite via the Python standard library
+- `openpyxl`
+- `Pillow`
+- Docker Compose
+- GitHub Actions
 
 ## Running locally
+
+Minimal local setup appears to be:
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Set `TELEGRAM_BOT_TOKEN` in `.env`.
-
-Optional for a private local setup:
-
-- set `ENGLISHBOT_OWNER_TELEGRAM_USER_ID`
-
-Then run:
+Set `TELEGRAM_BOT_TOKEN` in `.env`, then run:
 
 ```bash
 python -m englishbot
 ```
 
-## What I learned
+Optional local configuration in `.env` includes:
 
-The most interesting part of the project was treating Telegram as an application surface instead of a message log. That pushed the design toward message reuse, resumable state, compact dialog flows, and strict separation between UI orchestration and business logic.
+- `ENGLISHBOT_OWNER_TELEGRAM_USER_ID` for owner-managed local access
+- `ENGLISHBOT_TTS_BASE_URL` if you want TTS enabled
 
-The other useful lesson was that "simple" operational choices matter. SQLite, local assets, explicit backups, and a plain HTTP status server made the system easier to debug than a more distributed design would have.
+## Lessons learned
 
-It was also useful to see where agent workflows help and where they need structure. Keeping explicit prompts, command history, and role boundaries in the repository turned "vibe coding" from something fuzzy into something that can be reviewed, repeated, and corrected.
+- Separating application code from VPS and deployment concerns makes even a personal project easier to change.
+- SQLite is a good fit when the product is one service and operational simplicity matters more than theoretical flexibility.
+- Telegram can support richer flows than a command-and-reply bot, but only if UI state is treated carefully.
+- Agent-assisted coding is more useful when the roles are explicit and the rewrite history is documented.
+- A dedicated “complexity guard” is a practical way to keep a rewrite from becoming an architecture exercise.
 
-## Future ideas
+## Related repositories
 
-- Keep simplifying older UI screens toward single-message flows
-- Improve learner progress reporting beyond session and homework snapshots
-- Add more family-first features without reviving the removed workspace model
-- Keep tightening the workbook editing path and recovery tooling
+- [`infra-vps`](https://github.com/IavnFGV/infra-vps) contains the shared VPS infrastructure layer: reverse proxy, HTTPS, WireGuard, and deployment support.
+- This repository contains the EnglishBot application itself.

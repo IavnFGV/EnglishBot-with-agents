@@ -3,6 +3,7 @@
 ## Read order
 - Start with `AGENTS.md`.
 - Use the top-level `README.md` for a concise external-engineering overview of the project and its main design choices.
+- The current `README.md` frames the repository explicitly as EnglishBot v2: the application repo split from the separate `infra-vps` VPS layer, with the rewrite history and agent-assisted workflow documented as project context rather than product functionality.
 - Then read `docs/module-map.md`.
 - Use `docs/architecture.md` for structural context.
 - Open task-specific code and tests from the module map.
