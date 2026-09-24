@@ -35,6 +35,12 @@ HELP_COMMAND = CommandDefinition(
     scope="user",
     register_after_startup=True,
 )
+VERSION_COMMAND = CommandDefinition(
+    name="version",
+    description_key="command.version",
+    scope="user",
+    register_after_startup=True,
+)
 LEARN_COMMAND = CommandDefinition(
     name="learn",
     description_key="command.learn",
@@ -105,6 +111,7 @@ BULK_EDIT_COMMAND = CommandDefinition(
 ALL_COMMANDS = (
     START_COMMAND,
     HELP_COMMAND,
+    VERSION_COMMAND,
     LEARN_COMMAND,
     HOMEWORK_COMMAND,
     ME_COMMAND,
@@ -123,6 +130,7 @@ def get_registered_commands(*, include_owner_commands: bool = False) -> tuple[Co
     commands = (
         START_COMMAND,
         HELP_COMMAND,
+        VERSION_COMMAND,
         LEARN_COMMAND,
         HOMEWORK_COMMAND,
         ME_COMMAND,

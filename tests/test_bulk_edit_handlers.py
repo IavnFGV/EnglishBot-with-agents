@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from aiogram.types import User
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -14,7 +15,11 @@ from englishbot.bulk_edit_handlers import handle_bulk_edit_callback, start_bulk_
 from englishbot.families import create_family, create_family_learning_item
 from englishbot.user_profiles import set_user_language
 from englishbot.vocabulary import create_learning_item_translation, create_lexeme, list_learning_items
-from englishbot.workbook_import import WorkbookImportProgress, WorkbookImportRow
+from englishbot.workbook_import import (
+    WorkbookImportPreparationError,
+    WorkbookImportProgress,
+    WorkbookImportRow,
+)
 
 
 class FakeBot:
@@ -248,3 +253,41 @@ def test_apply_shows_progress_status_before_completion(tmp_path: Path, monkeypat
         for edit in callback_message.bot.edits
     )
     assert callback_message.bot.edits[-1]["text"].startswith("Bulk edit completed.")
+
+
+def test_prepare_failure_message_identifies_workbook_row_and_field(tmp_path: Path, monkeypatch) -> None:
+    owner = setup_db(tmp_path, monkeypatch)
+    start_message = FakeMessage(owner)
+    asyncio.run(start_bulk_edit(start_message))
+
+    session = get_active_bulk_edit_session()
+    assert session is not None
+    export_file = Path(str(session["export_file_path"]))
+    upload_message = FakeMessage(
+        owner,
+        bot=FakeBot(export_file.read_bytes()),
+        document=SimpleNamespace(file_name="family.xlsx"),
+    )
+    asyncio.run(upload_bulk_edit_workbook(upload_message))
+
+    def fail_prepare(*args, **kwargs):
+        raise WorkbookImportPreparationError(
+            row_number=3,
+            item_text="pear",
+            field_name="image_ref",
+            field_value="https://example.com/pear.png",
+            cause=RuntimeError("HTTP Error 403: Forbidden"),
+        )
+
+    monkeypatch.setattr("englishbot.bulk_edit_handlers.prepare_family_workbook_import", fail_prepare)
+
+    callback_message = FakeMessage(owner)
+    callback = FakeCallback(owner, "bulk_edit:apply", callback_message)
+    with pytest.raises(WorkbookImportPreparationError):
+        asyncio.run(handle_bulk_edit_callback(callback))
+
+    error_message = callback_message.bot.edits[-1]["text"]
+    assert "Row 3" in error_message
+    assert "word 'pear'" in error_message
+    assert "field image_ref" in error_message
+    assert "HTTP Error 403: Forbidden" in error_message

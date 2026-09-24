@@ -36,6 +36,27 @@ class WorkbookImportValidationError(ValueError):
         self.errors = errors
 
 
+class WorkbookImportPreparationError(ValueError):
+    def __init__(
+        self,
+        *,
+        row_number: int,
+        item_text: str,
+        field_name: str,
+        field_value: str,
+        cause: Exception,
+    ) -> None:
+        self.row_number = row_number
+        self.item_text = item_text
+        self.field_name = field_name
+        self.field_value = field_value
+        self.cause = cause
+        super().__init__(
+            f"Row {row_number}, word {item_text!r}, field {field_name}, "
+            f"value {field_value!r}: {cause}"
+        )
+
+
 @dataclass(frozen=True)
 class WorkbookImportRow:
     row_number: int
@@ -391,20 +412,50 @@ def _prepare_row(
         text=row.text,
         translations=row.translations,
         topic_titles=row.topic_titles,
-        image_asset=_prepare_asset_ref(
-            row.image_ref,
+        image_asset=_prepare_row_asset_ref(
+            row,
+            field_name="image_ref",
+            asset_ref=row.image_ref,
             role=PRIMARY_IMAGE_ROLE,
             asset_type=ASSET_TYPE_IMAGE,
             existing_ref=existing_asset_refs.get(PRIMARY_IMAGE_ROLE),
         ),
-        audio_asset=_prepare_asset_ref(
-            row.audio_ref,
+        audio_asset=_prepare_row_asset_ref(
+            row,
+            field_name="audio_ref",
+            asset_ref=row.audio_ref,
             role=PRIMARY_AUDIO_ROLE,
             asset_type=ASSET_TYPE_AUDIO,
             existing_ref=existing_asset_refs.get(PRIMARY_AUDIO_ROLE),
         ),
         is_archived=row.is_archived,
     )
+
+
+def _prepare_row_asset_ref(
+    row: WorkbookImportRow,
+    *,
+    field_name: str,
+    asset_ref: str,
+    role: str,
+    asset_type: str,
+    existing_ref: tuple[str, str] | None,
+) -> PreparedAssetRef | None:
+    try:
+        return _prepare_asset_ref(
+            asset_ref,
+            role=role,
+            asset_type=asset_type,
+            existing_ref=existing_ref,
+        )
+    except Exception as exc:
+        raise WorkbookImportPreparationError(
+            row_number=row.row_number,
+            item_text=row.text,
+            field_name=field_name,
+            field_value=asset_ref,
+            cause=exc,
+        ) from exc
 
 
 def _prepare_asset_ref(

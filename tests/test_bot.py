@@ -11,7 +11,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from englishbot import db
 from aiogram.types import BotCommandScopeChat, BotCommandScopeDefault
 
-from englishbot.bot import BOT_COMMANDS, configure_bot_commands, dispatcher, help_command, me, start_command
+from englishbot.bot import (
+    BOT_COMMANDS,
+    configure_bot_commands,
+    dispatcher,
+    help_command,
+    me,
+    start_command,
+    version_command,
+)
 from englishbot.command_registry import get_registered_commands
 from englishbot.families import (
     create_family,
@@ -186,6 +194,7 @@ def test_help_handler_shows_family_first_command_list(tmp_path: Path) -> None:
         "Available commands:\n"
         "/start - open the main menu\n"
         "/help - show this help\n"
+        "/version - show build version\n"
         "/learn - start training\n"
         "/homework - open your homework\n"
         "/topics - open family topics\n"
@@ -212,6 +221,7 @@ def test_help_handler_shows_seed_demo_to_owner_only(tmp_path: Path, monkeypatch)
         "Available commands:\n"
         "/start - open the main menu\n"
         "/help - show this help\n"
+        "/version - show build version\n"
         "/learn - start training\n"
         "/homework - open your homework\n"
         "/topics - open family topics\n"
@@ -222,6 +232,27 @@ def test_help_handler_shows_seed_demo_to_owner_only(tmp_path: Path, monkeypatch)
         "/bulk_edit - export and reimport family workbook\n"
         "/create_assignment - assign homework inside the family\n"
         "/seed_demo - fill family with test content"
+    ]
+
+
+def test_version_handler_shows_build_metadata(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    monkeypatch.setenv("ENGLISHBOT_VERSION", "main-42")
+    monkeypatch.setenv("ENGLISHBOT_GIT_COMMIT", "1234567890abcdef")
+    monkeypatch.setenv("ENGLISHBOT_BUILD_TIME_UTC", "2026-09-24T18:00:00Z")
+    monkeypatch.setenv("ENGLISHBOT_ENV_NAME", "production")
+    user = make_user(9042, "Nora")
+    db.save_user(user)
+    message = FakeMessage(user)
+
+    asyncio.run(version_command(message))
+
+    assert message.answers == [
+        "EnglishBot\n"
+        "Version: main-42\n"
+        "Commit: 1234567890ab\n"
+        "Built: 2026-09-24T18:00:00Z\n"
+        "Environment: production"
     ]
 
 

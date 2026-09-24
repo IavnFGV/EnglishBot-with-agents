@@ -19,6 +19,7 @@ from englishbot.command_registry import (
     START_COMMAND,
     TEACHER_CONTENT_COMMAND,
     TOPICS_COMMAND,
+    VERSION_COMMAND,
     build_bot_commands,
     get_registered_commands,
 )
@@ -29,6 +30,7 @@ def test_command_registry_contains_all_canonical_commands() -> None:
     assert [command.name for command in ALL_COMMANDS] == [
         "start",
         "help",
+        "version",
         "learn",
         "homework",
         "me",
@@ -51,6 +53,7 @@ def test_bot_command_collection_stays_consistent_with_registry() -> None:
     assert registered == (
         START_COMMAND,
         HELP_COMMAND,
+        VERSION_COMMAND,
         LEARN_COMMAND,
         HOMEWORK_COMMAND,
         ME_COMMAND,
@@ -90,5 +93,9 @@ def test_bot_commands_use_centralized_i18n_descriptions() -> None:
     )
     assert BULK_EDIT_COMMAND.to_bot_command("en").description == translate(
         "command.bulk_edit",
+        "en",
+    )
+    assert VERSION_COMMAND.to_bot_command("en").description == translate(
+        "command.version",
         "en",
     )

@@ -16,6 +16,7 @@ from englishbot.topics import get_topic_learning_item_ids
 from englishbot.vocabulary import get_learning_item, list_learning_item_translations, create_learning_item_translation, create_lexeme
 from englishbot.workbook_export import export_family_workbook
 from englishbot.workbook_import import (
+    WorkbookImportPreparationError,
     WorkbookImportValidationError,
     apply_family_workbook_import,
     apply_prepared_family_workbook_import,
@@ -268,8 +269,17 @@ def test_failed_remote_asset_download_leaves_sqlite_unchanged_and_cleans_staging
 
     monkeypatch.setattr("englishbot.workbook_import.download_remote_asset_content", fake_download)
 
-    with pytest.raises(RuntimeError, match="download failed"):
+    with pytest.raises(WorkbookImportPreparationError) as exc_info:
         apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
+
+    assert exc_info.value.row_number == 3
+    assert exc_info.value.item_text == "pear"
+    assert exc_info.value.field_name == "image_ref"
+    assert exc_info.value.field_value == "https://example.com/pear.png"
+    assert str(exc_info.value) == (
+        "Row 3, word 'pear', field image_ref, value "
+        "'https://example.com/pear.png': download failed"
+    )
 
     assert get_learning_item(first_item_id)["text"] == "apple"
     assert get_learning_item(second_item_id)["text"] == "pear"

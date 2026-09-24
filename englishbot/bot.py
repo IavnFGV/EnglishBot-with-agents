@@ -8,7 +8,15 @@ from aiogram.types import BotCommandScopeChat, BotCommandScopeDefault, CallbackQ
 from aiogram_dialog import setup_dialogs
 from aiogram_dialog.api.exceptions import UnknownIntent
 
-from .command_registry import BOT_COMMANDS, HELP_COMMAND, ME_COMMAND, START_COMMAND, build_bot_commands
+from .build_info import load_build_info
+from .command_registry import (
+    BOT_COMMANDS,
+    HELP_COMMAND,
+    ME_COMMAND,
+    START_COMMAND,
+    VERSION_COMMAND,
+    build_bot_commands,
+)
 from .config import get_owner_telegram_user_id
 from .db import count_text_interactions, get_user, save_user
 from .families import ensure_user_family, get_user_family
@@ -130,6 +138,27 @@ async def help_command(message: Message) -> None:
         translate_for_user(
             message.from_user.id,
             "bot.help.owner" if _is_owner_user(message.from_user.id) else "bot.help",
+        )
+    )
+
+
+@router.message(Command(VERSION_COMMAND.name))
+async def version_command(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    build_info = load_build_info()
+    git_commit = build_info.git_commit
+    if git_commit != "unknown":
+        git_commit = git_commit[:12]
+    await message.answer(
+        translate_for_user(
+            message.from_user.id,
+            "bot.version",
+            version=build_info.version,
+            git_commit=git_commit,
+            build_time_utc=build_info.build_time_utc,
+            env_name=build_info.env_name,
         )
     )
 
