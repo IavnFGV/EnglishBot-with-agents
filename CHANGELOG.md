@@ -3,6 +3,7 @@
 ## 2026-09-24
 - Workbook asset preparation failures now identify the exact spreadsheet row, word, field (`image_ref` or `audio_ref`), offending value, and original failure reason in the Telegram bulk-edit response, so blocked URLs and invalid media can be corrected directly.
 - Added a registered, localized `/version` command that reports the deployed version, shortened Git commit, UTC build time, and environment from the existing build metadata.
+- Build metadata now persists in `/srv/services/englishbot/build.env`: GitHub Actions writes it atomically on deploy and Docker Compose reads it on every container creation, so manual recreates no longer degrade `/version` to `dev` and `unknown` while the secret-bearing stack `.env` remains untouched.
 
 ## 2026-06-22
 - Added a new top-level `README.md` focused on what the project is, why the family-first Telegram architecture exists, which engineering problems it solves, and how the main runtime pieces fit together for another backend engineer browsing the repository.

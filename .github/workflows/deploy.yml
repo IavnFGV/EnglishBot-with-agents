@@ -54,6 +54,7 @@ jobs:
             REPO_URL="https://github.com/${{ github.repository }}.git"
             REGISTER_HELPER="/usr/local/bin/infra-vps-register"
             DATA_ROOT="/srv/services/${SERVICE_NAME}"
+            BUILD_ENV_PATH="${DATA_ROOT}/build.env"
             STATIC_ROOT="/srv/service-static/${SERVICE_NAME}"
             SYNC_ROOT="/srv/drive-sync/services/${SERVICE_NAME}"
 
@@ -146,6 +147,19 @@ jobs:
             export ENGLISHBOT_BUILD_TIME_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             export ENGLISHBOT_BUILD_REF="${{ github.ref }}"
             export ENGLISHBOT_ENV_NAME="production"
+
+            echo "[deploy] writing persistent build metadata to ${BUILD_ENV_PATH}"
+            BUILD_ENV_TMP="${BUILD_ENV_PATH}.tmp.$$"
+            printf '%s\n' \
+              "ENGLISHBOT_VERSION=${ENGLISHBOT_VERSION}" \
+              "ENGLISHBOT_GIT_COMMIT=${ENGLISHBOT_GIT_COMMIT}" \
+              "ENGLISHBOT_BUILD_TIME_UTC=${ENGLISHBOT_BUILD_TIME_UTC}" \
+              "ENGLISHBOT_BUILD_REF=${ENGLISHBOT_BUILD_REF}" \
+              "ENGLISHBOT_ENV_NAME=${ENGLISHBOT_ENV_NAME}" \
+              > "${BUILD_ENV_TMP}"
+            chmod 644 "${BUILD_ENV_TMP}"
+            mv "${BUILD_ENV_TMP}" "${BUILD_ENV_PATH}"
+            ls -l "${BUILD_ENV_PATH}"
 
             if docker network inspect edge >/dev/null 2>&1; then
               echo "[deploy] docker network already exists: edge"

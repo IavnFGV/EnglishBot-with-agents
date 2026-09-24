@@ -18,7 +18,10 @@ Persistent service data:
 /srv/services/englishbot/data
 /srv/services/englishbot/logs
 /srv/services/englishbot/backups
+/srv/services/englishbot/build.env
 ```
+
+`build.env` contains non-secret build metadata written atomically by GitHub Actions. Docker Compose reads it on every container creation, so a later manual recreate keeps the deployed version, commit, build time, ref, and environment. Bot secrets such as `TELEGRAM_BOT_TOKEN` remain only in the stack `.env` file.
 
 Persistent static assets:
 
@@ -64,6 +67,7 @@ On the host:
 - bind-mounts `data`, `logs`, and `backups` from `/srv/services/englishbot/...`
 - bind-mounts `assets` from `/srv/service-static/englishbot`
 - passes build metadata env vars into the container for status/build reporting
+- reads persistent runtime build metadata from `/srv/services/englishbot/build.env`
 
 ## Scheduled tasks
 
@@ -116,6 +120,7 @@ Deploy behavior:
 - `push` to `main` or `workflow_dispatch` runs tests first, then deploys
 - deploy clones or updates the repo in `/opt/dockge/stacks/englishbot`
 - deploy ensures `/srv/services/englishbot/{data,logs,backups}` exists
+- deploy atomically writes the current build metadata to `/srv/services/englishbot/build.env` before Compose starts
 - deploy ensures `/srv/service-static/englishbot` exists
 - deploy ensures `/srv/drive-sync/services/englishbot/backups` exists
 - deploy bootstraps those host paths with `sudo` before running git operations as the SSH user
