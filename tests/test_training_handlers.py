@@ -93,7 +93,7 @@ class FakeBot:
         message_id: int,
         media,
         reply_markup=None,
-    ) -> None:
+    ) -> SimpleNamespace:
         if self.fail_edit_media_message is not None:
             raise RuntimeError(self.fail_edit_media_message)
         media_value = getattr(media, "media", None)
@@ -106,6 +106,9 @@ class FakeBot:
                 "media": media,
                 "reply_markup": reply_markup,
             }
+        )
+        return SimpleNamespace(
+            photo=(SimpleNamespace(file_id=f"edited-photo-{message_id}"),)
         )
 
     async def delete_message(self, *, chat_id: int, message_id: int) -> None:
@@ -1169,6 +1172,13 @@ def test_easy_callback_image_to_image_updates_question_photo_in_place(tmp_path: 
     assert message.bot.deleted_messages == []
     assert message.bot.edited_media[-1]["message_id"] == 2
     assert message.bot.edited_media[-1]["media"].caption == "Correct.\nслово-2"
+    assert message.bot.edited_media[-1]["media"].media.__class__.__name__ == "FSInputFile"
+    assert get_cached_telegram_file_id(2, TELEGRAM_MEDIA_KIND_PHOTO) == "edited-photo-2"
+
+    asyncio.run(render_started_training_session(message, user.id))
+
+    assert message.photo_attempts[-1] == "edited-photo-2"
+    assert message.photo_answers[-1]["photo"] == "edited-photo-2"
 
 
 def test_easy_callback_no_image_to_image_replaces_text_question_with_photo(tmp_path: Path) -> None:

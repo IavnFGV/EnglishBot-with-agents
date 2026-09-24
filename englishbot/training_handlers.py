@@ -280,7 +280,7 @@ async def _edit_question_photo_in_place(
             return False
 
     try:
-        await anchor_message.bot.edit_message_media(
+        edited_message = await anchor_message.bot.edit_message_media(
             chat_id=anchor_message.chat.id,
             message_id=question_message_id,
             media=InputMediaPhoto(
@@ -289,6 +289,14 @@ async def _edit_question_photo_in_place(
             ),
             reply_markup=reply_markup,
         )
+        if asset_id is not None:
+            uploaded_file_id = _extract_photo_file_id(edited_message)
+            if uploaded_file_id is not None:
+                cache_telegram_file_id(
+                    asset_id,
+                    TELEGRAM_MEDIA_KIND_PHOTO,
+                    uploaded_file_id,
+                )
         return True
     except Exception as exc:
         error_text = str(exc).lower()
