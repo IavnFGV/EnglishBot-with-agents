@@ -193,9 +193,54 @@ async function checkMedium() {
   }
 }
 
+function renderHomeworkProgress(progress) {
+  const panel = el('div', 'homework-progress');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 200 200');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', t('homework_progress', { completed: progress.completed, total: progress.total }));
+  const addSvg = (tag, attributes, content) => {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
+    if (content !== undefined) node.textContent = content;
+    svg.append(node);
+  };
+  const segments = progress.segments;
+  const sweep = 360 / Math.max(1, segments.length);
+  const gap = Math.min(4, sweep * .12);
+  const wedge = (radius, start, end) => {
+    const point = angle => {
+      const radians = angle * Math.PI / 180;
+      return [100 + radius * Math.cos(radians), 100 + radius * Math.sin(radians)];
+    };
+    const first = point(start);
+    const last = point(end);
+    return `M 100 100 L ${first[0]} ${first[1]} A ${radius} ${radius} 0 ${end - start > 180 ? 1 : 0} 1 ${last[0]} ${last[1]} Z`;
+  };
+  segments.forEach((segment, index) => {
+    const start = -90 + index * sweep + gap / 2;
+    const end = -90 + (index + 1) * sweep - gap / 2;
+    const value = Math.max(0, Math.min(1, segment.value));
+    const color = segment.hard_clear ? '#167a6c' : value >= 1 ? '#79d99a' : value >= .66 ? '#ffaf5f' : value > 0 ? '#f7d36a' : '#dde7ef';
+    addSvg('path', { d: wedge(82, start, end), fill: '#dde7ef' });
+    if (value > 0) addSvg('path', { d: wedge(24 + 58 * value, start, end), fill: color });
+  });
+  addSvg('circle', { cx: 100, cy: 100, r: 24, fill: '#fffdf7', stroke: '#f2d9b6', 'stroke-width': 2 });
+  addSvg('text', { x: 100, y: 106, 'text-anchor': 'middle', fill: '#2b3d52', 'font-size': 19, 'font-weight': 800 }, `${progress.completed}/${progress.total}`);
+  panel.append(svg);
+  const combo = el('div', 'combo');
+  combo.append(el('span', 'combo-label', progress.boost_active ? t('boost_active') : `${t('combo')} ${Math.min(4, progress.streak)}/4`));
+  for (let index = 0; index < 4; index++) {
+    combo.append(el('span', `combo-dot ${index < (progress.boost_active ? 4 : progress.streak) ? 'filled' : ''} ${progress.boost_active ? 'boost' : ''}`));
+  }
+  panel.append(combo);
+  return panel;
+}
+
 function render() {
   app.replaceChildren();
   if (state?.status === 'completed') {
+    if (state.homework_progress) app.append(renderHomeworkProgress(state.homework_progress));
     const card = el('div', 'card');
     card.append(el('div', 'prompt', t('great')));
     card.append(el('div', 'hint', t('correct_answers', { count: state.summary.correct })));
@@ -209,10 +254,13 @@ function render() {
   const top = el('div', 'top');
   top.append(el('span', '', `${t('word')} ${q.number}/${q.total}`), el('span', '', `${q.completed}/${q.total} ${t('done')}`));
   app.append(top);
-  const bar = el('div', 'bar');
-  const fill = el('span');
-  fill.style.width = `${100 * q.completed / Math.max(q.total, 1)}%`;
-  bar.append(fill); app.append(bar);
+  if (state.homework_progress) app.append(renderHomeworkProgress(state.homework_progress));
+  else {
+    const bar = el('div', 'bar');
+    const fill = el('span');
+    fill.style.width = `${100 * q.completed / Math.max(q.total, 1)}%`;
+    bar.append(fill); app.append(bar);
+  }
   const card = el('div', 'card');
   const pictureFrame = el('div', 'picture-frame');
   card.append(pictureFrame);

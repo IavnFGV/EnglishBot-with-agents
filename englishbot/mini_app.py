@@ -14,12 +14,13 @@ from .assets import get_learning_item_asset, resolve_runtime_asset_path, PRIMARY
 from .config import get_tts_base_url
 from .db import get_connection, get_user, utc_now
 from .families import get_user_family
-from .homework import get_assignment
+from .homework import get_assignment, get_assignment_progress_snapshot
 from .i18n import translate_for_user
 from .training import (
     append_medium_answer_letter,
     get_current_question,
     get_training_session,
+    get_homework_item_progress_value,
     pop_medium_answer_letter,
     set_medium_answer_letters,
     skip_optional_hard,
@@ -140,7 +141,7 @@ def interface_labels(user_id: int) -> dict[str, str]:
         "loading", "word", "done", "great", "correct_answers", "back",
         "check", "skip", "listen", "type", "connection", "retry",
         "audio_unavailable", "expired", "starts", "feedback_correct",
-        "feedback_incorrect", "feedback_skipped",
+        "feedback_incorrect", "feedback_skipped", "homework_progress", "combo", "boost_active",
     )
     return {
         key: translate_for_user(
@@ -148,6 +149,8 @@ def interface_labels(user_id: int) -> dict[str, str]:
             f"mini_app.ui.{key}",
             count="{count}",
             letter="{letter}",
+            completed="{completed}",
+            total="{total}",
         )
         for key in keys
     }
@@ -156,11 +159,26 @@ def interface_labels(user_id: int) -> dict[str, str]:
 def session_state(user_id: int, session_id: int) -> dict[str, object]:
     session = authorize_session(user_id, session_id)
     if session["status"] == "completed":
-        return {"status": "completed", "summary": {"total": int(session["total_questions"]), "correct": int(session["correct_answers"])}}
-    question = get_current_question(user_id)
-    if question is None or int(question["session_id"]) != session_id:
-        raise MiniAppError("session_not_found", 404)
-    return {"status": "active", "question": public_question(question)}
+        state = {"status": "completed", "summary": {"total": int(session["total_questions"]), "correct": int(session["correct_answers"])}}
+    else:
+        question = get_current_question(user_id)
+        if question is None or int(question["session_id"]) != session_id:
+            raise MiniAppError("session_not_found", 404)
+        state = {"status": "active", "question": public_question(question)}
+    assignment_id = session["family_homework_assignment_id"]
+    if assignment_id is not None:
+        snapshot = get_assignment_progress_snapshot(int(assignment_id), session_id)
+        state["homework_progress"] = {
+            "completed": int(snapshot["completed_items"]),
+            "total": int(snapshot["total_items"]),
+            "streak": int(snapshot["homework_correct_streak"]),
+            "boost_active": bool(snapshot["homework_hard_mode"]),
+            "segments": [
+                {"value": get_homework_item_progress_value(item), "hard_clear": bool(item["hard_completed"])}
+                for item in snapshot["items"]
+            ],
+        }
+    return state
 
 
 def apply_action(user_id: int, session_id: int, token: str, action: str, value: object = None) -> dict[str, object]:

@@ -64,6 +64,7 @@ def test_current_question_and_double_answer_are_sqlite_backed(tmp_path: Path) ->
     user_id, session_id = seed(tmp_path)
     state = session_state(user_id, session_id)
     question = state["question"]
+    assert "homework_progress" not in state
     assert "expected_answer" not in question
     assert session_state(user_id, session_id)["question"]["token"] == question["token"]
     wrong = apply_action(user_id, session_id, question["token"], "easy", 0 if get_current_question(user_id)["options"][0] != get_current_question(user_id)["expected_answer"] else 1)
@@ -236,6 +237,42 @@ def test_homework_session_checks_current_assignment_owner(tmp_path: Path) -> Non
     with db.get_connection() as connection:
         connection.execute("UPDATE homework_assignments SET assigned_to_user_id = ? WHERE id = ?", (stranger.id, assignment_id))
     assert error_code(lambda: authorize_session(child.id, session_id)) == "access_denied"
+
+
+def test_homework_progress_follows_answers_and_four_answer_boost(tmp_path: Path) -> None:
+    db.DB_PATH = tmp_path / "homework-progress-mini.sqlite3"
+    db.init_db()
+    owner = User(id=811, is_bot=False, first_name="Owner")
+    learner = User(id=812, is_bot=False, first_name="Learner")
+    for user in (owner, learner):
+        db.save_user(user)
+    family = create_family("Home", owner.id)
+    add_family_member(int(family["id"]), learner.id)
+    item_id = create_family_learning_item(int(family["id"]), create_lexeme("progress-word"), "progress-word")
+    create_learning_item_translation(item_id, "ru", "слово")
+    assignment_id = create_homework_assignment(int(family["id"]), owner.id, learner.id, [item_id], title="Practice")
+    session_id = int(start_assignment_training_session(learner.id, assignment_id)["session_id"])
+
+    initial = session_state(learner.id, session_id)["homework_progress"]
+    assert initial == {
+        "completed": 0, "total": 1, "streak": 0, "boost_active": False,
+        "segments": [{"value": 0.0, "hard_clear": False}],
+    }
+    for step in range(1, 5):
+        question = get_current_question(learner.id)
+        submit_training_answer(learner.id, str(question["expected_answer"]))
+        progress = session_state(learner.id, session_id)["homework_progress"]
+        assert progress["segments"][0]["value"] == step / 5
+        assert progress["streak"] == step
+        assert progress["boost_active"] is (step == 4)
+
+    question = get_current_question(learner.id)
+    assert question["exercise_type"] == "typed_answer"
+    submit_training_answer(learner.id, str(question["expected_answer"]))
+    finished = session_state(learner.id, session_id)
+    assert finished["status"] == "completed"
+    assert finished["homework_progress"]["completed"] == 1
+    assert finished["homework_progress"]["segments"] == [{"value": 1.0, "hard_clear": True}]
 
 
 def test_http_transport_auth_state_and_answer(tmp_path: Path, monkeypatch) -> None:

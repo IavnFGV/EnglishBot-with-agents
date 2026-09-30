@@ -1027,6 +1027,17 @@ def get_item_progress_status(item_row: sqlite3.Row | dict[str, object]) -> str:
     return ITEM_STATUS_WARM_UP
 
 
+def get_homework_item_progress_value(item: sqlite3.Row | dict[str, object]) -> float:
+    if bool(item["hard_completed"]):
+        return 1.0
+    total_steps = HOMEWORK_EASY_CORRECT_REQUIRED + HOMEWORK_MEDIUM_CORRECT_REQUIRED
+    completed_steps = min(
+        total_steps,
+        max(0, int(item["easy_correct_count"])) + max(0, int(item["medium_correct_count"])),
+    )
+    return completed_steps / total_steps if total_steps > 0 else 0.0
+
+
 def _is_hard_unlocked(
     *,
     easy_correct_count: int,

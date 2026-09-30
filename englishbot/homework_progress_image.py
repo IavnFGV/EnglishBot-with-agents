@@ -10,10 +10,7 @@ from .assignment_progress_renderer import (
 )
 from .homework import get_assignment_progress_snapshot
 from .i18n import translate_for_user
-from .training import (
-    HOMEWORK_EASY_CORRECT_REQUIRED,
-    HOMEWORK_MEDIUM_CORRECT_REQUIRED,
-)
+from .training import get_homework_item_progress_value
 
 
 def build_assignment_progress_image_snapshot(
@@ -42,7 +39,7 @@ def build_assignment_progress_image_snapshot(
             AssignmentProgressSegment(
                 word_id=str(item["learning_item_id"]),
                 label=str(int(item["item_order"]) + 1),
-                progress_value=_segment_progress_value(item),
+                progress_value=get_homework_item_progress_value(item),
                 hard_clear=bool(item["hard_completed"]),
             )
             for item in items
@@ -78,16 +75,3 @@ def _resolve_current_item(snapshot: dict[str, object]) -> dict[str, object] | No
         if not bool(item["is_completed"]):
             return item
     return items[-1]
-
-
-def _segment_progress_value(item: dict[str, object]) -> float:
-    if bool(item["hard_completed"]):
-        return 1.0
-    total_steps = HOMEWORK_EASY_CORRECT_REQUIRED + HOMEWORK_MEDIUM_CORRECT_REQUIRED
-    if total_steps <= 0:
-        return 0.0
-    completed_steps = min(
-        total_steps,
-        max(0, int(item["easy_correct_count"])) + max(0, int(item["medium_correct_count"])),
-    )
-    return completed_steps / total_steps

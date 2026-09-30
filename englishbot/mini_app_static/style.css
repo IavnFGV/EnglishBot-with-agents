@@ -5,6 +5,13 @@ main { max-width: 520px; min-height: 100dvh; margin: auto; padding: max(18px, en
 .top { display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 700; }
 .bar { height: 12px; background: var(--tg-theme-secondary-bg-color, #e9eef4); border-radius: 99px; overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--tg-theme-button-color, #3390ec); transition: width .2s; }
+.homework-progress { align-self: center; display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-radius: 18px; background: var(--tg-theme-secondary-bg-color, #e9eef4); }
+.homework-progress svg { width: 148px; height: 148px; flex: none; }
+.combo { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 72px; }
+.combo-label { font-size: .85rem; font-weight: 700; text-align: center; }
+.combo-dot { width: 15px; height: 15px; border: 2px solid #c8ddcf; border-radius: 50%; background: #eef7f1; }
+.combo-dot.filled { border-color: #4fbf79; background: #79d99a; }
+.combo-dot.boost { border-color: #0f5d52; background: #167a6c; }
 .card { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; }
 .picture-frame { width: min(100%, 340px); height: clamp(150px, 28vh, 220px); display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 18px; background: var(--tg-theme-secondary-bg-color, #e9eef4); }
 .picture { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 18px; }
