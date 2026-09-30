@@ -1,5 +1,7 @@
 import os
+import logging
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -79,3 +81,18 @@ def get_infra_static_base_url() -> str | None:
     if not normalized:
         return None
     return normalized
+
+
+def get_mini_app_url() -> str | None:
+    value = (os.getenv("ENGLISHBOT_MINI_APP_URL") or "").strip()
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        valid = parsed.scheme == "https" and bool(parsed.hostname) and parsed.path.rstrip("/") == "/mini-app"
+    except ValueError:
+        valid = False
+    if not valid:
+        logging.getLogger(__name__).warning("Mini App URL is invalid; Telegram training remains available")
+        return None
+    return value.rstrip("/")

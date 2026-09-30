@@ -3,7 +3,7 @@ import sqlite3
 from .db import get_connection
 from .families import get_user_family
 from .topics import get_topic
-from .training import create_training_session_for_learning_items
+from .training import create_training_session_for_learning_items, get_active_training_session, get_current_question
 
 
 class TopicAccessError(Exception):
@@ -74,7 +74,19 @@ def start_topic_training_session(
     if not learning_item_ids:
         raise EmptyTopicError
 
-    result = create_training_session_for_learning_items(student_user_id, learning_item_ids)
+    active_session = get_active_training_session(student_user_id)
+    active_question = get_current_question(student_user_id) if active_session is not None and active_session["source_topic_id"] == topic_id else None
+    if active_session is not None and active_question is not None:
+        result = {
+            "session_id": int(active_session["id"]),
+            "total_questions": int(active_session["total_questions"]),
+            "question": active_question,
+            "resumed": True,
+        }
+    else:
+        result = create_training_session_for_learning_items(
+            student_user_id, learning_item_ids, source_topic_id=topic_id
+        )
     result["topic_title"] = str(topic["title"])
     result["topic_name"] = str(topic["name"])
     return result

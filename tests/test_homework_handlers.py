@@ -200,6 +200,21 @@ def test_homework_command_opens_dialog_even_without_assignments(tmp_path: Path) 
     ]
 
 
+def test_homework_launch_offers_mini_app_when_configured(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    family, parent, child = seed_family_parent_and_child()
+    item_id = create_family_learning_item(int(family["id"]), create_lexeme("mini-homework"), "word")
+    create_learning_item_translation(item_id, "ru", "слово")
+    assignment_id = create_family_homework_assignment(int(family["id"]), parent.id, child.id, [item_id])
+    monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "https://example.test/mini-app")
+    message = FakeMessage(child)
+    callback = FakeCallback(child, f"homework:start:family:{assignment_id}", message)
+    asyncio.run(start_homework(callback))
+    assert len(message.answers) == 1
+    assert message.answers[0]["text"] == "Choose a training mode:"
+    assert message.answers[0]["kwargs"]["reply_markup"].inline_keyboard[0][0].web_app is not None
+
+
 def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
     setup_db(tmp_path)
     family, parent, child = seed_family_parent_and_child()

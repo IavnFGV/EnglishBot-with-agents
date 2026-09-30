@@ -30,6 +30,8 @@ from .homework import (
     get_assignment,
 )
 from .i18n import translate_for_user
+from .mini_app import question_token
+from .config import get_mini_app_url
 from .homework_progress_image import render_homework_progress_image
 from .runtime import router
 from .tts import TTSClientError, build_tts_client, get_or_create_learning_item_tts_variant, is_tts_enabled
@@ -58,6 +60,14 @@ TRAINING_MEDIUM_CHECK_CALLBACK = "training:medium:check"
 TRAINING_HARD_SKIP_CALLBACK = "training:hard:skip"
 TRAINING_LISTEN_CALLBACK = "training:listen"
 logger = logging.getLogger(__name__)
+
+
+def _versioned_callback(base: str, question: dict[str, object]) -> str:
+    return f"{base}:{question_token(question)}" if get_mini_app_url() else base
+
+
+def _callback_question_is_current(callback_data: str, base: str, question: dict[str, object]) -> bool:
+    return callback_data == _versioned_callback(base, question)
 
 
 def resolve_question_photo_path(question: dict[str, object]) -> str | None:
@@ -317,7 +327,7 @@ def _build_easy_options_keyboard(question: dict[str, object]) -> InlineKeyboardM
             [
                 InlineKeyboardButton(
                     text=str(option),
-                    callback_data=f"{TRAINING_EASY_CALLBACK_PREFIX}{index}",
+                    callback_data=_versioned_callback(f"{TRAINING_EASY_CALLBACK_PREFIX}{index}", question),
                 )
             ]
             for index, option in enumerate(options)
@@ -343,7 +353,7 @@ def _build_medium_keyboard(
         else:
             button = InlineKeyboardButton(
                 text=letter,
-                callback_data=f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{index}",
+                callback_data=_versioned_callback(f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{index}", question),
             )
         current_row.append(button)
         if len(current_row) == 4:
@@ -355,11 +365,11 @@ def _build_medium_keyboard(
         [
             InlineKeyboardButton(
                 text=translate_for_user(telegram_user_id, "training.action.backspace"),
-                callback_data=TRAINING_MEDIUM_BACKSPACE_CALLBACK,
+                callback_data=_versioned_callback(TRAINING_MEDIUM_BACKSPACE_CALLBACK, question),
             ),
             InlineKeyboardButton(
                 text=translate_for_user(telegram_user_id, "training.action.check"),
-                callback_data=TRAINING_MEDIUM_CHECK_CALLBACK,
+                callback_data=_versioned_callback(TRAINING_MEDIUM_CHECK_CALLBACK, question),
             ),
         ]
     )
@@ -377,7 +387,7 @@ def _build_hard_keyboard(
             [
                 InlineKeyboardButton(
                     text=translate_for_user(telegram_user_id, "training.action.skip_hard"),
-                    callback_data=TRAINING_HARD_SKIP_CALLBACK,
+                    callback_data=_versioned_callback(TRAINING_HARD_SKIP_CALLBACK, question),
                 )
             ]
         ]
@@ -955,8 +965,15 @@ async def learn(message: Message, dialog_manager: DialogManager | None = None) -
         return
 
     save_user(message.from_user)
+    from .config import get_mini_app_url
+    active_session = get_active_training_session(message.from_user.id) if get_mini_app_url() else None
+    active_question = get_current_question(message.from_user.id) if active_session is not None else None
     try:
-        result = create_training_session(message.from_user.id)
+        result = (
+            {"question": active_question}
+            if active_question is not None
+            else create_training_session(message.from_user.id)
+        )
     except NoLearningItemsError:
         await message.answer(translate_for_user(message.from_user.id, "training.no_items"))
         return
@@ -964,6 +981,10 @@ async def learn(message: Message, dialog_manager: DialogManager | None = None) -
     question = result["question"]
     if question is None:
         await message.answer(translate_for_user(message.from_user.id, "training.start_failed"))
+        return
+
+    from .mini_app_handlers import offer_training_interfaces
+    if await offer_training_interfaces(message, message.from_user.id):
         return
 
     if dialog_manager is None:
@@ -1010,11 +1031,13 @@ async def answer_training_easy(callback: CallbackQuery) -> None:
     options = question.get("options")
     if not isinstance(options, list):
         return
-    option_index = callback.data.removeprefix(TRAINING_EASY_CALLBACK_PREFIX)
+    option_index = callback.data.removeprefix(TRAINING_EASY_CALLBACK_PREFIX).split(":", 1)[0]
     if not option_index.isdigit():
         return
     index = int(option_index)
     if index < 0 or index >= len(options):
+        return
+    if not _callback_question_is_current(callback.data, f"{TRAINING_EASY_CALLBACK_PREFIX}{index}", question):
         return
 
     await _process_training_answer(callback.message, callback.from_user.id, str(options[index]))
@@ -1054,8 +1077,11 @@ async def answer_training_medium_add(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.from_user is None or callback.message is None or callback.data is None:
         return
-    letter_index = callback.data.removeprefix(TRAINING_MEDIUM_ADD_CALLBACK_PREFIX)
+    letter_index = callback.data.removeprefix(TRAINING_MEDIUM_ADD_CALLBACK_PREFIX).split(":", 1)[0]
     if not letter_index.isdigit():
+        return
+    current_question = get_current_question(callback.from_user.id)
+    if current_question is None or not _callback_question_is_current(callback.data, f"{TRAINING_MEDIUM_ADD_CALLBACK_PREFIX}{letter_index}", current_question):
         return
     question = append_medium_answer_letter(callback.from_user.id, int(letter_index))
     if question is None:
@@ -1063,10 +1089,13 @@ async def answer_training_medium_add(callback: CallbackQuery) -> None:
     await _refresh_current_question_message(callback, callback.from_user.id, question)
 
 
-@router.callback_query(lambda callback: callback.data == TRAINING_MEDIUM_BACKSPACE_CALLBACK)
+@router.callback_query(lambda callback: callback.data is not None and callback.data.startswith(TRAINING_MEDIUM_BACKSPACE_CALLBACK))
 async def answer_training_medium_backspace(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.from_user is None or callback.message is None:
+        return
+    current_question = get_current_question(callback.from_user.id)
+    if current_question is None or not _callback_question_is_current(callback.data, TRAINING_MEDIUM_BACKSPACE_CALLBACK, current_question):
         return
     question = pop_medium_answer_letter(callback.from_user.id)
     if question is None:
@@ -1074,7 +1103,7 @@ async def answer_training_medium_backspace(callback: CallbackQuery) -> None:
     await _refresh_current_question_message(callback, callback.from_user.id, question)
 
 
-@router.callback_query(lambda callback: callback.data == TRAINING_MEDIUM_CHECK_CALLBACK)
+@router.callback_query(lambda callback: callback.data is not None and callback.data.startswith(TRAINING_MEDIUM_CHECK_CALLBACK))
 async def answer_training_medium_check(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.from_user is None or callback.message is None:
@@ -1082,6 +1111,8 @@ async def answer_training_medium_check(callback: CallbackQuery) -> None:
     session = get_active_training_session(callback.from_user.id)
     question = get_current_question(callback.from_user.id)
     if session is None or question is None or str(question.get("exercise_type")) != "jumbled_letters":
+        return
+    if not _callback_question_is_current(callback.data, TRAINING_MEDIUM_CHECK_CALLBACK, question):
         return
     result = submit_medium_answer(callback.from_user.id)
     if result is None:
@@ -1139,7 +1170,7 @@ async def answer_training_medium_check(callback: CallbackQuery) -> None:
     )
 
 
-@router.callback_query(lambda callback: callback.data == TRAINING_HARD_SKIP_CALLBACK)
+@router.callback_query(lambda callback: callback.data is not None and callback.data.startswith(TRAINING_HARD_SKIP_CALLBACK))
 async def answer_training_hard_skip(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.from_user is None or callback.message is None:
@@ -1148,6 +1179,8 @@ async def answer_training_hard_skip(callback: CallbackQuery) -> None:
     session = get_active_training_session(callback.from_user.id)
     current_question = get_current_question(callback.from_user.id)
     if session is None:
+        return
+    if current_question is None or not _callback_question_is_current(callback.data, TRAINING_HARD_SKIP_CALLBACK, current_question):
         return
     result = skip_optional_hard(callback.from_user.id)
     if result is None:

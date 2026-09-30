@@ -86,4 +86,6 @@ async def start_topic_training(callback: CallbackQuery) -> None:
         )
         return
 
-    await render_started_training_session(callback.message, callback.from_user.id)
+    from .mini_app_handlers import offer_training_interfaces
+    if not await offer_training_interfaces(callback.message, callback.from_user.id):
+        await render_started_training_session(callback.message, callback.from_user.id)

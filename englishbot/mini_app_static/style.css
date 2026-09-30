@@ -1,0 +1,25 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #18222d); }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 520px; min-height: 100dvh; margin: auto; padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 18px; }
+.top { display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 700; }
+.bar { height: 12px; background: var(--tg-theme-secondary-bg-color, #e9eef4); border-radius: 99px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--tg-theme-button-color, #3390ec); transition: width .2s; }
+.card { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; }
+.picture { max-width: min(75vw, 310px); max-height: 28vh; object-fit: contain; border-radius: 18px; }
+.prompt { font-size: clamp(1.6rem, 7vw, 2.6rem); font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
+.hint { font-size: 1.2rem; opacity: .8; }
+.choices { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+button { min-height: 62px; border: 0; border-radius: 16px; padding: 12px; font: inherit; font-size: 1.25rem; font-weight: 700; background: var(--tg-theme-button-color, #3390ec); color: var(--tg-theme-button-text-color, #fff); touch-action: manipulation; transition: transform .08s, opacity .08s; }
+button:active { transform: scale(.96); opacity: .8; }
+button:disabled { opacity: .55; }
+.secondary { background: var(--tg-theme-secondary-bg-color, #e9eef4); color: var(--tg-theme-text-color, #18222d); }
+.letters { display: grid; grid-template-columns: repeat(auto-fit, minmax(55px, 1fr)); gap: 9px; width: 100%; }
+.letters button { min-height: 62px; }
+.answer { width: 100%; min-height: 62px; padding: 14px; border: 2px solid var(--tg-theme-button-color, #3390ec); border-radius: 16px; font: inherit; font-size: 1.5rem; text-align: center; color: inherit; background: var(--tg-theme-bg-color, #fff); }
+.actions { display: flex; gap: 10px; width: 100%; }
+.actions button { flex: 1; }
+.feedback { min-height: 1.5em; text-align: center; font-weight: 700; }
+.error { color: #ca4437; }
+.correct { color: #15804b; }
+@media (max-width: 340px) { .choices { grid-template-columns: 1fr; } button { min-height: 56px; } }

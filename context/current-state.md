@@ -12,9 +12,9 @@
 ## Runtime and entrypoints
 - Main entrypoint: `python -m englishbot`.
 - Startup is centralized in `englishbot/bootstrap.py`.
-- The app loads `.env`, configures logging, writes the startup process environment to logs, initializes/migrates SQLite, starts the status server, registers Telegram commands, and begins long polling.
+- The app loads `.env`, configures logging, logs startup environment with secrets redacted, initializes/migrates SQLite, starts the status server, registers Telegram commands, and begins long polling.
 - Telegram runtime uses `aiogram 3.x` and `aiogram-dialog`.
-- A small internal HTTP status server listens on `0.0.0.0:8080`.
+- The internal HTTP server listens on `0.0.0.0:8080` for health/build metadata and the optional learner Mini App.
 
 ## Implemented product slices
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
@@ -127,7 +127,7 @@
 - New commands must be added through `englishbot/command_registry.py`.
 
 ## Important current limitations
-- No web app, webhook runtime, or required AI/TTS dependency in core flows.
+- The learner Mini App is opt-in through `ENGLISHBOT_MINI_APP_URL`; `/learn`, topics, and homework can resume the same SQLite session across Telegram and Mini App. There is no webhook runtime or required AI/TTS dependency in core flows.
 - No diff-based publish sync, content versioning, or back-sync from student workspaces.
 - No hard delete lifecycle for learning content.
 - No deep-link driven navigation.

@@ -114,6 +114,18 @@ def test_start_topic_training_handler_uses_family_topic(tmp_path: Path) -> None:
     assert keyboard is None
 
 
+def test_topic_launch_offers_mini_app_when_configured(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    _, child, topic_id = seed_family_topic()
+    monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "https://example.test/mini-app")
+    message = FakeMessage(child)
+    callback = FakeCallback(child, f"{TOPICS_START_PREFIX}{topic_id}", message)
+    asyncio.run(start_topic_training(callback))
+    assert len(message.answers) == 1
+    assert message.answers[0]["text"] == "Choose a training mode:"
+    assert message.answers[0]["kwargs"]["reply_markup"].inline_keyboard[0][0].web_app is not None
+
+
 def test_start_topic_training_handler_rejects_inaccessible_topic(tmp_path: Path) -> None:
     setup_db(tmp_path)
     _, _, topic_id = seed_family_topic()

@@ -472,6 +472,61 @@ def test_learn_renders_one_progress_message_and_one_easy_question(tmp_path: Path
     assert session["current_question_message_id"] == 2
 
 
+def test_learn_with_mini_app_offers_choice_and_resumes_session(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(404, "Learner")
+    seed_learning_items(3, user=user)
+    monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "https://example.test/mini-app")
+    first_message = FakeMessage(user)
+    asyncio.run(learn(first_message))
+    first_session = get_active_training_session(user.id)
+    assert first_session is not None
+    assert first_message.answers[0]["text"] == "Choose a training mode:"
+    assert first_message.answers[0]["kwargs"]["reply_markup"].inline_keyboard[0][0].web_app is not None
+    second_message = FakeMessage(user)
+    asyncio.run(learn(second_message))
+    second_session = get_active_training_session(user.id)
+    assert second_session is not None
+    assert second_session["id"] == first_session["id"]
+    assert second_message.answers[0]["text"] == "Choose a training mode:"
+
+
+def test_old_telegram_button_is_stale_after_mini_app_answer(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(405, "Learner")
+    seed_learning_items(3, user=user)
+    monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "https://example.test/mini-app")
+    from englishbot.mini_app import apply_action, question_token
+    from englishbot.training_handlers import _build_easy_options_keyboard
+    from englishbot.training import create_training_session
+    create_training_session(user.id)
+    question = get_current_question(user.id)
+    keyboard = _build_easy_options_keyboard(question)
+    stale_data = keyboard.inline_keyboard[0][0].callback_data
+    apply_action(user.id, int(question["session_id"]), question_token(question), "easy", 0)
+    before = get_current_question(user.id)
+    callback = FakeCallback(user, stale_data, FakeMessage(user))
+    asyncio.run(answer_training_easy(callback))
+    after = get_current_question(user.id)
+    assert after["question_version"] == before["question_version"]
+
+
+def test_telegram_choice_uses_existing_session_and_dialog(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(406, "Learner")
+    seed_learning_items(3, user=user)
+    monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "https://example.test/mini-app")
+    from englishbot.mini_app_handlers import choose_telegram_training
+    from englishbot.training import create_training_session
+    session_id = int(create_training_session(user.id)["session_id"])
+    message = FakeMessage(user)
+    callback = FakeCallback(user, f"mini:telegram:{session_id}", message)
+    manager = FakeDialogManager(user)
+    asyncio.run(choose_telegram_training(callback, manager))
+    assert manager.start_calls[0]["state"] == LearnerTrainingDialogSG.quiz
+    assert get_active_training_session(user.id)["id"] == session_id
+
+
 def test_learn_renders_question_photo_when_learning_item_has_image(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(411, "Learner")

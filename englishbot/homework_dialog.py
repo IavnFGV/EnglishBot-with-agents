@@ -107,6 +107,10 @@ async def _launch_assignment(
         return
 
     await callback.message.delete()
+    from .mini_app_handlers import offer_training_interfaces
+    if await offer_training_interfaces(callback.message, callback.from_user.id):
+        await dialog_manager.done(show_mode=ShowMode.NO_UPDATE)
+        return
     await start_training_dialog(callback.message, dialog_manager, callback.from_user.id)
 
 

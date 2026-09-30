@@ -161,3 +161,11 @@ DOMAIN=<service-domain>
 UPSTREAM_HOST=englishbot-app
 UPSTREAM_PORT=8080
 ```
+
+## Optional learner Mini App
+
+Set `ENGLISHBOT_MINI_APP_URL=https://<service-domain>/mini-app` in the stack `.env` after routing the service domain through the infra-owned HTTPS nginx route to `englishbot-app:8080`. The app uses the existing internal port and container; no host port or extra service is needed. Infra changes are required in the separate `infra-vps` repository: register this public domain and proxy `/mini-app` (including `/mini-app/api/`) to `englishbot-app:8080`, with the existing `/healthz` route preserved. This repository does not apply those infra changes.
+
+Static files are packaged under `englishbot/mini_app_static/`. The API prefix is `/mini-app/api/sessions/{session_id}`. `GET` returns the current question or summary, `POST .../answer` applies an action, `GET .../media/{asset_id}` serves the current item's local image, and `GET .../tts` serves the current item's persisted voice variant when TTS is enabled. Every API and media request requires `X-Telegram-Init-Data`, verified with the bot token server-side. Health remains `GET /healthz`. Nginx must forward that header and must not cache authenticated API/media responses publicly.
+
+For local development, run `python -m englishbot` and use the existing port 8080. A Telegram WebApp launch requires a publicly reachable HTTPS URL; use an HTTPS development tunnel and set `ENGLISHBOT_MINI_APP_URL` to its `/mini-app` URL. The bot creates the official inline WebApp button for each session, so BotFather Main Mini App registration and a menu button are not required for this version. Do not set the menu button to this URL yet: a menu launch has no session id and cannot open a question. If BotFather asks you to pair a website domain with the bot, use `/setdomain` for that HTTPS domain. Leave `ENGLISHBOT_MINI_APP_URL` empty to keep the original Telegram training launch with no interface choice. Do not put the bot token in the URL or frontend.

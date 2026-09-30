@@ -13,6 +13,7 @@ from .status_server import (
     STATUS_SERVER_HOST,
     STATUS_SERVER_PORT,
     start_status_server,
+    set_mini_app_bot,
 )
 
 
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def log_startup_environment() -> None:
     formatted_items = [
-        f"{name}={value}"
+        f"{name}={'[REDACTED]' if any(part in name.upper() for part in ('TOKEN', 'SECRET', 'PASSWORD', 'KEY')) else value}"
         for name, value in sorted(os.environ.items())
     ]
     logger.info("EnglishBot startup environment: %s", ", ".join(formatted_items))
@@ -42,12 +43,14 @@ async def run() -> None:
         STATUS_SERVER_PORT,
     )
     bot = build_bot()
+    set_mini_app_bot(bot)
     bulk_edit_monitor_task = asyncio.create_task(run_bulk_edit_monitor(bot))
     try:
         await configure_bot_commands(bot)
         logger.info("Starting EnglishBot with long polling")
         await dispatcher.start_polling(bot)
     finally:
+        set_mini_app_bot(None)
         bulk_edit_monitor_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await bulk_edit_monitor_task

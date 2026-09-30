@@ -279,8 +279,10 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
 
     assert log_messages[0].startswith("EnglishBot startup environment: ")
     assert "ENGLISHBOT_ENV_NAME=production" in log_messages[0]
-    assert "TELEGRAM_BOT_TOKEN=real-secret-token" in log_messages[0]
-    assert "API_KEY=super-secret-key" in log_messages[0]
+    assert "TELEGRAM_BOT_TOKEN=[REDACTED]" in log_messages[0]
+    assert "API_KEY=[REDACTED]" in log_messages[0]
+    assert "real-secret-token" not in log_messages[0]
+    assert "super-secret-key" not in log_messages[0]
 
 
 def test_load_environment_reads_optional_infra_runtime_env(tmp_path: Path, monkeypatch) -> None:

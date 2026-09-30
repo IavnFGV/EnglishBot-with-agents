@@ -107,6 +107,10 @@ async def start_homework(
         )
         return
 
+    from .mini_app_handlers import offer_training_interfaces
+    if await offer_training_interfaces(callback.message, callback.from_user.id):
+        return
+
     if dialog_manager is not None:
         await start_training_dialog(callback.message, dialog_manager, callback.from_user.id)
         return

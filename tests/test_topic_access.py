@@ -94,6 +94,15 @@ def test_start_topic_training_session_uses_family_topic_items(tmp_path: Path) ->
     assert active_session["family_homework_assignment_id"] is None
 
 
+def test_reopening_same_topic_resumes_existing_session(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    _, _, child, topic_id = seed_family_topic()
+    first = start_topic_training_session(child.id, topic_id)
+    second = start_topic_training_session(child.id, topic_id)
+    assert second["session_id"] == first["session_id"]
+    assert second["resumed"] is True
+
+
 def test_start_topic_training_session_rejects_user_from_other_family(tmp_path: Path) -> None:
     setup_db(tmp_path)
     _, _, _, topic_id = seed_family_topic()

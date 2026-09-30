@@ -48,6 +48,7 @@ def create_training_session_for_learning_items(
     telegram_user_id: int,
     learning_item_ids: list[int],
     family_homework_assignment_id: int | None = None,
+    source_topic_id: int | None = None,
 ) -> dict[str, object]:
     if not learning_item_ids:
         raise NoLearningItemsError
@@ -76,6 +77,7 @@ def create_training_session_for_learning_items(
             INSERT INTO training_sessions (
                 telegram_user_id,
                 family_homework_assignment_id,
+                source_topic_id,
                 current_index,
                 correct_answers,
                 total_questions,
@@ -83,11 +85,12 @@ def create_training_session_for_learning_items(
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, 0, 0, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?)
             """,
             (
                 telegram_user_id,
                 family_homework_assignment_id,
+                source_topic_id,
                 len(item_snapshots),
                 ACTIVE_STATUS,
                 timestamp,
@@ -143,10 +146,12 @@ def get_active_training_session(telegram_user_id: int) -> sqlite3.Row | None:
                 id,
                 telegram_user_id,
                 family_homework_assignment_id,
+                source_topic_id,
                 current_index,
                 correct_answers,
                 homework_correct_streak,
                 homework_hard_mode,
+                question_version,
                 total_questions,
                 progress_message_id,
                 current_question_message_id,
@@ -171,10 +176,12 @@ def get_training_session(session_id: int) -> sqlite3.Row | None:
                 id,
                 telegram_user_id,
                 family_homework_assignment_id,
+                source_topic_id,
                 current_index,
                 correct_answers,
                 homework_correct_streak,
                 homework_hard_mode,
+                question_version,
                 total_questions,
                 progress_message_id,
                 current_question_message_id,
@@ -317,6 +324,7 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
         "session_item_id": int(item_snapshot["id"]),
         "learning_item_id": int(item_snapshot["learning_item_id"]),
         "current_index": int(session["current_index"]),
+        "question_version": int(session["question_version"]),
         "question_number": int(session["current_index"]) + 1,
         "total_questions": int(session["total_questions"]),
         "completed_items": _count_completed_session_items(int(session["id"])),
@@ -529,6 +537,7 @@ def skip_optional_hard(telegram_user_id: int) -> dict[str, object] | None:
             UPDATE training_sessions
             SET homework_correct_streak = 0,
                 homework_hard_mode = 0,
+                question_version = question_version + 1,
                 updated_at = ?
             WHERE id = ?
             """,
@@ -682,6 +691,7 @@ def _update_session_after_answer(
             SET current_index = ?,
                 correct_answers = ?,
                 status = ?,
+                question_version = question_version + 1,
                 updated_at = ?
             WHERE id = ?
             """,
@@ -977,6 +987,10 @@ def _update_answer_state(session_item_id: int, answer_state: str) -> None:
             WHERE id = ?
             """,
             (answer_state, session_item_id),
+        )
+        connection.execute(
+            "UPDATE training_sessions SET question_version = question_version + 1 WHERE id = (SELECT session_id FROM training_session_items WHERE id = ?)",
+            (session_item_id,),
         )
 
 

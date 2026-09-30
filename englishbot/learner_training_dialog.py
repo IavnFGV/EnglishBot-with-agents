@@ -34,6 +34,7 @@ from .training_handlers import (
 )
 from .tts import TTSVoiceCatalog, build_tts_client, is_tts_enabled
 from .user_profiles import get_user_tts_voice_id, set_user_tts_voice_id
+from .mini_app import question_token
 
 
 DEFAULT_VOICE_OPTION_ID = "__default__"
@@ -48,6 +49,14 @@ def _get_user_id(dialog_manager: DialogManager) -> int:
     if dialog_manager.event.from_user is None:
         raise RuntimeError("Dialog event user is missing")
     return int(dialog_manager.event.from_user.id)
+
+
+def _is_current_dialog_question(dialog_manager: DialogManager, user_id: int) -> bool:
+    displayed_token = dialog_manager.dialog_data.get("question_token")
+    if displayed_token is None:
+        return True
+    question = get_current_question(user_id)
+    return question is not None and displayed_token == question_token(question)
 
 
 def _build_question_media(question: dict[str, object] | None) -> MediaAttachment | None:
@@ -198,6 +207,7 @@ async def get_quiz_window_data(
         }
 
     exercise_type = str(question.get("exercise_type") or "")
+    dialog_manager.dialog_data["question_token"] = question_token(question)
     return {
         "screen_text": render_question_text(
             telegram_user_id,
@@ -312,6 +322,9 @@ async def _submit_easy_answer(
 ) -> None:
     if callback.from_user is None or callback.message is None:
         return
+    if not _is_current_dialog_question(dialog_manager, callback.from_user.id):
+        await dialog_manager.update({})
+        return
     session = get_active_training_session(callback.from_user.id)
     question = get_current_question(callback.from_user.id)
     if session is None or question is None:
@@ -342,6 +355,9 @@ async def _add_medium_letter(
 ) -> None:
     if callback.from_user is None or callback.message is None or not letter_index.isdigit():
         return
+    if not _is_current_dialog_question(dialog_manager, callback.from_user.id):
+        await dialog_manager.update({})
+        return
     question = get_current_question(callback.from_user.id)
     if question is None:
         return
@@ -366,6 +382,9 @@ async def _backspace_medium_answer(
 ) -> None:
     if callback.from_user is None:
         return
+    if not _is_current_dialog_question(dialog_manager, callback.from_user.id):
+        await dialog_manager.update({})
+        return
     refreshed_question = pop_medium_answer_letter(callback.from_user.id)
     if refreshed_question is None:
         return
@@ -379,6 +398,9 @@ async def _check_medium_answer(
     dialog_manager: DialogManager,
 ) -> None:
     if callback.from_user is None or callback.message is None:
+        return
+    if not _is_current_dialog_question(dialog_manager, callback.from_user.id):
+        await dialog_manager.update({})
         return
     session = get_active_training_session(callback.from_user.id)
     question = get_current_question(callback.from_user.id)
@@ -403,6 +425,9 @@ async def _skip_hard_answer(
 ) -> None:
     if callback.from_user is None or callback.message is None:
         return
+    if not _is_current_dialog_question(dialog_manager, callback.from_user.id):
+        await dialog_manager.update({})
+        return
     session = get_active_training_session(callback.from_user.id)
     if session is None:
         return
@@ -424,6 +449,9 @@ async def _submit_typed_answer(
     dialog_manager: DialogManager,
 ) -> None:
     if message.from_user is None or message.text is None or message.text.startswith("/"):
+        return
+    if not _is_current_dialog_question(dialog_manager, message.from_user.id):
+        await dialog_manager.update({})
         return
     session = get_active_training_session(message.from_user.id)
     question = get_current_question(message.from_user.id)

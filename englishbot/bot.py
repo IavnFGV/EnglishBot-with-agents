@@ -37,6 +37,7 @@ from . import teacher_assignment_handlers  # noqa: F401
 from . import teacher_content_handlers  # noqa: F401
 from . import topic_access_handlers  # noqa: F401
 from . import training_handlers  # noqa: F401
+from . import mini_app_handlers  # noqa: F401
 
 
 logger = logging.getLogger(__name__)

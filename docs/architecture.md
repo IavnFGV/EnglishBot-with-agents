@@ -20,7 +20,7 @@
 - Family-first workflows: `topic_access.py`, `homework.py`, `teacher_assignments.py`, `teacher_content.py`, `bulk_edit.py`, `workbook_export.py`, `workbook_import.py`
 - Telegram orchestration: `*_handlers.py`
 - Multi-step Telegram UI: `learner_training_dialog.py`, `homework_dialog.py`, `teacher_assignment_dialog.py`, `teacher_content_dialog.py`
-- Operations: `logging_setup.py`, `build_info.py`, `status_server.py`
+- Operations and optional learner HTTP UI: `logging_setup.py`, `build_info.py`, `status_server.py`, `mini_app.py`, `mini_app_handlers.py`, `mini_app_static/`
 
 ## Data ownership boundaries
 - SQLite is the runtime source of truth.
@@ -41,6 +41,7 @@
 - Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`.
 - Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`; the active `/learn` and homework quiz surfaces now render through a shared learner `aiogram-dialog` shell with reusable inline TTS controls.
 - Family homework uses `training_sessions.family_homework_assignment_id` as the only active homework session link, while the staged exercise engine remains shared.
+- The optional Mini App serves static HTML/CSS/JavaScript and authenticated learner API routes from the existing status-server process. Telegram and HTTP actions both use `training.py` and one SQLite session; `question_version` detects stale answers and `source_topic_id` supports topic resume.
 
 ## Business logic vs Telegram/UI
 - Business logic belongs in focused domain modules under `englishbot/`.

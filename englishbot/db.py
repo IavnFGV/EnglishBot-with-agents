@@ -790,10 +790,12 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 telegram_user_id INTEGER NOT NULL,
                 family_homework_assignment_id INTEGER,
+                source_topic_id INTEGER,
                 current_index INTEGER NOT NULL DEFAULT 0,
                 correct_answers INTEGER NOT NULL DEFAULT 0,
                 homework_correct_streak INTEGER NOT NULL DEFAULT 0,
                 homework_hard_mode INTEGER NOT NULL DEFAULT 0,
+                question_version INTEGER NOT NULL DEFAULT 0,
                 total_questions INTEGER NOT NULL,
                 progress_message_id INTEGER,
                 current_question_message_id INTEGER,
@@ -876,6 +878,8 @@ def init_db() -> None:
                 ADD COLUMN family_homework_assignment_id INTEGER
                 """
             )
+        if "source_topic_id" not in training_session_columns:
+            connection.execute("ALTER TABLE training_sessions ADD COLUMN source_topic_id INTEGER")
         if "progress_message_id" not in training_session_columns:
             connection.execute(
                 """
@@ -911,6 +915,17 @@ def init_db() -> None:
                 ADD COLUMN homework_hard_mode INTEGER NOT NULL DEFAULT 0
                 """
             )
+        if "question_version" not in training_session_columns:
+            connection.execute(
+                "ALTER TABLE training_sessions ADD COLUMN question_version INTEGER NOT NULL DEFAULT 0"
+            )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS mini_app_completion_notifications (
+                session_id INTEGER PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES training_sessions (id)
+            )"""
+        )
         connection.execute(
             """
             UPDATE training_sessions

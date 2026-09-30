@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-29
+- Added an opt-in learner Mini App on the existing internal HTTP server. `/learn`, topic launches, and homework launches offer Mini App or Telegram training when `ENGLISHBOT_MINI_APP_URL` is set; both use the same SQLite training session.
+- Added signed Telegram `initData` validation, session and family authorization, question-version checks, authenticated image and TTS endpoints, a small mobile frontend, and one-time Mini App completion notices. Startup environment logging now redacts secrets.
+
 ## 2026-09-24
 - Workbook asset preparation failures now identify the exact spreadsheet row, word, field (`image_ref` or `audio_ref`), offending value, and original failure reason in the Telegram bulk-edit response, so blocked URLs and invalid media can be corrected directly.
 - Added a registered, localized `/version` command that reports the deployed version, shortened Git commit, UTC build time, and environment from the existing build metadata.
