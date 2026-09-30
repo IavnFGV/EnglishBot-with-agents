@@ -6,7 +6,12 @@ main { max-width: 520px; min-height: 100dvh; margin: auto; padding: max(18px, en
 .bar { height: 12px; background: var(--tg-theme-secondary-bg-color, #e9eef4); border-radius: 99px; overflow: hidden; }
 .bar span { display: block; height: 100%; background: var(--tg-theme-button-color, #3390ec); transition: width .2s; }
 .card { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; }
-.picture { max-width: min(75vw, 310px); max-height: 28vh; object-fit: contain; border-radius: 18px; }
+.picture-frame { width: min(100%, 340px); height: clamp(150px, 28vh, 220px); display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 18px; background: var(--tg-theme-secondary-bg-color, #e9eef4); }
+.picture { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 18px; }
+.picture-placeholder { width: 174px; max-width: 60%; height: auto; opacity: .8; }
+.picture-spinner { width: 42px; height: 42px; border: 5px solid var(--tg-theme-hint-color, #a4b1bf); border-top-color: var(--tg-theme-button-color, #3390ec); border-radius: 50%; animation: picture-spin .8s linear infinite; }
+@keyframes picture-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .picture-spinner { animation: none; } }
 .prompt { font-size: clamp(1.6rem, 7vw, 2.6rem); font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
 .hint { font-size: 1.2rem; opacity: .8; }
 .choices { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

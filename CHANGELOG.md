@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-09-30
+- Mini App question cards now show a delayed loading spinner while an image downloads or decodes and display the existing `assets/images/no-image.png` placeholder when the item has no image or loading fails.
+
 ## 2026-09-29
 - Added an opt-in learner Mini App on the existing internal HTTP server. `/learn`, topic launches, and homework launches offer Mini App or Telegram training when `ENGLISHBOT_MINI_APP_URL` is set; both use the same SQLite training session.
 - Added signed Telegram `initData` validation, session and family authorization, question-version checks, authenticated image and TTS endpoints, a small mobile frontend, and one-time Mini App completion notices. Startup environment logging now redacts secrets.

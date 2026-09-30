@@ -71,14 +71,41 @@ async function act(action, value) {
   } finally { busy = false; }
 }
 
-async function loadImage(assetId, node) {
-  if (imageCache.has(assetId)) { node.src = imageCache.get(assetId); return; }
+function showFallback(frame) {
+  const image = el('img', 'picture picture-placeholder');
+  image.src = '/mini-app/no-image.png';
+  image.alt = '';
+  frame.replaceChildren(image);
+}
+
+async function loadImage(assetId, frame) {
+  if (!assetId) { showFallback(frame); return; }
+  const spinnerTimer = setTimeout(() => {
+    if (frame.isConnected) {
+      const spinner = el('div', 'picture-spinner');
+      spinner.setAttribute('role', 'status');
+      spinner.setAttribute('aria-label', t('loading'));
+      frame.replaceChildren(spinner);
+    }
+  }, 150);
+  let url = imageCache.get(assetId);
   try {
-    const blob = await (await api(`/media/${assetId}`)).blob();
-    const url = URL.createObjectURL(blob);
+    if (!url) {
+      const blob = await (await api(`/media/${assetId}`)).blob();
+      url = URL.createObjectURL(blob);
+    }
+    const image = el('img', 'picture');
+    image.src = url;
+    await image.decode();
     imageCache.set(assetId, url);
-    if (node.isConnected) node.src = url;
-  } catch (_) { node.remove(); }
+    if (frame.isConnected) frame.replaceChildren(image);
+  } catch (_) {
+    if (url) {
+      imageCache.delete(assetId);
+      URL.revokeObjectURL(url);
+    }
+    if (frame.isConnected) showFallback(frame);
+  } finally { clearTimeout(spinnerTimer); }
 }
 
 async function listen() {
@@ -119,12 +146,9 @@ function render() {
   fill.style.width = `${100 * q.completed / Math.max(q.total, 1)}%`;
   bar.append(fill); app.append(bar);
   const card = el('div', 'card');
-  if (q.image_asset_id) {
-    const img = el('img', 'picture');
-    img.alt = '';
-    card.append(img);
-    loadImage(q.image_asset_id, img);
-  }
+  const pictureFrame = el('div', 'picture-frame');
+  card.append(pictureFrame);
+  loadImage(q.image_asset_id, pictureFrame);
   card.append(el('div', 'prompt', q.prompt));
   if (q.hint) card.append(el('div', 'hint', q.hint));
   if (q.type === 'typed_answer' && q.first_letter) card.append(el('div', 'hint', t('starts', { letter: q.first_letter })));

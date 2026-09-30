@@ -152,6 +152,22 @@ def test_media_rejects_linked_path_outside_assets(tmp_path: Path) -> None:
     assert error_code(lambda: safe_media_path(user_id, session_id, asset_id, "image")) == "media_not_found"
 
 
+def test_no_image_placeholder_uses_existing_runtime_asset(tmp_path: Path, monkeypatch) -> None:
+    runtime_image = tmp_path / "assets" / "images" / "no-image.png"
+    runtime_image.parent.mkdir(parents=True)
+    runtime_image.write_bytes((Path(__file__).resolve().parents[1] / "assets/images/no-image.png").read_bytes())
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "data" / "englishbot.sqlite3")
+
+    async def request():
+        reader = asyncio.StreamReader()
+        reader.feed_eof()
+        return await _mini_app_response("GET", "/mini-app/no-image.png", {}, reader, None)
+
+    response = asyncio.run(request())
+    assert b"Content-Type: image/png" in response
+    assert response.endswith(runtime_image.read_bytes())
+
+
 def test_homework_session_checks_current_assignment_owner(tmp_path: Path) -> None:
     db.DB_PATH = tmp_path / "homework-mini.sqlite3"
     db.init_db()

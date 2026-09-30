@@ -73,7 +73,7 @@ def _json_response(status: int, value: dict[str, object]) -> bytes:
 
 async def _mini_app_response(method: str, path: str, headers: dict[str, str], reader: asyncio.StreamReader, bot) -> bytes:
     from .config import load_config, get_tts_base_url
-    from .assets import resolve_runtime_asset_path
+    from .assets import NO_IMAGE_PLACEHOLDER_PATH, resolve_runtime_asset_path
     from .mini_app import MiniAppError, apply_action, authorize_session, claim_completion_notification, interface_labels, safe_media_path, session_state, validate_init_data
     from .training import get_current_question, get_training_session
     from .tts import build_tts_client, get_or_create_learning_item_tts_variant, TTSClientError
@@ -86,6 +86,13 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
         name = path.rsplit("/", 1)[-1]
         content_type = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/css; charset=utf-8"
         return _response(200, (MINI_APP_DIR / name).read_bytes(), content_type, "public, max-age=3600")
+    if path == "/mini-app/no-image.png" and method == "GET":
+        placeholder_path = resolve_runtime_asset_path(NO_IMAGE_PLACEHOLDER_PATH)
+        try:
+            image_bytes = await asyncio.to_thread(placeholder_path.read_bytes)
+        except OSError as exc:
+            raise MiniAppError("media_not_found", 404) from exc
+        return _response(200, image_bytes, "image/png", "public, max-age=3600")
     parts = path.strip("/").split("/")
     if len(parts) < 4 or parts[:3] != ["mini-app", "api", "sessions"]:
         raise MiniAppError("session_not_found", 404)

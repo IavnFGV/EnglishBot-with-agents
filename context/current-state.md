@@ -127,7 +127,7 @@
 - New commands must be added through `englishbot/command_registry.py`.
 
 ## Important current limitations
-- The learner Mini App is opt-in through `ENGLISHBOT_MINI_APP_URL`; `/learn`, topics, and homework can resume the same SQLite session across Telegram and Mini App. There is no webhook runtime or required AI/TTS dependency in core flows.
+- The learner Mini App is opt-in through `ENGLISHBOT_MINI_APP_URL`; `/learn`, topics, and homework resume one SQLite session across interfaces. Its image card shows a loading indicator for delayed images and the existing no-image asset when absent or unavailable. There is no webhook runtime or required AI/TTS dependency in core flows.
 - No diff-based publish sync, content versioning, or back-sync from student workspaces.
 - No hard delete lifecycle for learning content.
 - No deep-link driven navigation.
