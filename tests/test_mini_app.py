@@ -168,6 +168,16 @@ def test_no_image_placeholder_uses_existing_runtime_asset(tmp_path: Path, monkey
     assert response.endswith(runtime_image.read_bytes())
 
 
+def test_mini_app_script_refreshes_after_deploy() -> None:
+    async def request():
+        reader = asyncio.StreamReader()
+        reader.feed_eof()
+        return await _mini_app_response("GET", "/mini-app/app.js", {}, reader, None)
+
+    response = asyncio.run(request())
+    assert b"Cache-Control: no-store" in response
+
+
 def test_homework_session_checks_current_assignment_owner(tmp_path: Path) -> None:
     db.DB_PATH = tmp_path / "homework-mini.sqlite3"
     db.init_db()

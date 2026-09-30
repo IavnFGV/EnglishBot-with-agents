@@ -85,7 +85,7 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
     if path in {"/mini-app/app.js", "/mini-app/style.css"} and method == "GET":
         name = path.rsplit("/", 1)[-1]
         content_type = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/css; charset=utf-8"
-        return _response(200, (MINI_APP_DIR / name).read_bytes(), content_type, "public, max-age=3600")
+        return _response(200, (MINI_APP_DIR / name).read_bytes(), content_type)
     if path == "/mini-app/no-image.png" and method == "GET":
         placeholder_path = resolve_runtime_asset_path(NO_IMAGE_PLACEHOLDER_PATH)
         try:
