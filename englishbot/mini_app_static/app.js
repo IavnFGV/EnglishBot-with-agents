@@ -161,8 +161,9 @@ function render() {
     app.append(el('div', 'answer', q.answer_mask));
     const letters = el('div', 'letters');
     [...q.letters].forEach((letter, index) => {
-      const choice = button(letter, 'add', index);
-      choice.disabled = q.selected.includes(index) || letter === ' ';
+      const selected = q.selected.includes(index);
+      const choice = button(selected ? '_' : letter, 'add', index);
+      choice.disabled = selected || letter === ' ';
       letters.append(choice);
     });
     app.append(letters);

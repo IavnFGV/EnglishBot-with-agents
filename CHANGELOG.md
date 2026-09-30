@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-09-30
+- Mini App medium exercise buttons show an underscore after a letter is selected and restore the letter after Backspace.
 - Mini App question cards now show a delayed loading spinner while an image downloads or decodes and display the existing `assets/images/no-image.png` placeholder when the item has no image or loading fails.
 
 ## 2026-09-29
