@@ -90,6 +90,23 @@ def test_medium_edits_change_question_version(tmp_path: Path) -> None:
     assert popped["token"] != added["token"]
 
 
+def test_medium_selection_can_be_saved_in_one_request(tmp_path: Path) -> None:
+    user_id, session_id = seed(tmp_path)
+    while get_current_question(user_id)["exercise_type"] != "jumbled_letters":
+        question = get_current_question(user_id)
+        submit_training_answer(user_id, str(question["expected_answer"]))
+    first = session_state(user_id, session_id)["question"]
+    selected = [0, 1]
+    saved = apply_action(user_id, session_id, first["token"], "set_medium", selected)["question"]
+    assert saved["selected"] == selected
+    assert saved["token"] != first["token"]
+    assert error_code(lambda: apply_action(user_id, session_id, first["token"], "set_medium", [0])) == "stale_question"
+    assert error_code(lambda: apply_action(user_id, session_id, saved["token"], "set_medium", [0, 0])) == "invalid_answer"
+    assert error_code(lambda: apply_action(user_id, session_id, saved["token"], "set_medium", [999])) == "invalid_answer"
+    cleared = apply_action(user_id, session_id, saved["token"], "set_medium", [])["question"]
+    assert cleared["selected"] == []
+
+
 def test_medium_check_and_hard_skip_use_shared_training_rules(tmp_path: Path) -> None:
     user_id, session_id = seed(tmp_path)
     with db.get_connection() as connection:
@@ -176,6 +193,24 @@ def test_mini_app_script_refreshes_after_deploy() -> None:
 
     response = asyncio.run(request())
     assert b"Cache-Control: no-store" in response
+
+
+def test_mini_app_page_versions_static_assets() -> None:
+    async def request():
+        reader = asyncio.StreamReader()
+        reader.feed_eof()
+        return await _mini_app_response("GET", "/mini-app", {}, reader, None)
+
+    response = asyncio.run(request())
+    assert b"/mini-app/app.js?v=" in response
+    assert b"/mini-app/style.css?v=" in response
+
+
+def test_mini_app_launch_url_changes_with_deployed_commit(monkeypatch) -> None:
+    monkeypatch.setenv("ENGLISHBOT_GIT_COMMIT", "abcdef1234567890")
+    assert build_mini_app_url("https://example.test/mini-app?session=1&v=old", 42) == (
+        "https://example.test/mini-app?session=42&v=abcdef123456"
+    )
 
 
 def test_homework_session_checks_current_assignment_owner(tmp_path: Path) -> None:

@@ -21,6 +21,7 @@ from .training import (
     get_current_question,
     get_training_session,
     pop_medium_answer_letter,
+    set_medium_answer_letters,
     skip_optional_hard,
     submit_medium_answer,
     submit_training_answer,
@@ -185,6 +186,14 @@ def apply_action(user_id: int, session_id: int, token: str, action: str, value: 
         result = None
     elif action == "backspace" and exercise_type == "jumbled_letters":
         pop_medium_answer_letter(user_id)
+        result = None
+    elif action == "set_medium" and exercise_type == "jumbled_letters":
+        if not isinstance(value, list) or any(not isinstance(index, int) or isinstance(index, bool) for index in value):
+            raise MiniAppError("invalid_answer")
+        try:
+            set_medium_answer_letters(user_id, value)
+        except ValueError as exc:
+            raise MiniAppError("invalid_answer") from exc
         result = None
     elif action == "check" and exercise_type == "jumbled_letters":
         result = submit_medium_answer(user_id)

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -81,7 +82,11 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
     from .i18n import translate_for_user
 
     if path in {"/mini-app", "/mini-app/"} and method == "GET":
-        return _response(200, (MINI_APP_DIR / "index.html").read_bytes(), "text/html; charset=utf-8")
+        page = (MINI_APP_DIR / "index.html").read_bytes()
+        for name in ("app.js", "style.css"):
+            digest = hashlib.sha256((MINI_APP_DIR / name).read_bytes()).hexdigest()[:12]
+            page = page.replace(f"/mini-app/{name}\"".encode(), f"/mini-app/{name}?v={digest}\"".encode())
+        return _response(200, page, "text/html; charset=utf-8")
     if path in {"/mini-app/app.js", "/mini-app/style.css"} and method == "GET":
         name = path.rsplit("/", 1)[-1]
         content_type = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/css; charset=utf-8"

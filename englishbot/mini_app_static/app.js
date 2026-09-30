@@ -4,6 +4,12 @@ const session = Number(new URLSearchParams(location.search).get('session'));
 const initData = webApp?.initData || '';
 let state = null;
 let busy = false;
+let mediumSelected = [];
+let mediumMask = '';
+let mediumDirty = false;
+let mediumSave = null;
+let mediumTimer = null;
+let mediumChecking = false;
 const imageCache = new Map();
 let labels = {};
 const offlineLabels = { connection: 'Connection lost. Your progress is saved.', retry: 'Try again', expired: 'Please reopen the game from Telegram.' };
@@ -125,6 +131,68 @@ function button(text, action, value, className = '') {
   return node;
 }
 
+function drawMediumSelection() {
+  const answer = app.querySelector('.answer');
+  const slots = mediumMask.split(' ');
+  const chosen = mediumSelected.map(index => [...state.question.letters][index]);
+  let position = 0;
+  answer.textContent = slots.map(slot => slot ? (chosen[position++] || '_') : '').join(' ');
+  app.querySelectorAll('.letters button').forEach((choice, index) => {
+    const selected = mediumSelected.includes(index);
+    choice.textContent = selected ? '_' : [...state.question.letters][index];
+    choice.disabled = selected || choice.textContent === ' ';
+  });
+}
+
+async function flushMedium() {
+  if (mediumSave) {
+    await mediumSave;
+    return flushMedium();
+  }
+  if (!mediumDirty) return;
+  const selected = [...mediumSelected];
+  mediumDirty = false;
+  mediumSave = (async () => {
+    state = await (await api('/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: state.question.token, action: 'set_medium', value: selected })
+    })).json();
+  })();
+  try { await mediumSave; }
+  finally { mediumSave = null; }
+  if (mediumDirty) return flushMedium();
+  render();
+}
+
+function editMedium(action, index) {
+  if (busy || mediumChecking) return;
+  if (action === 'add') {
+    if (mediumSelected.includes(index) || mediumSelected.length >= mediumMask.split(' ').filter(Boolean).length) return;
+    mediumSelected.push(index);
+  } else if (mediumSelected.length) mediumSelected.pop();
+  else return;
+  drawMediumSelection();
+  mediumDirty = true;
+  clearTimeout(mediumTimer);
+  mediumTimer = setTimeout(() => flushMedium().catch(showError), 200);
+}
+
+async function checkMedium() {
+  if (busy || mediumChecking) return;
+  mediumChecking = true;
+  clearTimeout(mediumTimer);
+  app.querySelectorAll('button').forEach(choice => choice.disabled = true);
+  try {
+    await flushMedium();
+    mediumChecking = false;
+    await act('check');
+  } catch (error) {
+    mediumChecking = false;
+    showError(error);
+  }
+}
+
 function render() {
   app.replaceChildren();
   if (state?.status === 'completed') {
@@ -158,17 +226,24 @@ function render() {
     q.options.forEach((option, index) => choices.append(button(option, 'easy', index)));
     app.append(choices);
   } else if (q.type === 'jumbled_letters') {
+    mediumSelected = [...q.selected];
+    mediumMask = q.answer_mask.split(' ').map(slot => slot ? '_' : '').join(' ');
     app.append(el('div', 'answer', q.answer_mask));
     const letters = el('div', 'letters');
     [...q.letters].forEach((letter, index) => {
       const selected = q.selected.includes(index);
-      const choice = button(selected ? '_' : letter, 'add', index);
+      const choice = el('button', '', selected ? '_' : letter);
+      choice.onclick = () => editMedium('add', index);
       choice.disabled = selected || letter === ' ';
       letters.append(choice);
     });
     app.append(letters);
     const actions = el('div', 'actions');
-    actions.append(button('⌫', 'backspace', null, 'secondary'), button(t('check'), 'check'));
+    const backspace = el('button', 'secondary', '⌫');
+    backspace.onclick = () => editMedium('backspace');
+    const check = el('button', '', t('check'));
+    check.onclick = checkMedium;
+    actions.append(backspace, check);
     app.append(actions);
   } else {
     const input = el('input', 'answer');

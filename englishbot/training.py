@@ -493,6 +493,25 @@ def pop_medium_answer_letter(telegram_user_id: int) -> dict[str, object] | None:
     return get_current_question(telegram_user_id)
 
 
+def set_medium_answer_letters(
+    telegram_user_id: int,
+    selected_letter_indexes: list[int],
+) -> dict[str, object] | None:
+    question = get_current_question(telegram_user_id)
+    if question is None or str(question["exercise_type"]) != "jumbled_letters":
+        return None
+    letters = str(question["jumbled_letters"] or "")
+    if (
+        len(selected_letter_indexes) > _count_selectable_characters(str(question["expected_answer"]))
+        or len(set(selected_letter_indexes)) != len(selected_letter_indexes)
+        or any(index < 0 or index >= len(letters) or letters[index].isspace() for index in selected_letter_indexes)
+    ):
+        raise ValueError("invalid medium selection")
+    if selected_letter_indexes != question["selected_letter_indexes"]:
+        _update_answer_state(int(question["session_item_id"]), _serialize_answer_state(selected_letter_indexes))
+    return get_current_question(telegram_user_id)
+
+
 def submit_medium_answer(telegram_user_id: int) -> dict[str, object] | None:
     question = get_current_question(telegram_user_id)
     if question is None or str(question["exercise_type"]) != "jumbled_letters":

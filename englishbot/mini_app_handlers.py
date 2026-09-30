@@ -5,6 +5,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 from aiogram_dialog import DialogManager
 
+from .build_info import load_build_info
 from .config import get_mini_app_url
 from .i18n import translate_for_user
 from .learner_training_dialog import start_training_dialog
@@ -18,8 +19,11 @@ CHOOSE_TELEGRAM_PREFIX = "mini:telegram:"
 
 def build_mini_app_url(base_url: str, session_id: int) -> str:
     parsed = urlsplit(base_url)
-    query = [(key, value) for key, value in parse_qsl(parsed.query) if key != "session"]
+    query = [(key, value) for key, value in parse_qsl(parsed.query) if key not in {"session", "v"}]
     query.append(("session", str(session_id)))
+    commit = load_build_info().git_commit
+    if commit != "unknown":
+        query.append(("v", commit[:12]))
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), ""))
 
 
