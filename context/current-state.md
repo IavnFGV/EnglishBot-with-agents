@@ -128,7 +128,7 @@
 - New commands must be added through `englishbot/command_registry.py`.
 
 ## Important current limitations
-- The learner Mini App is opt-in through `ENGLISHBOT_MINI_APP_URL`; `/learn`, topics, and homework resume one SQLite session across interfaces. Its image card shows a loading indicator for delayed images and the existing no-image asset when absent or unavailable. Homework shows the per-word completion wheel after each answer, and the round summary counts completed, deferred, and assisted words. Medium letter taps update immediately, batch their SQLite save, and hide selected letters with underscores. Launch and static asset URLs change with deployed code. There is no webhook runtime or required AI/TTS dependency in core flows.
+- The learner Mini App is opt-in through `ENGLISHBOT_MINI_APP_URL`; `/learn`, topics, and homework resume one SQLite session across interfaces. Its image card shows a loading indicator for delayed images and the existing no-image asset when absent or unavailable. Homework shows the per-word completion wheel after each answer, and the round summary counts completed, deferred, and assisted words. Medium letter taps update immediately, batch their SQLite save, hide selected letters with underscores, and preserve visible word gaps in phrase masks. Launch and static asset URLs change with deployed code. There is no webhook runtime or required AI/TTS dependency in core flows.
 - No diff-based publish sync, content versioning, or back-sync from student workspaces.
 - No hard delete lifecycle for learning content.
 - No deep-link driven navigation.

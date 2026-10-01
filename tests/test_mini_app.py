@@ -88,6 +88,23 @@ def test_medium_edits_change_question_version(tmp_path: Path) -> None:
     assert popped["token"] != added["token"]
 
 
+def test_medium_phrase_preserves_word_boundary_in_answer_mask(tmp_path: Path) -> None:
+    db.DB_PATH = tmp_path / "medium-phrase.sqlite3"
+    db.init_db()
+    user = User(id=712, is_bot=False, first_name="Learner")
+    db.save_user(user)
+    family = create_family("Home", user.id)
+    lexeme_id = create_lexeme("action figure")
+    item_id = create_family_learning_item(int(family["id"]), lexeme_id, "action figure")
+    create_learning_item_translation(item_id, "ru", "фигурка")
+    session_id = int(create_training_session(user.id, training_mode="medium")["session_id"])
+
+    question = session_state(user.id, session_id)["question"]
+
+    assert "  " in question["answer_mask"]
+    assert " " not in question["letters"]
+
+
 def test_medium_selection_can_be_saved_in_one_request(tmp_path: Path) -> None:
     user_id, session_id = seed(tmp_path, "medium")
     first = session_state(user_id, session_id)["question"]
@@ -199,6 +216,16 @@ def test_mini_app_page_versions_static_assets() -> None:
     response = asyncio.run(request())
     assert b"/mini-app/app.js?v=" in response
     assert b"/mini-app/style.css?v=" in response
+
+
+def test_mini_app_style_preserves_medium_phrase_spacing() -> None:
+    async def request():
+        reader = asyncio.StreamReader()
+        reader.feed_eof()
+        return await _mini_app_response("GET", "/mini-app/style.css", {}, reader, None)
+
+    response = asyncio.run(request())
+    assert b"white-space: pre-wrap" in response
 
 
 def test_mini_app_launch_url_changes_with_deployed_commit(monkeypatch) -> None:

@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-10-01
+- Fixed Mini App medium-mode phrase masks so browsers preserve the wider gap between words instead of collapsing it into the normal spacing between letter slots.
 - Replaced separate staged practice/homework progression with shared easy, medium, and hard modes selected at learner entry or assignment creation. One correct answer completes a word; hard-mode Help opens letters for the same word and records assistance.
 - Words answered incorrectly return after other pending words; three failures defer them for later. Homework remains active and resumes only unfinished words. Telegram and Mini App now report completed, deferred, and assisted counts, and progress wheels count completed words without a streak boost.
 - `/learn` now selects words needing review, then unseen words, then oldest answered words, instead of always taking the first five. Session upgrades preserve current prompts, answers, and stages while disabling legacy boost rules; small dictionaries keep easy multiple-choice cards.

@@ -28,7 +28,7 @@ button:disabled { opacity: .55; }
 .secondary { background: var(--tg-theme-secondary-bg-color, #e9eef4); color: var(--tg-theme-text-color, #18222d); }
 .letters { display: grid; grid-template-columns: repeat(auto-fit, minmax(55px, 1fr)); gap: 9px; width: 100%; }
 .letters button { min-height: 62px; }
-.answer { width: 100%; min-height: 62px; padding: 14px; border: 2px solid var(--tg-theme-button-color, #3390ec); border-radius: 16px; font: inherit; font-size: 1.5rem; text-align: center; color: inherit; background: var(--tg-theme-bg-color, #fff); }
+.answer { width: 100%; min-height: 62px; padding: 14px; border: 2px solid var(--tg-theme-button-color, #3390ec); border-radius: 16px; font: inherit; font-size: 1.5rem; text-align: center; white-space: pre-wrap; color: inherit; background: var(--tg-theme-bg-color, #fff); }
 .actions { display: flex; gap: 10px; width: 100%; }
 .actions button { flex: 1; }
 .feedback { min-height: 1.5em; text-align: center; font-weight: 700; }
