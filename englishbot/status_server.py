@@ -126,12 +126,14 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
             summary = state["summary"]
             session = get_training_session(session_id)
             assignment_id = session["family_homework_assignment_id"] if session else None
-            if assignment_id is None:
-                text = translate_for_user(user_id, "training.summary", feedback="", total_questions=summary["total"], correct_answers=summary["correct"])
-            else:
+            title = translate_for_user(user_id, "training.title")
+            if assignment_id is not None:
                 from .homework import get_assignment
                 assignment = get_assignment(int(assignment_id))
-                text = translate_for_user(user_id, "homework.summary", feedback="", assignment_title=str(assignment["title"] if assignment else ""), total_questions=summary["total"], correct_answers=summary["correct"])
+                title = str(assignment["title"]) if assignment and assignment["title"] else translate_for_user(user_id, "homework.default_title")
+            text = translate_for_user(user_id, "training.round_summary", feedback="", title=title,
+                                      completed=summary["completed"], total=summary["total"],
+                                      deferred=summary["deferred"], assisted=summary["assisted"])
             try:
                 await bot.send_message(user_id, text)
             except Exception:

@@ -39,7 +39,10 @@ from .user_profiles import get_user_tts_voice_id
 from .training import (
     NoLearningItemsError,
     append_medium_answer_letter,
+    TRAINING_MODES,
     create_training_session,
+    get_session_outcome,
+    has_training_content,
     get_session_homework_ref,
     get_active_training_session,
     get_current_question,
@@ -320,7 +323,7 @@ def _build_easy_options_keyboard(question: dict[str, object]) -> InlineKeyboardM
     options = question.get("options")
     if question.get("exercise_type") != "multiple_choice" or not isinstance(options, list):
         return None
-    if len(options) != 3:
+    if not options:
         return None
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -523,21 +526,13 @@ def render_session_summary_text(
     correct_answers: int,
 ) -> str:
     assignment_ref = get_session_homework_ref(session)
-    if assignment_ref is not None:
-        return translate_for_user(
-            telegram_user_id,
-            "homework.summary",
-            feedback=feedback,
-            assignment_title=_resolve_assignment_title(telegram_user_id, assignment_ref),
-            total_questions=total_questions,
-            correct_answers=correct_answers,
-        )
+    outcome = get_session_outcome(int(session["id"]))
     return translate_for_user(
-        telegram_user_id,
-        "training.summary",
+        telegram_user_id, "training.round_summary",
         feedback=feedback,
-        total_questions=total_questions,
-        correct_answers=correct_answers,
+        title=_resolve_assignment_title(telegram_user_id, assignment_ref) if assignment_ref is not None else translate_for_user(telegram_user_id, "training.title"),
+        completed=outcome["completed"], total=total_questions,
+        deferred=outcome["deferred"], assisted=outcome["assisted"],
     )
 
 
@@ -744,6 +739,8 @@ def build_training_feedback_text(
     telegram_user_id: int,
     result: dict[str, object],
 ) -> str:
+    if result.get("deferred"):
+        return translate_for_user(telegram_user_id, "training.deferred")
     if result.get("skipped_hard"):
         return translate_for_user(telegram_user_id, "training.hard_skipped")
     if result["is_correct"]:
@@ -965,35 +962,62 @@ async def learn(message: Message, dialog_manager: DialogManager | None = None) -
         return
 
     save_user(message.from_user)
-    from .config import get_mini_app_url
-    active_session = get_active_training_session(message.from_user.id) if get_mini_app_url() else None
-    active_question = get_current_question(message.from_user.id) if active_session is not None else None
-    try:
-        result = (
-            {"question": active_question}
-            if active_question is not None
-            else create_training_session(message.from_user.id)
-        )
-    except NoLearningItemsError:
+    if not has_training_content(message.from_user.id):
         await message.answer(translate_for_user(message.from_user.id, "training.no_items"))
         return
-
-    question = result["question"]
-    if question is None:
-        await message.answer(translate_for_user(message.from_user.id, "training.start_failed"))
+    active_session = get_active_training_session(message.from_user.id)
+    if active_session is not None and active_session["family_homework_assignment_id"] is None and active_session["source_topic_id"] is None:
+        from .mini_app_handlers import offer_training_interfaces
+        if await offer_training_interfaces(message, message.from_user.id):
+            return
+        if dialog_manager is not None:
+            from .learner_training_dialog import start_training_dialog
+            await start_training_dialog(message, dialog_manager, message.from_user.id)
+        else:
+            await render_started_training_session(message, message.from_user.id)
         return
+    if dialog_manager is not None:
+        from .learner_training_dialog import start_training_mode_dialog
+        await start_training_mode_dialog(message, dialog_manager)
+    else:
+        await message.answer(translate_for_user(message.from_user.id, "training.mode.choose"),
+                             reply_markup=build_training_modes_keyboard(message.from_user.id))
 
+
+def build_training_modes_keyboard(user_id: int, topic_id: int | None = None) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=translate_for_user(user_id, f"training.mode.{mode}"),
+                              callback_data=f"training:mode:{mode}:{topic_id or 0}")]
+        for mode in TRAINING_MODES
+    ])
+
+
+@router.callback_query(lambda callback: callback.data is not None and callback.data.startswith("training:mode:"))
+async def choose_training_mode(callback: CallbackQuery, dialog_manager: DialogManager | None = None) -> None:
+    await callback.answer()
+    if callback.message is None or callback.from_user is None:
+        return
+    parts = callback.data.split(":")
+    if len(parts) != 4 or parts[2] not in TRAINING_MODES or not parts[3].isdigit():
+        return
+    from .topic_access import TopicAccessError, start_topic_training_session
+
+    try:
+        if int(parts[3]):
+            start_topic_training_session(callback.from_user.id, int(parts[3]), training_mode=parts[2])
+        else:
+            create_training_session(callback.from_user.id, training_mode=parts[2])
+    except (NoLearningItemsError, TopicAccessError):
+        await callback.message.answer(translate_for_user(callback.from_user.id, "training.no_items"))
+        return
     from .mini_app_handlers import offer_training_interfaces
-    if await offer_training_interfaces(message, message.from_user.id):
+    if await offer_training_interfaces(callback.message, callback.from_user.id):
         return
-
-    if dialog_manager is None:
-        await render_started_training_session(message, message.from_user.id)
-        return
-
-    from .learner_training_dialog import start_training_dialog
-
-    await start_training_dialog(message, dialog_manager, message.from_user.id)
+    if dialog_manager is not None:
+        from .learner_training_dialog import start_training_dialog
+        await start_training_dialog(callback.message, dialog_manager, callback.from_user.id)
+    else:
+        await render_started_training_session(callback.message, callback.from_user.id)
 
 
 @router.message(

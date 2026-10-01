@@ -1,8 +1,10 @@
+import random
 import sqlite3
+from dataclasses import replace
 
 from .assets import PRIMARY_IMAGE_ROLE, get_learning_item_asset, resolve_asset_ref
 from .db import DEFAULT_HINT_LANGUAGE, get_connection, utc_now
-from .exercises import ExerciseBuildError, ResolvedLearningItem, TranslationEntry, build_exercise
+from .exercises import ResolvedLearningItem, TranslationEntry, build_exercise
 from .families import get_user_family, list_family_learning_items
 from .user_profiles import get_user_hint_language
 from .vocabulary import get_learning_item_with_translations, get_lexeme, list_learning_items
@@ -19,9 +21,8 @@ ITEM_STATUS_WARM_UP = "warm_up"
 ITEM_STATUS_ALMOST = "almost"
 ITEM_STATUS_HARD_CLEAR = "hard_clear"
 ITEM_STATUS_DONE = "done"
-HOMEWORK_BOOST_CORRECT_STREAK = 4
-HOMEWORK_EASY_CORRECT_REQUIRED = 3
-HOMEWORK_MEDIUM_CORRECT_REQUIRED = 2
+TRAINING_MODES = (EASY_STAGE, MEDIUM_STAGE, HARD_STAGE)
+MAX_FAILED_ATTEMPTS = 3
 
 
 class NoLearningItemsError(Exception):
@@ -31,17 +32,43 @@ class NoLearningItemsError(Exception):
 def create_training_session(
     telegram_user_id: int,
     limit: int = DEFAULT_SESSION_SIZE,
+    training_mode: str = EASY_STAGE,
 ) -> dict[str, object]:
     family = get_user_family(telegram_user_id)
     if family is None:
         raise NoLearningItemsError
-    learning_item_ids = [
-        int(row["id"])
-        for row in list_family_learning_items(int(family["id"]))[:limit]
-    ]
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+    items = list_family_learning_items(int(family["id"]))
+    with get_connection() as connection:
+        progress = {
+            int(row["learning_item_id"]): row
+            for row in connection.execute(
+                "SELECT learning_item_id, status, last_answered_at FROM user_progress WHERE telegram_user_id = ?",
+                (telegram_user_id,),
+            )
+        }
+    random.shuffle(items)
+    items.sort(key=lambda item: (
+        0 if int(item["id"]) in progress and progress[int(item["id"])]["status"] == "needs_review" else
+        1 if int(item["id"]) not in progress else 2,
+        str(progress[int(item["id"])]["last_answered_at"] or "") if int(item["id"]) in progress else "",
+    ))
+    learning_item_ids = [int(item["id"]) for item in items[:limit]]
     if not learning_item_ids:
         raise NoLearningItemsError
-    return create_training_session_for_learning_items(telegram_user_id, learning_item_ids)
+    return create_training_session_for_learning_items(telegram_user_id, learning_item_ids, training_mode=training_mode)
+
+
+def has_training_content(telegram_user_id: int) -> bool:
+    family = get_user_family(telegram_user_id)
+    return family is not None and bool(list_family_learning_items(int(family["id"])))
+
+
+def validate_training_mode(training_mode: str) -> str:
+    if training_mode not in TRAINING_MODES:
+        raise ValueError("invalid training mode")
+    return training_mode
 
 
 def create_training_session_for_learning_items(
@@ -49,14 +76,17 @@ def create_training_session_for_learning_items(
     learning_item_ids: list[int],
     family_homework_assignment_id: int | None = None,
     source_topic_id: int | None = None,
+    training_mode: str = EASY_STAGE,
 ) -> dict[str, object]:
+    validate_training_mode(training_mode)
     if not learning_item_ids:
         raise NoLearningItemsError
+    learning_item_ids = list(dict.fromkeys(learning_item_ids))
 
     item_snapshots = [
         _build_item_snapshot(
             int(learning_item_id),
-            EASY_STAGE,
+            training_mode,
             learning_item_ids,
             get_user_hint_language(telegram_user_id),
         )
@@ -78,6 +108,7 @@ def create_training_session_for_learning_items(
                 telegram_user_id,
                 family_homework_assignment_id,
                 source_topic_id,
+                training_mode,
                 current_index,
                 correct_answers,
                 total_questions,
@@ -85,12 +116,13 @@ def create_training_session_for_learning_items(
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?)
             """,
             (
                 telegram_user_id,
                 family_homework_assignment_id,
                 source_topic_id,
+                training_mode,
                 len(item_snapshots),
                 ACTIVE_STATUS,
                 timestamp,
@@ -124,7 +156,7 @@ def create_training_session_for_learning_items(
                     str(snapshot["prompt"]),
                     str(snapshot["expected_answer"]),
                     item_order,
-                    EASY_STAGE,
+                    training_mode,
                 )
                 for item_order, snapshot in enumerate(item_snapshots)
             ],
@@ -147,6 +179,7 @@ def get_active_training_session(telegram_user_id: int) -> sqlite3.Row | None:
                 telegram_user_id,
                 family_homework_assignment_id,
                 source_topic_id,
+                training_mode,
                 current_index,
                 correct_answers,
                 homework_correct_streak,
@@ -177,6 +210,7 @@ def get_training_session(session_id: int) -> sqlite3.Row | None:
                 telegram_user_id,
                 family_homework_assignment_id,
                 source_topic_id,
+                training_mode,
                 current_index,
                 correct_answers,
                 homework_correct_streak,
@@ -209,6 +243,7 @@ def find_latest_incomplete_family_homework_training_session(
                 training_sessions.id,
                 training_sessions.telegram_user_id,
                 training_sessions.family_homework_assignment_id,
+                training_sessions.training_mode,
                 training_sessions.current_index,
                 training_sessions.correct_answers,
                 training_sessions.homework_correct_streak,
@@ -244,8 +279,14 @@ def resume_training_session(session_id: int) -> sqlite3.Row | None:
     if session is None:
         return None
 
+    if session["status"] == COMPLETED_STATUS:
+        with get_connection() as connection:
+            connection.execute(
+                "UPDATE training_session_items SET is_deferred = 0, failed_attempts = 0 WHERE session_id = ? AND is_deferred = 1",
+                (session_id,),
+            )
     current_item = _get_session_learning_item(int(session["id"]), int(session["current_index"]))
-    if current_item is not None and not bool(current_item["is_completed"]):
+    if current_item is not None and not bool(current_item["is_completed"]) and not bool(current_item["is_deferred"]):
         next_item = current_item
     else:
         next_item = _find_next_incomplete_item(int(session["id"]), int(session["current_index"]))
@@ -299,19 +340,16 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
         _mark_session_completed(session)
         return None
 
-    effective_stage = _resolve_effective_stage(session, item_snapshot)
+    effective_stage = str(item_snapshot["current_stage"])
     exercise = _build_session_exercise(
         int(session["id"]),
         int(item_snapshot["learning_item_id"]),
         effective_stage,
         int(session["telegram_user_id"]),
+        item_snapshot,
     )
-    if effective_stage == str(item_snapshot["current_stage"]):
-        prompt_text = str(item_snapshot["prompt_text"]).strip() or exercise.prompt_payload.prompt_text
-        expected_answer = str(item_snapshot["expected_answer"]).strip() or exercise.expected_answer
-    else:
-        prompt_text = exercise.prompt_payload.prompt_text
-        expected_answer = exercise.expected_answer
+    prompt_text = str(item_snapshot["prompt_text"]).strip() or exercise.prompt_payload.prompt_text
+    expected_answer = str(item_snapshot["expected_answer"]).strip() or exercise.expected_answer
     answer_state = str(item_snapshot["answer_state"] or "")
     selected_letter_indexes = _parse_answer_state(answer_state)
     medium_answer = _build_medium_answer(
@@ -344,7 +382,10 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
         "correct_streak": int(item_snapshot["correct_streak"]),
         "easy_correct_count": int(item_snapshot["easy_correct_count"]),
         "medium_correct_count": int(item_snapshot["medium_correct_count"]),
-        "hard_unlocked": bool(item_snapshot["hard_unlocked"]) or bool(session["homework_hard_mode"]),
+        "hard_unlocked": False,
+        "training_mode": session["training_mode"],
+        "used_help": bool(item_snapshot["used_help"]),
+        "failed_attempts": int(item_snapshot["failed_attempts"]),
         "hard_completed": bool(item_snapshot["hard_completed"]),
         "can_skip_hard": effective_stage == HARD_STAGE,
         "is_completed": bool(item_snapshot["is_completed"]),
@@ -363,17 +404,7 @@ def submit_training_answer(
         return None
 
     is_correct = _normalize_answer(answer_text) == _normalize_answer(str(question["expected_answer"]))
-    session_hard_streak = int(session["homework_correct_streak"])
-    session_hard_mode = bool(session["homework_hard_mode"])
-    if not _session_uses_homework_rules(session):
-        next_item_state = _calculate_next_item_state(question, is_correct)
-    else:
-        next_item_state, session_hard_streak, session_hard_mode = _calculate_homework_next_state(
-            question,
-            is_correct,
-            homework_correct_streak=session_hard_streak,
-            homework_hard_mode=session_hard_mode,
-        )
+    next_item_state = _calculate_next_item_state(question, is_correct)
     updated_correct_answers = int(session["correct_answers"]) + (1 if is_correct else 0)
 
     with get_connection() as connection:
@@ -389,7 +420,9 @@ def submit_training_answer(
                 hard_unlocked = ?,
                 hard_completed = ?,
                 answer_state = ?,
-                is_completed = ?
+                is_completed = ?,
+                failed_attempts = ?,
+                is_deferred = ?
             WHERE id = ?
             """,
             (
@@ -403,23 +436,21 @@ def submit_training_answer(
                 1 if next_item_state["hard_completed"] else 0,
                 next_item_state["answer_state"],
                 1 if next_item_state["is_completed"] else 0,
+                next_item_state["failed_attempts"],
+                int(next_item_state["is_deferred"]),
                 int(question["session_item_id"]),
             ),
         )
+        timestamp = utc_now()
         connection.execute(
-            """
-            UPDATE training_sessions
-            SET homework_correct_streak = ?,
-                homework_hard_mode = ?,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                session_hard_streak,
-                1 if session_hard_mode else 0,
-                utc_now(),
-                int(session["id"]),
-            ),
+            """INSERT INTO user_progress (telegram_user_id, learning_item_id, status, correct_streak,
+                last_answered_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(telegram_user_id, learning_item_id) DO UPDATE SET
+                status = excluded.status, correct_streak = excluded.correct_streak,
+                last_answered_at = excluded.last_answered_at, updated_at = excluded.updated_at""",
+            (telegram_user_id, int(question["learning_item_id"]),
+             "done" if is_correct and not question["used_help"] and not question["failed_attempts"] else "needs_review",
+             next_item_state["correct_streak"], timestamp, timestamp, timestamp),
         )
 
     status, next_index = _update_session_after_answer(
@@ -435,6 +466,7 @@ def submit_training_answer(
         "status": status,
         "correct_answers": updated_correct_answers,
         "total_questions": int(session["total_questions"]),
+        "deferred": bool(next_item_state["is_deferred"]),
     }
     if status == COMPLETED_STATUS:
         _mark_homework_assignment_completed(session)
@@ -528,96 +560,28 @@ def submit_medium_answer(telegram_user_id: int) -> dict[str, object] | None:
 def skip_optional_hard(telegram_user_id: int) -> dict[str, object] | None:
     session = get_active_training_session(telegram_user_id)
     question = get_current_question(telegram_user_id)
-    if session is None or question is None or not bool(question["can_skip_hard"]):
+    if session is None or question is None or not question["can_skip_hard"]:
         return None
-
     with get_connection() as connection:
-        if not _session_uses_homework_rules(session):
-            connection.execute(
-                """
-                UPDATE training_session_items
-                SET is_completed = 1,
-                    answer_state = ''
-                WHERE id = ?
-                """,
-                (int(question["session_item_id"]),),
-            )
-        else:
-            connection.execute(
-                """
-                UPDATE training_session_items
-                SET answer_state = ''
-                WHERE id = ?
-                """,
-                (int(question["session_item_id"]),),
-            )
         connection.execute(
-            """
-            UPDATE training_sessions
-            SET homework_correct_streak = 0,
-                homework_hard_mode = 0,
-                question_version = question_version + 1,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (utc_now(), int(session["id"])),
+            "UPDATE training_session_items SET current_stage = ?, used_help = 1, answer_state = '' WHERE id = ?",
+            (MEDIUM_STAGE, int(question["session_item_id"])),
         )
+        connection.execute("UPDATE training_sessions SET question_version = question_version + 1, updated_at = ? WHERE id = ?",
+                           (utc_now(), int(session["id"])))
+    return {"is_correct": True, "expected_answer": question["expected_answer"], "status": ACTIVE_STATUS,
+            "correct_answers": int(session["correct_answers"]), "total_questions": int(session["total_questions"]),
+            "skipped_hard": True, "next_question": get_current_question(telegram_user_id)}
 
-    if session["family_homework_assignment_id"] is None:
-        status, next_index = _update_session_after_answer(
-            session,
-            int(session["correct_answers"]),
-            current_item_order=int(question["current_index"]),
-            item_completed=True,
-        )
-    else:
-        with get_connection() as connection:
-            connection.execute(
-                """
-                UPDATE training_sessions
-                SET current_index = ?,
-                    correct_answers = ?,
-                    status = ?,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    int(question["current_index"]),
-                    int(session["correct_answers"]),
-                    ACTIVE_STATUS,
-                    utc_now(),
-                    int(session["id"]),
-                ),
-            )
-        status = ACTIVE_STATUS
-        next_index = int(question["current_index"])
-    result: dict[str, object] = {
-        "is_correct": True,
-        "expected_answer": question["expected_answer"],
-        "status": status,
-        "correct_answers": int(session["correct_answers"]),
-        "total_questions": int(session["total_questions"]),
-        "skipped_hard": True,
-    }
-    if status == COMPLETED_STATUS:
-        _mark_homework_assignment_completed(session)
-        result["summary"] = {
-            "total_questions": int(session["total_questions"]),
-            "correct_answers": int(session["correct_answers"]),
-        }
-        return result
 
-    next_question = get_current_question(telegram_user_id)
-    if next_question is None:
-        result["status"] = COMPLETED_STATUS
-        result["summary"] = {
-            "total_questions": int(session["total_questions"]),
-            "correct_answers": int(session["correct_answers"]),
-        }
-    else:
-        result["next_question"] = next_question
-        result["current_index"] = next_index
-    return result
+def get_session_outcome(session_id: int) -> dict[str, int]:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT COALESCE(SUM(is_completed), 0) AS completed, COALESCE(SUM(is_deferred), 0) AS deferred, "
+            "COALESCE(SUM(is_completed * used_help), 0) AS assisted FROM training_session_items WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+    return dict(row)
 
 
 def set_training_session_progress_message_id(session_id: int, message_id: int | None) -> None:
@@ -742,6 +706,9 @@ def _get_session_learning_item(session_id: int, item_order: int) -> sqlite3.Row 
                 hard_unlocked,
                 hard_completed,
                 answer_state,
+                failed_attempts,
+                is_deferred,
+                used_help,
                 is_completed
             FROM training_session_items
             WHERE session_id = ? AND item_order = ?
@@ -783,130 +750,27 @@ def _build_item_snapshot(
 
 
 def _calculate_next_item_state(question: dict[str, object], is_correct: bool) -> dict[str, object]:
-    current_stage = str(question["current_stage"])
-    easy_correct_count = int(question["easy_correct_count"])
-    medium_correct_count = int(question["medium_correct_count"])
-    correct_streak = int(question["correct_streak"])
-    hard_completed = bool(question["hard_completed"])
-    is_completed = bool(question["is_completed"])
-
-    if is_correct:
-        correct_streak += 1
-        if current_stage == EASY_STAGE:
-            easy_correct_count += 1
-            if easy_correct_count >= 2:
-                current_stage = MEDIUM_STAGE
-        elif current_stage == MEDIUM_STAGE:
-            medium_correct_count += 1
-            if medium_correct_count >= 2:
-                current_stage = HARD_STAGE
-        elif current_stage == HARD_STAGE:
-            hard_completed = True
-            is_completed = True
-    else:
-        correct_streak = 0
-
-    hard_unlocked = _is_hard_unlocked(
-        easy_correct_count=easy_correct_count,
-        medium_correct_count=medium_correct_count,
-        hard_completed=hard_completed,
-    )
-    session_learning_item_ids = _list_session_learning_item_ids(int(question["session_id"]))
-    snapshot = _build_item_snapshot(
-        int(question["learning_item_id"]),
-        current_stage,
-        session_learning_item_ids,
-        get_user_hint_language(int(question["telegram_user_id"])),
-    )
+    stage = str(question["current_stage"])
+    failures = int(question["failed_attempts"]) + (0 if is_correct else 1)
     return {
-        "prompt_text": snapshot["prompt"],
-        "expected_answer": snapshot["expected_answer"],
-        "current_stage": current_stage,
-        "easy_correct_count": easy_correct_count,
-        "medium_correct_count": medium_correct_count,
-        "correct_streak": correct_streak,
-        "hard_unlocked": hard_unlocked,
-        "hard_completed": hard_completed,
+        "prompt_text": question["prompt"],
+        "expected_answer": question["expected_answer"],
+        "current_stage": stage,
+        "easy_correct_count": int(question["easy_correct_count"]) + int(is_correct and stage == EASY_STAGE),
+        "medium_correct_count": int(question["medium_correct_count"]) + int(is_correct and stage == MEDIUM_STAGE),
+        "correct_streak": int(question["correct_streak"]) + 1 if is_correct else 0,
+        "hard_unlocked": False,
+        "hard_completed": is_correct and stage == HARD_STAGE,
         "answer_state": "",
-        "is_completed": is_completed,
+        "is_completed": is_correct,
+        "failed_attempts": failures,
+        "is_deferred": not is_correct and failures >= MAX_FAILED_ATTEMPTS,
     }
-
-
-def _calculate_homework_next_state(
-    question: dict[str, object],
-    is_correct: bool,
-    *,
-    homework_correct_streak: int,
-    homework_hard_mode: bool,
-) -> tuple[dict[str, object], int, bool]:
-    base_stage = _normalize_homework_base_stage(
-        easy_correct_count=int(question["easy_correct_count"]),
-        medium_correct_count=int(question["medium_correct_count"]),
-        is_completed=bool(question["is_completed"]),
-    )
-    easy_correct_count = int(question["easy_correct_count"])
-    medium_correct_count = int(question["medium_correct_count"])
-    correct_streak = int(question["correct_streak"])
-    hard_completed = bool(question["hard_completed"])
-    is_completed = bool(question["is_completed"])
-
-    if homework_hard_mode:
-        if is_correct:
-            correct_streak += 1
-            hard_completed = True
-            is_completed = True
-        else:
-            correct_streak = 0
-            homework_correct_streak = 0
-            homework_hard_mode = False
-    else:
-        if is_correct:
-            correct_streak += 1
-            homework_correct_streak += 1
-            if base_stage == EASY_STAGE:
-                easy_correct_count += 1
-                if easy_correct_count >= HOMEWORK_EASY_CORRECT_REQUIRED:
-                    base_stage = MEDIUM_STAGE
-            elif base_stage == MEDIUM_STAGE:
-                medium_correct_count += 1
-                if medium_correct_count >= HOMEWORK_MEDIUM_CORRECT_REQUIRED:
-                    is_completed = True
-            if homework_correct_streak >= HOMEWORK_BOOST_CORRECT_STREAK and not is_completed:
-                homework_hard_mode = True
-        else:
-            correct_streak = 0
-            homework_correct_streak = 0
-
-    hard_unlocked = homework_hard_mode or hard_completed
-    current_stage = HARD_STAGE if hard_completed else base_stage
-    session_learning_item_ids = _list_session_learning_item_ids(int(question["session_id"]))
-    snapshot = _build_item_snapshot(
-        int(question["learning_item_id"]),
-        current_stage,
-        session_learning_item_ids,
-        get_user_hint_language(int(question["telegram_user_id"])),
-    )
-    return (
-        {
-            "prompt_text": snapshot["prompt"],
-            "expected_answer": snapshot["expected_answer"],
-            "current_stage": current_stage,
-            "easy_correct_count": easy_correct_count,
-            "medium_correct_count": medium_correct_count,
-            "correct_streak": correct_streak,
-            "hard_unlocked": hard_unlocked,
-            "hard_completed": hard_completed,
-            "answer_state": "",
-            "is_completed": is_completed,
-        },
-        homework_correct_streak,
-        homework_hard_mode,
-    )
 
 
 def _synchronize_active_session(session: sqlite3.Row) -> sqlite3.Row | None:
     current_item = _get_session_learning_item(int(session["id"]), int(session["current_index"]))
-    if current_item is not None and not bool(current_item["is_completed"]):
+    if current_item is not None and not bool(current_item["is_completed"]) and not bool(current_item["is_deferred"]):
         return session
 
     next_item = _find_next_incomplete_item(int(session["id"]), int(session["current_index"]))
@@ -949,7 +813,7 @@ def _find_next_incomplete_item(session_id: int, start_item_order: int) -> sqlite
             """
             SELECT id, item_order, learning_item_id, is_completed
             FROM training_session_items
-            WHERE session_id = ? AND is_completed = 0
+            WHERE session_id = ? AND is_completed = 0 AND is_deferred = 0
             ORDER BY item_order
             """,
             (session_id,),
@@ -990,7 +854,7 @@ def _list_incomplete_session_items(session_id: int) -> list[sqlite3.Row]:
             """
             SELECT id, item_order, learning_item_id, is_completed
             FROM training_session_items
-            WHERE session_id = ? AND is_completed = 0
+            WHERE session_id = ? AND is_completed = 0 AND is_deferred = 0
             ORDER BY item_order
             """,
             (session_id,),
@@ -1014,6 +878,8 @@ def _update_answer_state(session_item_id: int, answer_state: str) -> None:
 
 
 def get_item_progress_status(item_row: sqlite3.Row | dict[str, object]) -> str:
+    if "is_deferred" in item_row.keys() and item_row["is_deferred"]:
+        return "deferred"
     if bool(item_row["is_completed"]):
         if bool(item_row["hard_completed"]):
             return ITEM_STATUS_HARD_CLEAR
@@ -1028,41 +894,7 @@ def get_item_progress_status(item_row: sqlite3.Row | dict[str, object]) -> str:
 
 
 def get_homework_item_progress_value(item: sqlite3.Row | dict[str, object]) -> float:
-    if bool(item["hard_completed"]):
-        return 1.0
-    total_steps = HOMEWORK_EASY_CORRECT_REQUIRED + HOMEWORK_MEDIUM_CORRECT_REQUIRED
-    completed_steps = min(
-        total_steps,
-        max(0, int(item["easy_correct_count"])) + max(0, int(item["medium_correct_count"])),
-    )
-    return completed_steps / total_steps if total_steps > 0 else 0.0
-
-
-def _is_hard_unlocked(
-    *,
-    easy_correct_count: int,
-    medium_correct_count: int,
-    hard_completed: bool,
-) -> bool:
-    return easy_correct_count + medium_correct_count + (1 if hard_completed else 0) >= 4
-
-
-def _resolve_effective_stage(session: sqlite3.Row, item_snapshot: sqlite3.Row) -> str:
-    if _session_uses_homework_rules(session) and bool(session["homework_hard_mode"]):
-        return HARD_STAGE
-    if _session_uses_homework_rules(session):
-        return _normalize_homework_base_stage(
-            easy_correct_count=int(item_snapshot["easy_correct_count"]),
-            medium_correct_count=int(item_snapshot["medium_correct_count"]),
-            is_completed=bool(item_snapshot["is_completed"]),
-        )
-    return str(item_snapshot["current_stage"])
-
-
-def _session_uses_homework_rules(session: sqlite3.Row | dict[str, object]) -> bool:
-    if isinstance(session, dict):
-        return session.get("family_homework_assignment_id") is not None
-    return session["family_homework_assignment_id"] is not None
+    return 1.0 if bool(item["is_completed"]) else 0.0
 
 
 def get_session_homework_ref(session: sqlite3.Row | dict[str, object]) -> str | None:
@@ -1079,22 +911,12 @@ def _mark_homework_assignment_completed(session: sqlite3.Row | dict[str, object]
     homework_ref = get_session_homework_ref(session)
     if homework_ref is None:
         return
+    outcome = get_session_outcome(int(session["id"]))
+    if outcome["completed"] != int(session["total_questions"]):
+        return
     from .homework import mark_assignment_completed
 
     mark_assignment_completed(homework_ref)
-
-
-def _normalize_homework_base_stage(
-    *,
-    easy_correct_count: int,
-    medium_correct_count: int,
-    is_completed: bool,
-) -> str:
-    if is_completed and medium_correct_count >= HOMEWORK_MEDIUM_CORRECT_REQUIRED:
-        return MEDIUM_STAGE
-    if easy_correct_count < HOMEWORK_EASY_CORRECT_REQUIRED:
-        return EASY_STAGE
-    return MEDIUM_STAGE
 
 
 def _parse_answer_state(answer_state: str) -> list[int]:
@@ -1163,6 +985,7 @@ def _build_session_exercise(
     learning_item_id: int,
     stage: str,
     telegram_user_id: int,
+    snapshot: sqlite3.Row,
 ):
     session_learning_item_ids = _list_session_learning_item_ids(session_id)
     return _build_session_exercise_from_ids(
@@ -1170,6 +993,7 @@ def _build_session_exercise(
         stage,
         session_learning_item_ids,
         get_user_hint_language(telegram_user_id),
+        snapshot=snapshot,
     )
 
 
@@ -1178,27 +1002,23 @@ def _build_session_exercise_from_ids(
     stage: str,
     session_learning_item_ids: list[int],
     hint_language: str = DEFAULT_HINT_LANGUAGE,
+    snapshot: sqlite3.Row | None = None,
 ):
     learning_item = _resolve_learning_item(learning_item_id)
+    if snapshot is not None:
+        learning_item = replace(
+            learning_item,
+            headword=str(snapshot["expected_answer"]).strip() or learning_item.headword,
+            translations=[TranslationEntry(hint_language, str(snapshot["prompt_text"]))]
+            if str(snapshot["prompt_text"]).strip() else learning_item.translations,
+        )
     distractor_pool = _build_distractor_pool(learning_item, session_learning_item_ids)
-    try:
-        return build_exercise(
-            learning_item=learning_item,
-            stage=stage,
-            hint_language=hint_language,
-            distractor_pool=distractor_pool,
-        )
-    except ExerciseBuildError:
-        if stage != EASY_STAGE:
-            raise
-        # Keep the session in the required easy stage, but fall back to a minimal
-        # typed-answer payload when the current pool cannot support multiple choice.
-        return build_exercise(
-            learning_item=learning_item,
-            stage=HARD_STAGE,
-            hint_language=hint_language,
-            distractor_pool=distractor_pool,
-        )
+    return build_exercise(
+        learning_item=learning_item,
+        stage=stage,
+        hint_language=hint_language,
+        distractor_pool=distractor_pool,
+    )
 
 
 def _list_session_learning_item_ids(session_id: int) -> list[int]:

@@ -51,7 +51,7 @@ from englishbot.training_handlers import (
     answer_training_medium_backspace,
     answer_training_medium_check,
     answer_training_question,
-    learn,
+    learn as learn_command,
     play_training_tts,
     render_started_training_session,
 )
@@ -202,11 +202,13 @@ class FakeDialogManager:
     def __init__(self, user: User) -> None:
         self.event = SimpleNamespace(from_user=user, chat=SimpleNamespace(id=user.id))
         self.dialog_data: dict[str, object] = {}
+        self.start_data = None
         self.start_calls: list[dict[str, object]] = []
         self.switch_calls: list[dict[str, object]] = []
         self.done_calls: list[dict[str, object]] = []
 
     async def start(self, state, mode=None, show_mode=None, data=None) -> None:
+        self.start_data = data
         if data:
             self.dialog_data.update(data)
         self.start_calls.append({"state": state, "mode": mode, "show_mode": show_mode})
@@ -259,6 +261,21 @@ def seed_family_parent_and_child() -> tuple[User, User, int]:
     family = create_family("Home", parent.id)
     add_family_member(int(family["id"]), child.id)
     return parent, child, int(family["id"])
+
+
+async def learn(message, dialog_manager=None):
+    from englishbot.training import create_training_session_for_learning_items
+    if get_active_training_session(message.from_user.id) is None:
+        with db.get_connection() as connection:
+            ids = [row[0] for row in connection.execute("SELECT id FROM learning_items ORDER BY id")]
+        create_training_session_for_learning_items(message.from_user.id, ids)
+    await learn_command(message, dialog_manager)
+
+
+def set_stage(user_id, stage):
+    session = get_active_training_session(user_id)
+    with db.get_connection() as connection:
+        connection.execute("UPDATE training_session_items SET current_stage = ? WHERE session_id = ?", (stage, int(session["id"])))
 
 
 def _find_keyboard_index_by_label(keyboard, label: str) -> int:
@@ -617,8 +634,7 @@ def test_invalid_cached_photo_file_id_during_edit_replaces_message_and_refreshes
     first_message = FakeMessage(user)
     asyncio.run(learn(first_message))
 
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
+    set_stage(user.id, "medium" if 2 == 2 else "hard")
     asyncio.run(render_started_training_session(first_message, user.id))
     cache_telegram_file_id(1, TELEGRAM_MEDIA_KIND_PHOTO, "stale-photo-file-id")
 
@@ -1193,7 +1209,7 @@ def test_easy_callback_reuses_progress_message_and_replaces_question_message(tmp
     assert message.bot.edited_messages[0] == {
         "chat_id": user.id,
         "message_id": 1,
-        "text": "Item 2/3\nDone 0/3\nStage: easy",
+        "text": "Item 2/3\nDone 1/3\nStage: easy",
         "reply_markup": None,
     }
     assert message.bot.edited_messages[1]["message_id"] == 2
@@ -1315,8 +1331,7 @@ def test_text_answers_are_ignored_for_medium_stage(tmp_path: Path) -> None:
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
+    set_stage(user.id, "medium" if 2 == 2 else "hard")
 
     medium_answer = FakeMessage(user, text="word-1", bot=message.bot)
     medium_answer._next_message_id = message._next_message_id
@@ -1332,8 +1347,7 @@ def test_medium_callbacks_assemble_and_remove_letters(tmp_path: Path) -> None:
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
+    set_stage(user.id, "medium" if 2 == 2 else "hard")
     asyncio.run(render_started_training_session(message, user.id))
 
     session = get_active_training_session(user.id)
@@ -1394,8 +1408,7 @@ def test_medium_question_with_image_updates_photo_caption_and_keyboard(tmp_path:
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
+    set_stage(user.id, "medium" if 2 == 2 else "hard")
     asyncio.run(render_started_training_session(message, user.id))
 
     session = get_active_training_session(user.id)
@@ -1422,8 +1435,7 @@ def test_medium_check_uses_assembled_answer_and_advances(tmp_path: Path) -> None
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
+    set_stage(user.id, "medium" if 2 == 2 else "hard")
     asyncio.run(render_started_training_session(message, user.id))
     session = get_active_training_session(user.id)
     assert session is not None
@@ -1445,9 +1457,7 @@ def test_medium_check_uses_assembled_answer_and_advances(tmp_path: Path) -> None
     asyncio.run(answer_training_medium_check(FakeCallback(user, TRAINING_MEDIUM_CHECK_CALLBACK, message)))
 
     updated_question = get_current_question(user.id)
-    assert updated_question is not None
-    assert updated_question["current_stage"] == "medium"
-    assert updated_question["medium_correct_count"] == 1
+    assert updated_question is None
 
 
 def test_homework_medium_check_completion_shows_summary(tmp_path: Path) -> None:
@@ -1467,15 +1477,12 @@ def test_homework_medium_check_completion_shows_summary(tmp_path: Path) -> None:
     message = FakeMessage(child)
 
     asyncio.run(render_started_training_session(message, child.id))
-    submit_training_answer(child.id, "always")
-    submit_training_answer(child.id, "always")
-    submit_training_answer(child.id, "always")
+    set_stage(child.id, "hard")
     asyncio.run(render_started_training_session(message, child.id))
 
     session = get_active_training_session(child.id)
     assert session is not None
     message.message_id = int(session["current_question_message_id"])
-    submit_training_answer(child.id, "always")
     session = get_active_training_session(child.id)
     assert session is not None
     message.message_id = int(session["current_question_message_id"])
@@ -1503,7 +1510,7 @@ def test_homework_medium_check_completion_shows_summary(tmp_path: Path) -> None:
 
     assert get_active_training_session(child.id) is None
     assert message.answers[-1]["text"] == (
-        'Correct.\nHomework "Always homework" completed.\nResult: 1 questions, 5 correct answers.'
+        'Correct.\nAlways homework\nCompleted: 1/1\nRepeat later: 0\nWith help: 1'
     )
 
 
@@ -1525,8 +1532,7 @@ def test_medium_stage_with_space_in_answer_does_not_expose_space_as_selectable_l
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
-    submit_training_answer(user.id, "action figure")
-    submit_training_answer(user.id, "action figure")
+    set_stage(user.id, "medium" if 2 == 2 else "hard")
     asyncio.run(render_started_training_session(message, user.id))
 
     question = get_current_question(user.id)
@@ -1570,8 +1576,7 @@ def test_medium_check_with_space_in_answer_treats_space_as_auto_filled(
     message = FakeMessage(user)
 
     asyncio.run(learn(message))
-    submit_training_answer(user.id, "action figure")
-    submit_training_answer(user.id, "action figure")
+    set_stage(user.id, "medium" if 2 == 2 else "hard")
     asyncio.run(render_started_training_session(message, user.id))
     session = get_active_training_session(user.id)
     assert session is not None
@@ -1594,8 +1599,7 @@ def test_medium_check_with_space_in_answer_treats_space_as_auto_filled(
     asyncio.run(answer_training_medium_check(FakeCallback(user, TRAINING_MEDIUM_CHECK_CALLBACK, message)))
 
     updated_question = get_current_question(user.id)
-    assert updated_question is not None
-    assert updated_question["medium_correct_count"] == 1
+    assert updated_question is None
 
 
 def test_text_answers_render_hint_and_first_letter_for_hard_stage(tmp_path: Path) -> None:
@@ -1604,6 +1608,8 @@ def test_text_answers_render_hint_and_first_letter_for_hard_stage(tmp_path: Path
     seed_learning_items(1, user=user)
     start_message = FakeMessage(user)
 
+    from englishbot.training import create_training_session_for_learning_items
+    create_training_session_for_learning_items(user.id, [1], training_mode="hard")
     asyncio.run(learn(start_message))
 
     assert "Hint: слово-1" in start_message.answers[-1]["text"]
@@ -1620,10 +1626,7 @@ def test_hard_stage_with_image_keeps_photo_question_card_and_skip_keyboard(tmp_p
     start_message = FakeMessage(user)
 
     asyncio.run(learn(start_message))
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
+    set_stage(user.id, "medium" if 4 == 2 else "hard")
     asyncio.run(render_started_training_session(start_message, user.id))
 
     assert len(start_message.photo_answers) >= 2
@@ -1643,20 +1646,15 @@ def test_session_completion_sends_summary_and_stops_question_rendering(tmp_path:
 
     asyncio.run(learn(start_message))
 
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
-    submit_training_answer(user.id, "word-1")
+    set_stage(user.id, "medium" if 4 == 2 else "hard")
     session = get_active_training_session(user.id)
     assert session is not None
     start_message.message_id = int(session["current_question_message_id"])
-    callback = FakeCallback(user, TRAINING_HARD_SKIP_CALLBACK, start_message)
-
-    asyncio.run(answer_training_hard_skip(callback))
+    answer = FakeMessage(user, text="word-1", bot=start_message.bot)
+    asyncio.run(answer_training_question(answer))
 
     assert get_active_training_session(user.id) is None
-    assert len(start_message.answers) == 3
-    assert start_message.answers[-1]["text"] == "Hard skipped.\nResult: 1 questions, 4 correct answers."
+    assert answer.answers[-1]["text"] == "Correct.\nPractice\nCompleted: 1/1\nRepeat later: 0\nWith help: 0"
     assert start_message.bot.edited_messages[-1]["text"] == "Item 1/1\nDone 1/1\nStage: completed"
     assert start_message.bot.deleted_messages == [
         {"chat_id": user.id, "message_id": 2},
@@ -1694,10 +1692,7 @@ def test_homework_completion_uses_homework_specific_summary(tmp_path: Path) -> N
     start_message = FakeMessage(child)
     asyncio.run(render_started_training_session(start_message, child.id))
 
-    submit_training_answer(child.id, "homework-word")
-    submit_training_answer(child.id, "homework-word")
-    submit_training_answer(child.id, "homework-word")
-    submit_training_answer(child.id, "homework-word")
+    set_stage(child.id, "medium" if 4 == 2 else "hard")
     session = get_active_training_session(child.id)
     assert session is not None
     answer_message = FakeMessage(child, text="homework-word", bot=start_message.bot)
@@ -1705,7 +1700,7 @@ def test_homework_completion_uses_homework_specific_summary(tmp_path: Path) -> N
     asyncio.run(answer_training_question(answer_message))
 
     assert answer_message.answers[-1]["text"] == (
-        'Correct.\nHomework "Homework set" completed.\nResult: 1 questions, 5 correct answers.'
+        'Correct.\nHomework set\nCompleted: 1/1\nRepeat later: 0\nWith help: 0'
     )
     assert start_message.bot.deleted_messages == [
         {"chat_id": child.id, "message_id": 2},
@@ -1730,10 +1725,7 @@ def test_homework_hard_skip_returns_same_word_to_normal_flow(tmp_path: Path) -> 
     start_message = FakeMessage(child)
     asyncio.run(render_started_training_session(start_message, child.id))
 
-    submit_training_answer(child.id, "homework-skip")
-    submit_training_answer(child.id, "homework-skip")
-    submit_training_answer(child.id, "homework-skip")
-    submit_training_answer(child.id, "homework-skip")
+    set_stage(child.id, "medium" if 4 == 2 else "hard")
     session = get_active_training_session(child.id)
     assert session is not None
     start_message.message_id = int(session["current_question_message_id"])
@@ -1748,7 +1740,7 @@ def test_homework_hard_skip_returns_same_word_to_normal_flow(tmp_path: Path) -> 
     assert next_question is not None
     assert next_question["current_stage"] == "medium"
     assert next_question["can_skip_hard"] is False
-    assert active_session["correct_answers"] == 4
+    assert active_session["correct_answers"] == 0
 
 
 def test_homework_start_renders_one_progress_photo_and_one_question(tmp_path: Path) -> None:
@@ -1853,3 +1845,52 @@ def test_homework_progress_photo_not_modified_does_not_send_new_message(tmp_path
     assert session is not None
     assert len(start_message.photo_answers) == 1
     assert session["progress_message_id"] == 1
+
+
+def test_learn_opens_mode_choice_without_creating_session(tmp_path):
+    setup_db(tmp_path)
+    user = seed_learning_items(3)
+    message = FakeMessage(user)
+    manager = FakeDialogManager(user)
+    asyncio.run(learn_command(message, manager))
+    assert manager.start_calls[0]["state"] == LearnerTrainingDialogSG.mode
+    assert get_active_training_session(user.id) is None
+    from englishbot.learner_training_dialog import get_mode_window_data, _choose_training_mode
+    assert len(asyncio.run(get_mode_window_data(manager))["mode_items"]) == 3
+    asyncio.run(_choose_training_mode(FakeCallback(user, "", message), None, manager, "hard"))
+    assert get_current_question(user.id)["current_stage"] == "hard"
+    assert manager.switch_calls[-1]["state"] == LearnerTrainingDialogSG.quiz
+
+
+def test_fallback_mode_selection_starts_medium_session(tmp_path):
+    setup_db(tmp_path)
+    user = seed_learning_items(3)
+    message = FakeMessage(user)
+    asyncio.run(learn_command(message))
+    assert get_active_training_session(user.id) is None
+    keyboard = message.answers[0]["kwargs"]["reply_markup"]
+    from englishbot.training_handlers import choose_training_mode
+    asyncio.run(choose_training_mode(FakeCallback(user, keyboard.inline_keyboard[1][0].callback_data, message)))
+    assert get_current_question(user.id)["current_stage"] == "medium"
+
+
+def test_mode_choice_handles_topic_archived_after_picker_opened(tmp_path):
+    setup_db(tmp_path)
+    user = seed_learning_items(3)
+    from englishbot.families import create_family_topic, get_user_family, replace_topic_items
+    from englishbot.learner_training_dialog import start_training_mode_dialog, _choose_training_mode
+    topic_id = create_family_topic(int(get_user_family(user.id)["id"]), "test", "Test")
+    replace_topic_items(topic_id, [1, 2, 3])
+    message = FakeMessage(user)
+    manager = FakeDialogManager(user)
+    asyncio.run(start_training_mode_dialog(message, manager, topic_id))
+    with db.get_connection() as connection:
+        connection.execute("UPDATE topics SET is_archived = 1 WHERE id = ?", (topic_id,))
+    callback = SimpleNamespace(from_user=user, message=message)
+    answers = []
+    async def answer(text):
+        answers.append(text)
+    callback.answer = answer
+    asyncio.run(_choose_training_mode(callback, None, manager, "medium"))
+    assert answers
+    assert get_active_training_session(user.id) is None

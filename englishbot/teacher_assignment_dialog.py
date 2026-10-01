@@ -9,6 +9,7 @@ from aiogram_dialog.widgets.kbd import Button, Row, ScrollingGroup, Select
 from aiogram_dialog.widgets.text import Format
 
 from .families import get_user_family
+from .training import TRAINING_MODES
 from .homework import ASSIGNMENT_KIND_HOMEWORK, ASSIGNMENT_MODE_STAGED_DEFAULT
 from .homework_handlers import build_homework_button
 from .i18n import translate_for_user
@@ -33,6 +34,7 @@ class TeacherAssignmentDialogSG(StatesGroup):
     source_mode = State()
     topic = State()
     words = State()
+    difficulty = State()
     recipients = State()
     confirm = State()
 
@@ -197,7 +199,24 @@ async def _go_to_confirm(
     button: Button,
     dialog_manager: DialogManager,
 ) -> None:
+    await dialog_manager.switch_to(TeacherAssignmentDialogSG.difficulty)
+
+
+async def _choose_assignment_mode(callback: CallbackQuery, _widget: Select, dialog_manager: DialogManager, mode: str) -> None:
+    if mode not in TRAINING_MODES:
+        return
+    dialog_manager.dialog_data["training_mode"] = mode
     await dialog_manager.switch_to(TeacherAssignmentDialogSG.confirm)
+
+
+async def get_difficulty_window_data(dialog_manager: DialogManager, **_: object) -> dict[str, object]:
+    user_id = _get_user_id(dialog_manager)
+    return {
+        "screen_text": translate_for_user(user_id, "training.mode.choose_assignment"),
+        "mode_items": [{"id": mode, "label": translate_for_user(user_id, f"training.mode.{mode}")} for mode in TRAINING_MODES],
+        "back_label": translate_for_user(user_id, "teacher.assignment.action.back"),
+        "cancel_label": translate_for_user(user_id, "common.cancel"),
+    }
 
 
 async def _go_back_to_family(
@@ -257,7 +276,7 @@ async def _confirm_assignment(
             selected_learning_item_ids=_get_selected_learning_item_ids(dialog_manager),
             recipient_user_ids=_get_selected_recipient_ids(dialog_manager),
             assignment_kind=ASSIGNMENT_KIND_HOMEWORK,
-            assignment_mode=ASSIGNMENT_MODE_STAGED_DEFAULT,
+            assignment_mode=str(dialog_manager.dialog_data.get("training_mode", ASSIGNMENT_MODE_STAGED_DEFAULT)),
         )
     except (TeacherAssignmentDraftError, TeacherAssignmentRecipientsRequiredError):
         await dialog_manager.update({})
@@ -444,7 +463,7 @@ async def get_confirm_window_data(dialog_manager: DialogManager, **_: object) ->
         selected_learning_item_ids=_get_selected_learning_item_ids(dialog_manager),
         recipient_user_ids=_get_selected_recipient_ids(dialog_manager),
         assignment_kind=ASSIGNMENT_KIND_HOMEWORK,
-        assignment_mode=ASSIGNMENT_MODE_STAGED_DEFAULT,
+        assignment_mode=str(dialog_manager.dialog_data.get("training_mode", ASSIGNMENT_MODE_STAGED_DEFAULT)),
     )
     content_summary = snapshot["content_summary"]
     if snapshot["source_mode"] == SOURCE_MODE_TOPIC:
@@ -472,7 +491,7 @@ async def get_confirm_window_data(dialog_manager: DialogManager, **_: object) ->
             "teacher.assignment.screen.confirm",
             content_text=content_text,
             assignment_kind=translate_for_user(user_id, "teacher.assignment.kind.homework"),
-            assignment_mode=translate_for_user(user_id, "teacher.assignment.mode.staged_default"),
+            assignment_mode=translate_for_user(user_id, f"training.mode.{snapshot['assignment_mode']}"),
             recipients_text=recipients_text,
             can_confirm_note=""
             if snapshot["has_recipients"]
@@ -610,6 +629,7 @@ def _reset_content_state(dialog_manager: DialogManager) -> None:
         "summary_text",
         "topic_page",
         "recipient_page",
+        "training_mode",
     ):
         dialog_manager.dialog_data.pop(key, None)
 
@@ -730,6 +750,17 @@ teacher_assignment_dialog = Dialog(
         ),
         state=TeacherAssignmentDialogSG.recipients,
         getter=get_recipients_window_data,
+    ),
+    Window(
+        Format("{screen_text}"),
+        Select(Format("{item[label]}"), id="assignment_mode", item_id_getter=lambda item: item["id"],
+               items="mode_items", on_click=_choose_assignment_mode),
+        Row(
+            Button(Format("{back_label}"), id="difficulty_back", on_click=_go_back_to_recipients),
+            Button(Format("{cancel_label}"), id="difficulty_cancel", on_click=_cancel_dialog),
+        ),
+        state=TeacherAssignmentDialogSG.difficulty,
+        getter=get_difficulty_window_data,
     ),
     Window(
         Format("{screen_text}"),

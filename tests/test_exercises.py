@@ -57,20 +57,11 @@ def test_build_easy_exercise_returns_three_shuffled_options() -> None:
     assert "apple" in exercise.options
 
 
-def test_build_easy_exercise_raises_when_not_enough_distractors() -> None:
-    learning_item = make_learning_item()
-
-    try:
-        build_exercise(
-            learning_item,
-            "easy",
-            "ru",
-            [DistractorLexeme(headword="apple"), DistractorLexeme(headword="")],
-        )
-    except ExerciseBuildError as error:
-        assert "At least 2 distractors" in str(error)
-    else:
-        raise AssertionError("Expected ExerciseBuildError for insufficient distractors")
+def test_easy_exercise_with_small_dictionary_stays_multiple_choice() -> None:
+    item = ResolvedLearningItem(learning_item_id=1, headword="apple", translations=[])
+    exercise = build_exercise(item, "easy", "en", [])
+    assert exercise.exercise_type == "multiple_choice"
+    assert exercise.options == ["apple"]
 
 
 def test_build_medium_exercise_returns_jumbled_letters_and_localized_hint() -> None:

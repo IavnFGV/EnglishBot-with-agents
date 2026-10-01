@@ -228,12 +228,6 @@ function renderHomeworkProgress(progress) {
   addSvg('circle', { cx: 100, cy: 100, r: 24, fill: '#fffdf7', stroke: '#f2d9b6', 'stroke-width': 2 });
   addSvg('text', { x: 100, y: 106, 'text-anchor': 'middle', fill: '#2b3d52', 'font-size': 19, 'font-weight': 800 }, `${progress.completed}/${progress.total}`);
   panel.append(svg);
-  const combo = el('div', 'combo');
-  combo.append(el('span', 'combo-label', progress.boost_active ? t('boost_active') : `${t('combo')} ${Math.min(4, progress.streak)}/4`));
-  for (let index = 0; index < 4; index++) {
-    combo.append(el('span', `combo-dot ${index < (progress.boost_active ? 4 : progress.streak) ? 'filled' : ''} ${progress.boost_active ? 'boost' : ''}`));
-  }
-  panel.append(combo);
   return panel;
 }
 
@@ -243,7 +237,7 @@ function render() {
     if (state.homework_progress) app.append(renderHomeworkProgress(state.homework_progress));
     const card = el('div', 'card');
     card.append(el('div', 'prompt', t('great')));
-    card.append(el('div', 'hint', t('correct_answers', { count: state.summary.correct })));
+    card.append(el('div', 'hint', t('outcome', state.summary)));
     const close = el('button', '', t('back'));
     close.onclick = () => webApp?.close();
     card.append(close);

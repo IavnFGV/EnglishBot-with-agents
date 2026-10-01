@@ -242,12 +242,8 @@ def test_start_homework_uses_assigned_content(tmp_path: Path) -> None:
 
     assert callback.answered is True
     assert len(callback_message.photo_answers) == 1
-    assert callback_message.answers == [
-        {
-            "text": "Hint: понедельник\nFirst letter: w",
-            "kwargs": {"reply_markup": None},
-        }
-    ]
+    assert callback_message.answers[0]["text"] == "понедельник"
+    assert callback_message.answers[0]["kwargs"]["reply_markup"].inline_keyboard[0][0].text == "weekday-family"
 
 
 def test_start_homework_progress_shows_item_statuses_for_multiple_items(tmp_path: Path) -> None:

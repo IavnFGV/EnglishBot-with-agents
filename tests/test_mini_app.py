@@ -26,7 +26,7 @@ from englishbot.vocabulary import create_learning_item_translation, create_lexem
 TOKEN = "123456:test-token"
 
 
-def seed(tmp_path: Path) -> tuple[int, int]:
+def seed(tmp_path: Path, mode: str = "easy") -> tuple[int, int]:
     db.DB_PATH = tmp_path / "mini.sqlite3"
     db.init_db()
     user = User(id=711, is_bot=False, first_name="Learner")
@@ -36,7 +36,7 @@ def seed(tmp_path: Path) -> tuple[int, int]:
         lexeme_id = create_lexeme(f"mini-{index}")
         item_id = create_family_learning_item(int(family["id"]), lexeme_id, f"mini-{index}")
         create_learning_item_translation(item_id, "ru", f"слово-{index}")
-    session_id = int(create_training_session(user.id)["session_id"])
+    session_id = int(create_training_session(user.id, training_mode=mode)["session_id"])
     return user.id, session_id
 
 
@@ -78,10 +78,7 @@ def test_current_question_and_double_answer_are_sqlite_backed(tmp_path: Path) ->
 
 
 def test_medium_edits_change_question_version(tmp_path: Path) -> None:
-    user_id, session_id = seed(tmp_path)
-    while get_current_question(user_id)["exercise_type"] != "jumbled_letters":
-        question = get_current_question(user_id)
-        submit_training_answer(user_id, str(question["expected_answer"]))
+    user_id, session_id = seed(tmp_path, "medium")
     first = session_state(user_id, session_id)["question"]
     added = apply_action(user_id, session_id, first["token"], "add", 0)["question"]
     assert added["token"] != first["token"]
@@ -92,10 +89,7 @@ def test_medium_edits_change_question_version(tmp_path: Path) -> None:
 
 
 def test_medium_selection_can_be_saved_in_one_request(tmp_path: Path) -> None:
-    user_id, session_id = seed(tmp_path)
-    while get_current_question(user_id)["exercise_type"] != "jumbled_letters":
-        question = get_current_question(user_id)
-        submit_training_answer(user_id, str(question["expected_answer"]))
+    user_id, session_id = seed(tmp_path, "medium")
     first = session_state(user_id, session_id)["question"]
     selected = [0, 1]
     saved = apply_action(user_id, session_id, first["token"], "set_medium", selected)["question"]
@@ -239,40 +233,21 @@ def test_homework_session_checks_current_assignment_owner(tmp_path: Path) -> Non
     assert error_code(lambda: authorize_session(child.id, session_id)) == "access_denied"
 
 
-def test_homework_progress_follows_answers_and_four_answer_boost(tmp_path: Path) -> None:
-    db.DB_PATH = tmp_path / "homework-progress-mini.sqlite3"
-    db.init_db()
-    owner = User(id=811, is_bot=False, first_name="Owner")
-    learner = User(id=812, is_bot=False, first_name="Learner")
-    for user in (owner, learner):
-        db.save_user(user)
-    family = create_family("Home", owner.id)
-    add_family_member(int(family["id"]), learner.id)
-    item_id = create_family_learning_item(int(family["id"]), create_lexeme("progress-word"), "progress-word")
-    create_learning_item_translation(item_id, "ru", "слово")
-    assignment_id = create_homework_assignment(int(family["id"]), owner.id, learner.id, [item_id], title="Practice")
-    session_id = int(start_assignment_training_session(learner.id, assignment_id)["session_id"])
-
-    initial = session_state(learner.id, session_id)["homework_progress"]
-    assert initial == {
-        "completed": 0, "total": 1, "streak": 0, "boost_active": False,
-        "segments": [{"value": 0.0, "hard_clear": False}],
-    }
-    for step in range(1, 5):
-        question = get_current_question(learner.id)
-        submit_training_answer(learner.id, str(question["expected_answer"]))
-        progress = session_state(learner.id, session_id)["homework_progress"]
-        assert progress["segments"][0]["value"] == step / 5
-        assert progress["streak"] == step
-        assert progress["boost_active"] is (step == 4)
-
-    question = get_current_question(learner.id)
-    assert question["exercise_type"] == "typed_answer"
-    submit_training_answer(learner.id, str(question["expected_answer"]))
-    finished = session_state(learner.id, session_id)
-    assert finished["status"] == "completed"
-    assert finished["homework_progress"]["completed"] == 1
-    assert finished["homework_progress"]["segments"] == [{"value": 1.0, "hard_clear": True}]
+def test_homework_progress_counts_completed_words_without_boost(tmp_path):
+    user_id, _ = seed(tmp_path)
+    family_id = int(db.get_connection().execute("SELECT id FROM families").fetchone()[0])
+    assignment_id = create_homework_assignment(family_id, user_id, user_id, [1, 2, 3], training_mode="hard")
+    session_id = start_assignment_training_session(user_id, assignment_id)["session_id"]
+    initial = session_state(user_id, session_id)["homework_progress"]
+    assert initial["completed"] == 0
+    assert "boost_active" not in initial
+    question = get_current_question(user_id)
+    helped = apply_action(user_id, session_id, question_token(question), "skip")
+    assert helped["question"]["type"] == "jumbled_letters"
+    submit_training_answer(user_id, str(get_current_question(user_id)["expected_answer"]))
+    progress = session_state(user_id, session_id)["homework_progress"]
+    assert progress["completed"] == 1
+    assert progress["segments"][0] == {"value": 1.0, "hard_clear": False}
 
 
 def test_http_transport_auth_state_and_answer(tmp_path: Path, monkeypatch) -> None:

@@ -340,3 +340,27 @@ def test_family_confirm_creates_family_homework_assignments(tmp_path: Path) -> N
     assert count_family_assignments() == 1
     assert manager.done_calls == [{"result": {"assignment_count": 1}, "show_mode": ShowMode.SEND}]
     assert len(bot.sent_messages) == 1
+
+
+def test_assignment_difficulty_choice_is_shown_and_persisted(tmp_path):
+    setup_db(tmp_path)
+    parent = make_user(820, "Parent")
+    child = make_user(821, "Child")
+    family_id, _, topic_id = seed_family_content(parent, child)
+    manager = FakeDialogManager(parent)
+    manager.dialog_data.update({"source_mode": "topic", "family_id": family_id,
+                               "topic_id": topic_id, "selected_recipient_user_ids": [child.id]})
+    from englishbot.teacher_assignment_dialog import _choose_assignment_mode, get_difficulty_window_data
+    message = FakeMessage(parent)
+    callback = SimpleNamespace(message=message)
+    asyncio.run(go_to_confirm(callback, None, manager))
+    assert manager.switch_calls[-1]["state"] == TeacherAssignmentDialogSG.difficulty
+    assert len(asyncio.run(get_difficulty_window_data(manager))["mode_items"]) == 3
+    asyncio.run(_choose_assignment_mode(callback, None, manager, "hard"))
+    assert "Hard: write the word" in asyncio.run(get_confirm_window_data(manager))["screen_text"]
+    asyncio.run(confirm_assignment(callback, None, manager))
+    from englishbot.homework import list_active_assignments, start_assignment_training_session
+    assignment = list_active_assignments(child.id)[0]
+    assert assignment["assignment_mode"] == "hard"
+    started = start_assignment_training_session(child.id, assignment["id"])
+    assert started["question"]["current_stage"] == "hard"

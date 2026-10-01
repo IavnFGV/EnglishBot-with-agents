@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-01
+- Replaced separate staged practice/homework progression with shared easy, medium, and hard modes selected at learner entry or assignment creation. One correct answer completes a word; hard-mode Help opens letters for the same word and records assistance.
+- Words answered incorrectly return after other pending words; three failures defer them for later. Homework remains active and resumes only unfinished words. Telegram and Mini App now report completed, deferred, and assisted counts, and progress wheels count completed words without a streak boost.
+- `/learn` now selects words needing review, then unseen words, then oldest answered words, instead of always taking the first five. Session upgrades preserve current prompts, answers, and stages while disabling legacy boost rules; small dictionaries keep easy multiple-choice cards.
+- Added `docs/functionality-map.md` with current functionality diagrams, code-backed complexity findings, and a proposed simplification order; runtime behavior is unchanged.
+- Revised the simplification review after feedback: retain on-card voice switching and compare three concrete shared progression paths for practice and homework.
+
 ## 2026-09-30
 - Homework training in the Mini App now shows the existing per-word progress wheel and four-answer combo charge, updating after each answer and marking boosted hard clears.
 - Mini App medium letters now update immediately and save a short burst of taps in one request; the launch URL and page assets change with deployed code so Telegram fetches the fresh UI.

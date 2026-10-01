@@ -20,6 +20,7 @@ from .training import (
     append_medium_answer_letter,
     get_current_question,
     get_training_session,
+    get_session_outcome,
     get_homework_item_progress_value,
     pop_medium_answer_letter,
     set_medium_answer_letters,
@@ -141,7 +142,7 @@ def interface_labels(user_id: int) -> dict[str, str]:
         "loading", "word", "done", "great", "correct_answers", "back",
         "check", "skip", "listen", "type", "connection", "retry",
         "audio_unavailable", "expired", "starts", "feedback_correct",
-        "feedback_incorrect", "feedback_skipped", "homework_progress", "combo", "boost_active",
+        "feedback_incorrect", "feedback_skipped", "homework_progress", "outcome",
     )
     return {
         key: translate_for_user(
@@ -151,6 +152,8 @@ def interface_labels(user_id: int) -> dict[str, str]:
             letter="{letter}",
             completed="{completed}",
             total="{total}",
+            deferred="{deferred}",
+            assisted="{assisted}",
         )
         for key in keys
     }
@@ -159,7 +162,7 @@ def interface_labels(user_id: int) -> dict[str, str]:
 def session_state(user_id: int, session_id: int) -> dict[str, object]:
     session = authorize_session(user_id, session_id)
     if session["status"] == "completed":
-        state = {"status": "completed", "summary": {"total": int(session["total_questions"]), "correct": int(session["correct_answers"])}}
+        state = {"status": "completed", "summary": {"total": int(session["total_questions"]), "correct": int(session["correct_answers"]), **get_session_outcome(session_id)}}
     else:
         question = get_current_question(user_id)
         if question is None or int(question["session_id"]) != session_id:
@@ -171,8 +174,6 @@ def session_state(user_id: int, session_id: int) -> dict[str, object]:
         state["homework_progress"] = {
             "completed": int(snapshot["completed_items"]),
             "total": int(snapshot["total_items"]),
-            "streak": int(snapshot["homework_correct_streak"]),
-            "boost_active": bool(snapshot["homework_hard_mode"]),
             "segments": [
                 {"value": get_homework_item_progress_value(item), "hard_clear": bool(item["hard_completed"])}
                 for item in snapshot["items"]

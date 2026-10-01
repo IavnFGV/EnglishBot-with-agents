@@ -64,6 +64,7 @@ def student_has_topic_access(student_user_id: int, topic_id: int) -> bool:
 def start_topic_training_session(
     student_user_id: int,
     topic_id: int,
+    training_mode: str = "easy",
 ) -> dict[str, object]:
     topic = get_topic(topic_id)
     if topic is None:
@@ -85,7 +86,7 @@ def start_topic_training_session(
         }
     else:
         result = create_training_session_for_learning_items(
-            student_user_id, learning_item_ids, source_topic_id=topic_id
+            student_user_id, learning_item_ids, source_topic_id=topic_id, training_mode=training_mode
         )
     result["topic_title"] = str(topic["title"])
     result["topic_name"] = str(topic["name"])

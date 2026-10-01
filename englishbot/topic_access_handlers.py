@@ -1,3 +1,4 @@
+from aiogram_dialog import DialogManager
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -55,12 +56,27 @@ async def topics(message: Message) -> None:
     lambda callback: callback.data is not None
     and callback.data.startswith(TOPICS_START_PREFIX)
 )
-async def start_topic_training(callback: CallbackQuery) -> None:
+async def start_topic_training(callback: CallbackQuery, dialog_manager: DialogManager | None = None) -> None:
     await callback.answer()
     if callback.from_user is None or callback.message is None or callback.data is None:
         return
 
     topic_id = int(callback.data.removeprefix(TOPICS_START_PREFIX))
+    from .training import get_active_training_session
+    session = get_active_training_session(callback.from_user.id)
+    if session is None or session["source_topic_id"] != topic_id:
+        from .topic_access import student_has_topic_access
+        if not student_has_topic_access(callback.from_user.id, topic_id):
+            await callback.message.answer(translate_for_user(callback.from_user.id, "topics.denied"))
+            return
+        if dialog_manager is not None:
+            from .learner_training_dialog import start_training_mode_dialog
+            await start_training_mode_dialog(callback.message, dialog_manager, topic_id)
+        else:
+            from .training_handlers import build_training_modes_keyboard
+            await callback.message.edit_text(translate_for_user(callback.from_user.id, "training.mode.choose"),
+                                             reply_markup=build_training_modes_keyboard(callback.from_user.id, topic_id))
+        return
     try:
         result = start_topic_training_session(callback.from_user.id, topic_id)
     except TopicNotFoundError:

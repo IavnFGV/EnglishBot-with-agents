@@ -39,8 +39,8 @@
 - Assignment creation: `/create_assignment` persists family homework assignments for family members.
 - The active authoring and assignment flows resolve directly through family membership without invite/join, grants, or workspace bootstrap.
 - Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`.
-- Learner training: `/learn`, homework, and topic launches all create or resume staged training sessions via `training.py`; the active `/learn` and homework quiz surfaces now render through a shared learner `aiogram-dialog` shell with reusable inline TTS controls.
-- Family homework uses `training_sessions.family_homework_assignment_id` as the only active homework session link, while the staged exercise engine remains shared.
+- Learner training: `/learn`, homework, and topic launches all create or resume training sessions with a persisted chosen mode via `training.py`; the active `/learn` and homework quiz surfaces now render through a shared learner `aiogram-dialog` shell with reusable inline TTS controls.
+- Family homework uses `training_sessions.family_homework_assignment_id` as the only active homework session link, while mode, answer, retry, and help rules remain shared.
 - The optional Mini App serves static HTML/CSS/JavaScript and authenticated learner API routes from the existing status-server process. Telegram and HTTP actions both use `training.py` and one SQLite session; `question_version` detects stale answers and `source_topic_id` supports topic resume.
 
 ## Business logic vs Telegram/UI

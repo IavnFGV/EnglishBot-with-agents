@@ -145,13 +145,10 @@ def _build_multiple_choice_options(
             continue
         seen.add(normalized_headword)
         distractor_headwords.append(headword)
-    if len(distractor_headwords) < 2:
-        raise ExerciseBuildError("At least 2 distractors are required to build an easy exercise.")
-
     randomizer = random.Random(
         _build_deterministic_seed(expected_answer, distractor_headwords)
     )
-    selected_distractors = randomizer.sample(distractor_headwords, 2)
+    selected_distractors = randomizer.sample(distractor_headwords, min(2, len(distractor_headwords)))
     options = [expected_answer, *selected_distractors]
     randomizer.shuffle(options)
     return options

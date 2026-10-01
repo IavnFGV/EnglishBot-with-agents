@@ -227,6 +227,7 @@ def persist_assignment_draft(
     assignment_kind: str = ASSIGNMENT_KIND_HOMEWORK,
     assignment_mode: str = ASSIGNMENT_MODE_STAGED_DEFAULT,
 ) -> list[dict[str, object]]:
+    assignment_mode = normalize_assignment_mode(assignment_mode)
     if not recipient_user_ids:
         raise TeacherAssignmentRecipientsRequiredError
     family = get_user_family(teacher_user_id)
@@ -249,6 +250,7 @@ def persist_assignment_draft(
                     student_user_id,
                     learning_item_ids,
                     title=str(topic["title"]),
+                    training_mode=assignment_mode,
                 ),
                 "student_user_id": student_user_id,
                 "title": str(topic["title"]),
@@ -268,6 +270,7 @@ def persist_assignment_draft(
                     teacher_user_id,
                     student_user_id,
                     selected_learning_item_ids,
+                    training_mode=assignment_mode,
                 ),
                 "student_user_id": student_user_id,
                 "title": None,

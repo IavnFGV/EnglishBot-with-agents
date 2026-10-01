@@ -6,8 +6,7 @@ from .training import (
     HARD_STAGE,
     EASY_STAGE,
     MEDIUM_STAGE,
-    HOMEWORK_EASY_CORRECT_REQUIRED,
-    HOMEWORK_MEDIUM_CORRECT_REQUIRED,
+    TRAINING_MODES,
     create_training_session_for_learning_items,
     find_latest_incomplete_family_homework_training_session,
     get_current_question,
@@ -20,9 +19,9 @@ ACTIVE_STATUS = "active"
 COMPLETED_STATUS = "completed"
 ASSIGNMENT_SOURCE_FAMILY = "family"
 ASSIGNMENT_KIND_HOMEWORK = "homework"
-ASSIGNMENT_MODE_STAGED_DEFAULT = "staged_default"
+ASSIGNMENT_MODE_STAGED_DEFAULT = "easy"
 SUPPORTED_ASSIGNMENT_KINDS = {ASSIGNMENT_KIND_HOMEWORK}
-SUPPORTED_ASSIGNMENT_MODES = {ASSIGNMENT_MODE_STAGED_DEFAULT}
+SUPPORTED_ASSIGNMENT_MODES = set(TRAINING_MODES)
 
 
 class HomeworkError(Exception):
@@ -53,7 +52,7 @@ def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
                 homework_assignments.assigned_to_user_id AS student_user_id,
                 homework_assignments.title,
                 'homework' AS assignment_kind,
-                'staged_default' AS assignment_mode,
+                training_mode AS assignment_mode,
                 homework_assignments.status,
                 homework_assignments.created_at,
                 homework_assignments.updated_at,
@@ -108,7 +107,7 @@ def get_assignment(assignment_ref: int | str) -> sqlite3.Row | None:
                 assigned_to_user_id AS student_user_id,
                 title,
                 'homework' AS assignment_kind,
-                'staged_default' AS assignment_mode,
+                training_mode AS assignment_mode,
                 status,
                 created_at,
                 updated_at,
@@ -182,6 +181,7 @@ def start_assignment_training_session(
         student_user_id,
         learning_item_ids,
         family_homework_assignment_id=assignment_id,
+        training_mode=str(assignment["assignment_mode"]),
     )
     result["assignment_title"] = assignment["title"]
     result["resumed"] = False
@@ -275,7 +275,9 @@ def get_assignment_progress_snapshot(
                 correct_streak,
                 hard_unlocked,
                 hard_completed,
-                is_completed
+                is_completed,
+                is_deferred,
+                used_help
             FROM training_session_items
             WHERE session_id = ?
             ORDER BY item_order
@@ -290,8 +292,8 @@ def get_assignment_progress_snapshot(
     completed_items = sum(1 for row in item_rows if int(row["is_completed"]) == 1)
     current_index = int(session["current_index"])
     is_session_completed = str(session["status"]) == COMPLETED_STATUS
-    homework_correct_streak = int(session["homework_correct_streak"])
-    homework_hard_mode = bool(session["homework_hard_mode"])
+    homework_correct_streak = 0
+    homework_hard_mode = False
     next_incomplete_row = next((row for row in item_rows if int(row["is_completed"]) == 0), None)
     if total_items == 0:
         current_item_position = 0
@@ -339,6 +341,8 @@ def get_assignment_progress_snapshot(
                 or (homework_hard_mode and int(row["item_order"]) == min(current_index, total_items - 1)),
                 "hard_completed": bool(row["hard_completed"]),
                 "is_completed": bool(row["is_completed"]),
+                "is_deferred": bool(row["is_deferred"]),
+                "used_help": bool(row["used_help"]),
             }
             for row in item_rows
         ],
@@ -346,15 +350,7 @@ def get_assignment_progress_snapshot(
 
 
 def _normalize_assignment_snapshot_stage(row: sqlite3.Row) -> str:
-    if bool(row["is_completed"]):
-        if bool(row["hard_completed"]):
-            return HARD_STAGE
-        return MEDIUM_STAGE
-    if int(row["easy_correct_count"]) < HOMEWORK_EASY_CORRECT_REQUIRED:
-        return EASY_STAGE
-    if int(row["medium_correct_count"]) < HOMEWORK_MEDIUM_CORRECT_REQUIRED:
-        return MEDIUM_STAGE
-    return MEDIUM_STAGE
+    return str(row["current_stage"])
 
 
 def normalize_assignment_kind(value: object) -> str:
@@ -367,9 +363,8 @@ def normalize_assignment_kind(value: object) -> str:
 
 
 def normalize_assignment_mode(value: object) -> str:
-    if not isinstance(value, str):
+    if value == "staged_default":
         return ASSIGNMENT_MODE_STAGED_DEFAULT
-    normalized_value = value.strip().lower()
-    if normalized_value not in SUPPORTED_ASSIGNMENT_MODES:
-        return ASSIGNMENT_MODE_STAGED_DEFAULT
-    return normalized_value
+    if not isinstance(value, str) or value not in SUPPORTED_ASSIGNMENT_MODES:
+        raise ValueError("invalid assignment mode")
+    return value

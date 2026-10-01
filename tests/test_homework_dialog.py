@@ -122,7 +122,7 @@ def test_assignments_window_renders_titles_progress_and_selection_indexes(tmp_pa
         title="Resume me",
     )
     start_assignment_training_session(child.id, f"family:{resumable_id}")
-    submit_training_answer(child.id, "dialog-resume-1")
+    submit_training_answer(child.id, "wrong")
     manager = FakeDialogManager(child)
 
     view = asyncio.run(get_assignments_window_data(manager))
@@ -144,7 +144,7 @@ def test_selecting_assignment_opens_overview_with_continue_state(tmp_path: Path)
         title="Overview",
     )
     start_assignment_training_session(child.id, f"family:{assignment_id}")
-    submit_training_answer(child.id, "dialog-overview-1")
+    submit_training_answer(child.id, "wrong")
     manager = FakeDialogManager(child)
 
     asyncio.run(select_assignment(None, None, manager, f"family:{assignment_id}"))
@@ -172,7 +172,7 @@ def test_launch_selected_homework_reuses_existing_session(tmp_path: Path) -> Non
         title="Reuse session",
     )
     started = start_assignment_training_session(child.id, f"family:{assignment_id}")
-    submit_training_answer(child.id, "dialog-reuse-1")
+    submit_training_answer(child.id, "wrong")
     first_session = get_active_training_session(child.id)
     manager = FakeDialogManager(child)
     manager.dialog_data["assignment_key"] = f"family:{assignment_id}"
@@ -198,7 +198,7 @@ def test_launch_selected_homework_reuses_existing_session(tmp_path: Path) -> Non
     ]
     assert message.answers == [
         {
-            "text": "Homework: Reuse session\nDone 0/1\nCurrent item 1/1\nStage: easy\nItems: 1 warm-up",
+            "text": "Homework: Reuse session\nDone 0/1\nCurrent item 1/1\nStage: easy\nItems: 1 start",
             "kwargs": {},
         }
     ]

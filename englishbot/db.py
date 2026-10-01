@@ -919,6 +919,9 @@ def init_db() -> None:
             connection.execute(
                 "ALTER TABLE training_sessions ADD COLUMN question_version INTEGER NOT NULL DEFAULT 0"
             )
+        if "training_mode" not in training_session_columns:
+            connection.execute("ALTER TABLE training_sessions ADD COLUMN training_mode TEXT NOT NULL DEFAULT 'easy'")
+            connection.execute("UPDATE training_sessions SET homework_correct_streak = 0, homework_hard_mode = 0, question_version = question_version + 1")
         connection.execute(
             """CREATE TABLE IF NOT EXISTS mini_app_completion_notifications (
                 session_id INTEGER PRIMARY KEY,
@@ -956,6 +959,9 @@ def init_db() -> None:
             """
         )
         training_session_item_columns = get_table_columns(connection, "training_session_items")
+        for column in ("failed_attempts", "is_deferred", "used_help"):
+            if column not in training_session_item_columns:
+                connection.execute(f"ALTER TABLE training_session_items ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
         if "prompt_text" not in training_session_item_columns:
             connection.execute(
                 """
@@ -1071,6 +1077,8 @@ def init_db() -> None:
             )
             """
         )
+        if "training_mode" not in get_table_columns(connection, "homework_assignments"):
+            connection.execute("ALTER TABLE homework_assignments ADD COLUMN training_mode TEXT NOT NULL DEFAULT 'easy'")
         connection.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_homework_assignments_assigned_to_status

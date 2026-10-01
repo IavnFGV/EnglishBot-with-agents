@@ -382,7 +382,11 @@ def create_homework_assignment(
     learning_item_ids: list[int],
     *,
     title: str | None = None,
+    training_mode: str = "easy",
 ) -> int:
+    from .training import validate_training_mode
+
+    validate_training_mode(training_mode)
     db.ensure_user_exists(assigned_by_user_id)
     db.ensure_user_exists(assigned_to_user_id)
     timestamp = db.utc_now()
@@ -418,14 +422,15 @@ def create_homework_assignment(
                 assigned_by_user_id,
                 assigned_to_user_id,
                 title,
+                training_mode,
                 status,
                 created_at,
                 updated_at,
                 completed_at
             )
-            VALUES (?, ?, ?, ?, 'active', ?, ?, NULL)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL)
             """,
-            (family_id, assigned_by_user_id, assigned_to_user_id, title, timestamp, timestamp),
+            (family_id, assigned_by_user_id, assigned_to_user_id, title, training_mode, timestamp, timestamp),
         )
         assignment_id = int(cursor.lastrowid)
         for item_order, learning_item_id in enumerate(learning_item_ids):

@@ -26,7 +26,7 @@
 - Bot-level error handling now also ignores Telegram's exact `message is not modified` no-op globally, so harmless repeated UI edits do not flood logs with stack traces.
 - The active family-first persistence layer is now the only live product model: SQLite bootstraps `families`, `family_members`, family-owned `learning_items`, family-owned `topics`, `topic_items`, `user_progress`, `homework_assignments`, and `homework_assignment_items`, with focused helpers in `englishbot/families.py`.
 - Plain `/learn` is now family-only on the active path: users train only on family-owned learning items, and users outside a family setup get the normal no-items response instead of a legacy workspace fallback.
-- Active `/learn` quiz UI is now dialog-based: the learner card itself runs through `learner_training_dialog.py`, while the staged exercise and session rules stay in `training.py`.
+- Active `/learn` quiz UI is now dialog-based: the learner card itself runs through `learner_training_dialog.py`, while exercise and session rules stay in `training.py`.
 - The same learner quiz dialog shell is now reused for homework-backed training too, so `/learn` and homework share one inline learner control seam instead of split bespoke quiz UIs.
 - Learner TTS now lives inside those quiz dialogs: when `ENGLISHBOT_TTS_BASE_URL` is configured, each current-word card can show inline `🔊 Listen` plus `🎤 Voice`, voice changes persist `user_profiles.tts_voice_id`, and the next listen uses the new voice immediately.
 - Learner pronunciation audio is now persisted too: one `learning_item` can own multiple local synthesized `voice` variants keyed by `learning_item + voice_id + tts_model_key + source_text_hash`, first listen generates on demand, and later listens reuse the stored local file instead of re-synthesizing.
@@ -40,8 +40,8 @@
 - If a learner question image is missing, invalid, or Telegram rejects the media render, the flow now falls back safely to the existing text-only question card; the separate homework progress photo remains unchanged.
 - Learner homework flows are now family-first end to end: active homework lists, start callbacks, progress snapshots, and training-session completion all run only on `homework_assignments`.
 - Learner homework is now reachable from both `/start` and an explicit `/homework` command; the direct command reuses the same family-first homework dialog/runtime path instead of creating a second entry flow.
-- The current homework assumption is now explicit in code and prompt docs instead of living only in memory: normal homework word flow is `3 easy` then `2 medium`, assignment boost activates after `4` correct answers in a row across the homework, boosted typed hard answers finish the current word immediately, and homework `Skip hard` clears the boost and returns that same word to its normal staged flow without counting a mistake.
-- Homework progress-wheel fill is now step-based instead of status-bucket-based: with the current `3 easy + 2 medium` assumption, each post-answer step fills one more `20%` of the sector, normal completion reaches bright green at `100%`, and boosted hard completion still uses the darker hard-clear green.
+- Learning and homework now use one persisted `easy`, `medium`, or `hard` mode: learners choose it for new `/learn` and topic sessions; the assigning family member chooses it before confirming homework. One correct answer completes a word; hard-mode Help switches only that word to medium and records assistance.
+- Wrong words return after other pending words; three wrong answers defer a word and end its work for this round. Homework stays active until every word is completed and resumes deferred words without repeating completed ones. The progress wheel fills by completed words; summaries report completed, deferred, and assisted counts, without a streak boost.
 - Homework medium `Check` completion is now fail-closed in the UI too: if the assembled jumbled-letters answer finishes the active homework session, the callback still updates the progress/cleanup path and sends the final summary instead of silently no-oping after the session row becomes inactive.
 - The focused learner-homework UI tests now exercise family homework directly, so the homework list, overview dialog, and homework start handler no longer rely on invite/join scaffolding for their main coverage.
 - The homework-specific `training_handlers` tests now also use family homework directly, so learner progress-photo and homework-summary coverage no longer depends on teacher-student invite setup.
@@ -78,7 +78,7 @@
 - Homework assignments from family topics or explicit family item selection.
 - Learner homework list/overview dialog and resumable homework sessions.
 - Learner `/topics` launch flow over shared family topics.
-- Training sessions with staged `easy`, `medium`, and optional `hard` exercises.
+- `/learn` now prioritizes words needing review, then unseen words, then the oldest answered words, randomizing ties. SQLite records mistakes and assistance for later review; existing sessions retain their prompt/answer snapshots and current card stages during the schema upgrade.
 - Centralized i18n for bot-facing text with `en`, `ru`, `uk`, and `bg`.
 - Asset registry for linked image/audio metadata, with runtime media stored locally on disk even when entered as remote URLs; `local_path` remains the runtime source of truth, `source_url` is retained only as optional traceability metadata, workbook-imported remote assets now land in clear persistent imported folders like `assets/images/imported/` and `assets/audio/imported/` after staging, and deploy now copies the repo-owned `assets/images/no-image.png` placeholder into the host static-assets mount so fresh VPS installs keep the teacher-content image fallback without extra startup logic.
 - Telegram `file_id` reuse is now an explicit cache-only persistence layer keyed by asset and media kind (`photo` plus persisted synthesized `voice` today, `audio` ready too); it accelerates delivery but does not replace local files as runtime truth.
@@ -127,7 +127,7 @@
 - New commands must be added through `englishbot/command_registry.py`.
 
 ## Important current limitations
-- The learner Mini App is opt-in through `ENGLISHBOT_MINI_APP_URL`; `/learn`, topics, and homework resume one SQLite session across interfaces. Its image card shows a loading indicator for delayed images and the existing no-image asset when absent or unavailable. Homework shows the per-word progress wheel and four-answer combo after each answer. Medium letter taps update immediately, batch their SQLite save, and hide selected letters with underscores. Launch and static asset URLs change with deployed code. There is no webhook runtime or required AI/TTS dependency in core flows.
+- The learner Mini App is opt-in through `ENGLISHBOT_MINI_APP_URL`; `/learn`, topics, and homework resume one SQLite session across interfaces. Its image card shows a loading indicator for delayed images and the existing no-image asset when absent or unavailable. Homework shows the per-word completion wheel after each answer, and the round summary counts completed, deferred, and assisted words. Medium letter taps update immediately, batch their SQLite save, and hide selected letters with underscores. Launch and static asset URLs change with deployed code. There is no webhook runtime or required AI/TTS dependency in core flows.
 - No diff-based publish sync, content versioning, or back-sync from student workspaces.
 - No hard delete lifecycle for learning content.
 - No deep-link driven navigation.
@@ -141,6 +141,7 @@
 - Tests are the best proof of current behavior when docs and older prompts disagree.
 
 ## Immediate next work areas supported by repo state
+- `docs/functionality-map.md` records current functionality and the implemented shared mode policy; remaining interface/navigation simplifications are proposals.
 - Tighten older Telegram list screens toward the single-screen UI rules where practical.
 - Keep narrowing documentation and task navigation around the module map instead of large historical notes.
 - Add new family-first product slices on top of the simplified schema instead of reviving removed workspace-era paths.

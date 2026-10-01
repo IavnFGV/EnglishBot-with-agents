@@ -40,6 +40,9 @@ class FakeMessage:
         return message
 
 
+    async def edit_text(self, text, **kwargs):
+        return await self.answer(text, **kwargs)
+
 class FakeCallback:
     def __init__(self, user: User, data: str, message: FakeMessage) -> None:
         self.from_user = user
@@ -105,13 +108,13 @@ def test_start_topic_training_handler_uses_family_topic(tmp_path: Path) -> None:
     asyncio.run(start_topic_training(callback))
 
     assert callback.answered is True
-    assert callback_message.answers[0] == {
-        "text": "Item 1/1\nDone 0/1\nStage: easy",
-        "kwargs": {},
-    }
-    assert callback_message.answers[1]["text"] == "Hint: кот\nFirst letter: c"
-    keyboard = callback_message.answers[1]["kwargs"]["reply_markup"]
-    assert keyboard is None
+    assert callback_message.answers[0]["text"].startswith("Choose how to practice")
+    keyboard = callback_message.answers[0]["kwargs"]["reply_markup"]
+    assert len(keyboard.inline_keyboard) == 3
+    from englishbot.training_handlers import choose_training_mode
+    from englishbot.training import get_current_question
+    asyncio.run(choose_training_mode(FakeCallback(child, keyboard.inline_keyboard[2][0].callback_data, callback_message)))
+    assert get_current_question(child.id)["current_stage"] == "hard"
 
 
 def test_topic_launch_offers_mini_app_when_configured(tmp_path: Path, monkeypatch) -> None:
@@ -122,8 +125,11 @@ def test_topic_launch_offers_mini_app_when_configured(tmp_path: Path, monkeypatc
     callback = FakeCallback(child, f"{TOPICS_START_PREFIX}{topic_id}", message)
     asyncio.run(start_topic_training(callback))
     assert len(message.answers) == 1
-    assert message.answers[0]["text"] == "Choose a training mode:"
-    assert message.answers[0]["kwargs"]["reply_markup"].inline_keyboard[0][0].web_app is not None
+    keyboard = message.answers[0]["kwargs"]["reply_markup"]
+    from englishbot.training_handlers import choose_training_mode
+    asyncio.run(choose_training_mode(FakeCallback(child, keyboard.inline_keyboard[0][0].callback_data, message)))
+    assert message.answers[-1]["text"] == "Choose a training mode:"
+    assert message.answers[-1]["kwargs"]["reply_markup"].inline_keyboard[0][0].web_app is not None
 
 
 def test_start_topic_training_handler_rejects_inaccessible_topic(tmp_path: Path) -> None:

@@ -76,7 +76,7 @@ def test_list_learner_homework_reports_compact_progress_for_new_and_resumable_as
     from englishbot.homework import start_assignment_training_session
 
     start_assignment_training_session(child.id, f"family:{second_assignment_id}")
-    submit_training_answer(child.id, "resume-homework-1")
+    submit_training_answer(child.id, "wrong")
     snapshots = list_learner_homework(child.id)
 
     assert [snapshot["assignment_id"] for snapshot in snapshots] == [
@@ -109,7 +109,7 @@ def test_get_learner_homework_overview_reuses_unfinished_assignment_session_afte
     from englishbot.homework import start_assignment_training_session
 
     start_assignment_training_session(child.id, f"family:{assignment_id}")
-    submit_training_answer(child.id, "resume-later-1")
+    submit_training_answer(child.id, "wrong")
     create_training_session(child.id, limit=1)
 
     overview = get_learner_homework_overview(child.id, f"family:{assignment_id}")

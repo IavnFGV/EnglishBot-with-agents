@@ -188,6 +188,7 @@ async def get_overview_window_data(
         completed_items=assignment["completed_items"],
         total_items=assignment["total_items"],
     )
+    progress += "\n" + translate_for_user(user_id, "training.mode.info", mode=translate_for_user(user_id, f"training.mode.{assignment['assignment_mode']}"))
     resume_details = ""
     current_stage = assignment["current_stage"]
     if current_stage is not None:

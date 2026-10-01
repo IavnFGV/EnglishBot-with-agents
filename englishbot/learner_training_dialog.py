@@ -11,7 +11,11 @@ from aiogram_dialog.widgets.media import DynamicMedia
 from aiogram_dialog.widgets.text import Const, Format
 
 from .i18n import translate_for_user
+from .topic_access import TopicAccessError, start_topic_training_session
 from .training import (
+    TRAINING_MODES,
+    NoLearningItemsError,
+    create_training_session,
     append_medium_answer_letter,
     get_active_training_session,
     get_current_question,
@@ -32,7 +36,7 @@ from .training_handlers import (
     render_session_summary_text,
     resolve_question_photo_path,
 )
-from .tts import TTSVoiceCatalog, build_tts_client, is_tts_enabled
+from .tts import TTSClientError, TTSVoiceCatalog, build_tts_client, is_tts_enabled
 from .user_profiles import get_user_tts_voice_id, set_user_tts_voice_id
 from .mini_app import question_token
 
@@ -41,6 +45,7 @@ DEFAULT_VOICE_OPTION_ID = "__default__"
 
 
 class LearnerTrainingDialogSG(StatesGroup):
+    mode = State()
     quiz = State()
     voice = State()
 
@@ -66,6 +71,47 @@ def _build_question_media(question: dict[str, object] | None) -> MediaAttachment
     if photo_path is None:
         return None
     return MediaAttachment(ContentType.PHOTO, path=photo_path)
+
+
+async def start_training_mode_dialog(message: Message, dialog_manager: DialogManager, topic_id: int | None = None) -> None:
+    await dialog_manager.start(
+        LearnerTrainingDialogSG.mode,
+        data={"topic_id": topic_id},
+        mode=StartMode.RESET_STACK,
+    )
+
+
+async def get_mode_window_data(dialog_manager: DialogManager, **_: object) -> dict[str, object]:
+    user_id = _get_user_id(dialog_manager)
+    return {
+        "screen_text": translate_for_user(user_id, "training.mode.choose"),
+        "mode_items": [{"id": mode, "label": translate_for_user(user_id, f"training.mode.{mode}")} for mode in TRAINING_MODES],
+        "cancel_label": translate_for_user(user_id, "common.cancel"),
+    }
+
+
+async def _choose_training_mode(callback: CallbackQuery, _widget: Select, dialog_manager: DialogManager, mode: str) -> None:
+    if callback.message is None or callback.from_user is None or mode not in TRAINING_MODES:
+        return
+    topic_id = (dialog_manager.start_data or {}).get("topic_id")
+    try:
+        if topic_id is None:
+            create_training_session(callback.from_user.id, training_mode=mode)
+        else:
+            start_topic_training_session(callback.from_user.id, int(topic_id), training_mode=mode)
+    except (NoLearningItemsError, TopicAccessError):
+        await callback.answer(translate_for_user(callback.from_user.id, "training.no_items"))
+        return
+    from .mini_app_handlers import offer_training_interfaces
+    if await offer_training_interfaces(callback.message, callback.from_user.id):
+        await dialog_manager.done(show_mode=ShowMode.DELETE_AND_SEND)
+        return
+    await ensure_training_progress_message(callback.message, callback.from_user.id)
+    await dialog_manager.switch_to(LearnerTrainingDialogSG.quiz, show_mode=ShowMode.EDIT)
+
+
+async def _cancel_mode(callback: CallbackQuery, _button: Button, dialog_manager: DialogManager) -> None:
+    await dialog_manager.done(show_mode=ShowMode.DELETE_AND_SEND)
 
 
 async def start_training_dialog(
@@ -251,6 +297,8 @@ async def get_voice_window_data(
 
 
 def _build_feedback(telegram_user_id: int, result: dict[str, object]) -> str:
+    if result.get("deferred"):
+        return translate_for_user(telegram_user_id, "training.deferred")
     if result.get("skipped_hard"):
         return translate_for_user(telegram_user_id, "training.hard_skipped")
     if bool(result.get("is_correct")):
@@ -515,6 +563,14 @@ async def _return_to_quiz(
 
 
 learner_training_dialog = Dialog(
+    Window(
+        Format("{screen_text}"),
+        Group(Select(Format("{item[label]}"), id="training_mode", item_id_getter=lambda item: item["id"],
+                     items="mode_items", on_click=_choose_training_mode), width=1),
+        Button(Format("{cancel_label}"), id="mode_cancel", on_click=_cancel_mode),
+        state=LearnerTrainingDialogSG.mode,
+        getter=get_mode_window_data,
+    ),
     Window(
         DynamicMedia("question_media", when="has_media"),
         Format("{screen_text}"),
