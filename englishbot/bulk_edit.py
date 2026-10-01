@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 SESSION_DURATION_MINUTES = 30
 REMINDER_10_MINUTES = 10
 REMINDER_3_MINUTES = 3
+MAX_RETAINED_UPLOADS = 10
 ACTIVE_SESSION_STATUSES = ("active", "uploaded", "backing_up", "preparing", "applying")
 BULK_EDIT_CALLBACK_PREFIX = "bulk_edit:"
 BULK_EDIT_COMMAND_TOKEN = "/bulk_edit"
@@ -158,7 +159,7 @@ def update_bulk_edit_export_path(session_id: int, export_file_path: str) -> sqli
 
 
 def mark_bulk_edit_uploaded(session_id: int, uploaded_file_path: str) -> sqlite3.Row:
-    return _update_session(
+    session = _update_session(
         session_id,
         """
         UPDATE bulk_edit_sessions
@@ -169,6 +170,8 @@ def mark_bulk_edit_uploaded(session_id: int, uploaded_file_path: str) -> sqlite3
         """,
         (uploaded_file_path, utc_now(), session_id),
     )
+    _prune_bulk_edit_uploads()
+    return session
 
 
 def mark_bulk_edit_applying(session_id: int) -> sqlite3.Row:
@@ -513,15 +516,27 @@ def _set_bulk_edit_status(session_id: int, status: str) -> sqlite3.Row:
 
 
 def _cleanup_session_temp_files(session: sqlite3.Row) -> None:
-    for field_name in ("export_file_path", "uploaded_file_path"):
-        file_path = session[field_name]
-        if not file_path:
-            continue
-        path = Path(str(file_path))
+    export_file_path = session["export_file_path"]
+    if export_file_path:
+        path = Path(str(export_file_path))
         try:
             path.unlink(missing_ok=True)
         except OSError:
             logger.warning("Could not remove temporary bulk-edit file %s", path)
+    _prune_bulk_edit_uploads()
+
+
+def _prune_bulk_edit_uploads() -> None:
+    upload_paths = sorted(
+        get_bulk_edit_upload_dir().glob("*.xlsx"),
+        key=lambda path: (path.stat().st_mtime_ns, path.name),
+        reverse=True,
+    )
+    for overflow_path in upload_paths[MAX_RETAINED_UPLOADS:]:
+        try:
+            overflow_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not prune retained bulk-edit upload %s", overflow_path)
 
 
 def _prune_bulk_edit_backups() -> None:

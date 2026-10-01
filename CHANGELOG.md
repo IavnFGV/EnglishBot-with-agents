@@ -22,6 +22,7 @@
 - Added a registered, localized `/version` command that reports the deployed version, shortened Git commit, UTC build time, and environment from the existing build metadata.
 - Build metadata now persists in `/srv/services/englishbot/build.env`: GitHub Actions writes it atomically on deploy and Docker Compose reads it on every container creation, so manual recreates no longer degrade `/version` to `dev` and `unknown` while the secret-bearing stack `.env` remains untouched.
 - Fixed the learner image-cache write path for successful `editMessageMedia` uploads: newly encountered question images now persist the returned Telegram photo `file_id`, so later renders reuse Telegram media instead of repeatedly uploading the same local file.
+- Bulk edit now retains the 10 newest user-uploaded `.xlsx` workbooks under the persistent data mount for incident diagnosis while continuing to delete temporary exports; each new upload prunes older retained files beyond that fixed limit.
 
 ## 2026-06-22
 - Added a new top-level `README.md` focused on what the project is, why the family-first Telegram architecture exists, which engineering problems it solves, and how the main runtime pieces fit together for another backend engineer browsing the repository.

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,12 +14,19 @@ from englishbot import db
 from englishbot.bot import dispatcher
 from englishbot.bulk_edit import (
     BulkEditSessionAlreadyActiveError,
+    cancel_bulk_edit_session,
+    complete_bulk_edit_session,
     create_bulk_edit_session,
     create_bulk_edit_backup,
     get_active_bulk_edit_session,
+    get_bulk_edit_export_dir,
+    get_bulk_edit_upload_dir,
     get_bulk_edit_session,
+    fail_bulk_edit_session_with_status,
+    mark_bulk_edit_uploaded,
     process_due_bulk_edit_notifications,
     restore_database_from_bulk_edit_backup,
+    update_bulk_edit_export_path,
 )
 from englishbot.families import add_family_member, create_family
 
@@ -84,6 +92,60 @@ def test_bulk_edit_backup_is_created_and_pruned_to_latest_500(tmp_path: Path, mo
     backups = sorted(backup_dir.glob("before-bulk-edit__family-*__user-*__*.sqlite3"))
     assert backup_path.exists()
     assert len(backups) == 500
+
+
+@pytest.mark.parametrize("status", ["completed", "cancelled", "failed_backup", "failed_prepare", "failed_apply", "expired"])
+def test_ended_session_deletes_export_but_retains_uploaded_workbook(
+    tmp_path: Path,
+    monkeypatch,
+    status: str,
+) -> None:
+    owner, _, family_id = seed_family(tmp_path, monkeypatch)
+    session = create_bulk_edit_session(family_id, owner.id)
+    export_path = get_bulk_edit_export_dir() / "export.xlsx"
+    upload_path = get_bulk_edit_upload_dir() / "upload.xlsx"
+    export_path.write_bytes(b"export")
+    upload_path.write_bytes(b"upload")
+    update_bulk_edit_export_path(int(session["id"]), str(export_path))
+    mark_bulk_edit_uploaded(int(session["id"]), str(upload_path))
+
+    session_id = int(session["id"])
+    if status == "completed":
+        complete_bulk_edit_session(session_id)
+    elif status == "cancelled":
+        cancel_bulk_edit_session(session_id)
+    elif status == "expired":
+        with db.get_connection() as connection:
+            connection.execute(
+                "UPDATE bulk_edit_sessions SET expires_at = ? WHERE id = ?",
+                ((datetime.now(UTC) - timedelta(minutes=1)).isoformat(), session_id),
+            )
+        assert get_active_bulk_edit_session() is None
+    else:
+        fail_bulk_edit_session_with_status(session_id, status)
+
+    assert get_bulk_edit_session(session_id)["status"] == status
+    assert not export_path.exists()
+    assert upload_path.read_bytes() == b"upload"
+
+
+def test_uploaded_workbooks_are_pruned_to_latest_ten(tmp_path: Path, monkeypatch) -> None:
+    owner, _, family_id = seed_family(tmp_path, monkeypatch)
+    upload_paths: list[Path] = []
+
+    for index in range(11):
+        session = create_bulk_edit_session(family_id, owner.id)
+        upload_path = get_bulk_edit_upload_dir() / f"upload-{index:02d}.xlsx"
+        upload_path.write_bytes(str(index).encode())
+        os.utime(upload_path, (1_700_000_000 + index, 1_700_000_000 + index))
+        upload_paths.append(upload_path)
+        mark_bulk_edit_uploaded(int(session["id"]), str(upload_path))
+        cancel_bulk_edit_session(int(session["id"]))
+
+    retained_paths = sorted(get_bulk_edit_upload_dir().glob("*.xlsx"))
+    assert len(retained_paths) == 10
+    assert not upload_paths[0].exists()
+    assert all(path.exists() for path in upload_paths[1:])
 
 
 def test_global_gate_blocks_ordinary_flows_but_initiator_gets_specialized_response(

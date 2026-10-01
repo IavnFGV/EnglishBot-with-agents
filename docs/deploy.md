@@ -50,6 +50,7 @@ Inside the container:
 - App logs go to `/app/logs`, backed by `/srv/services/englishbot/logs`.
 - SQLite backup files should be created by application code in `/app/backups`, backed by `/srv/services/englishbot/backups`.
 - Runtime media files live in `/app/assets`, backed by `/srv/service-static/englishbot`.
+- The 10 newest user-uploaded bulk-edit workbooks are retained in `/app/data/bulk-edit/uploads` for diagnostics; older uploads are pruned automatically, while generated exports are temporary.
 
 On the host:
 
