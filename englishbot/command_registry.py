@@ -107,6 +107,12 @@ BULK_EDIT_COMMAND = CommandDefinition(
     scope="teacher",
     register_after_startup=True,
 )
+BULK_EDIT_WITH_ARCHIVED_COMMAND = CommandDefinition(
+    name="bulk_edit_with_archived",
+    description_key="command.bulk_edit_with_archived",
+    scope="teacher",
+    register_after_startup=True,
+)
 
 ALL_COMMANDS = (
     START_COMMAND,
@@ -123,6 +129,7 @@ ALL_COMMANDS = (
     TOPICS_COMMAND,
     TEACHER_CONTENT_COMMAND,
     BULK_EDIT_COMMAND,
+    BULK_EDIT_WITH_ARCHIVED_COMMAND,
 )
 
 
@@ -140,6 +147,7 @@ def get_registered_commands(*, include_owner_commands: bool = False) -> tuple[Co
         TOPICS_COMMAND,
         TEACHER_CONTENT_COMMAND,
         BULK_EDIT_COMMAND,
+        BULK_EDIT_WITH_ARCHIVED_COMMAND,
     )
     if include_owner_commands:
         commands = commands + (SEED_DEMO_COMMAND,)

@@ -5,6 +5,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.worksheet.worksheet import Worksheet
 
 from .assets import PRIMARY_AUDIO_ROLE, PRIMARY_IMAGE_ROLE
 from .bulk_edit import get_bulk_edit_export_dir
@@ -39,7 +41,12 @@ class FamilyWorkbookExportResult:
     learning_item_count: int
 
 
-def export_family_workbook(family_id: int, *, output_path: Path | None = None) -> FamilyWorkbookExportResult:
+def export_family_workbook(
+    family_id: int,
+    *,
+    output_path: Path | None = None,
+    include_archived: bool = False,
+) -> FamilyWorkbookExportResult:
     if output_path is None:
         output_path = get_bulk_edit_export_dir() / f"family-{family_id}__{utc_now().replace(':', '-')}.xlsx"
 
@@ -47,17 +54,18 @@ def export_family_workbook(family_id: int, *, output_path: Path | None = None) -
     workbook = Workbook()
     meta_sheet = workbook.active
     meta_sheet.title = META_SHEET
-    meta_sheet.append(("field", "value"))
-    meta_sheet.append(("version", WORKBOOK_VERSION))
-    meta_sheet.append(("family_id", family_id))
-    meta_sheet.append(("exported_at_utc", utc_now()))
+    _write_workbook_instructions(meta_sheet, family_id, include_archived=include_archived)
 
     learning_items_sheet = workbook.create_sheet(LEARNING_ITEMS_SHEET)
     learning_items_sheet.append(LEARNING_ITEM_COLUMNS)
     learning_items_sheet.column_dimensions[IMAGE_COLUMN_LETTER].width = IMAGE_COLUMN_WIDTH
 
     topic_titles_by_item_id, topic_count = _load_topic_titles_by_item_id(family_id)
-    for row in _list_family_learning_item_rows(family_id):
+    learning_item_rows = _list_family_learning_item_rows(
+        family_id,
+        include_archived=include_archived,
+    )
+    for row in learning_item_rows:
         row_number = learning_items_sheet.max_row + 1
         image_ref = _build_export_image_ref(
             image_ref=str(row["image_ref"] or ""),
@@ -89,14 +97,192 @@ def export_family_workbook(family_id: int, *, output_path: Path | None = None) -
     return FamilyWorkbookExportResult(
         file_path=output_path,
         topic_count=topic_count,
-        learning_item_count=len(_list_family_learning_item_rows(family_id)),
+        learning_item_count=len(learning_item_rows),
     )
 
 
-def _list_family_learning_item_rows(family_id: int) -> list[dict[str, object]]:
+def _write_workbook_instructions(
+    worksheet: Worksheet,
+    family_id: int,
+    *,
+    include_archived: bool,
+) -> None:
+    worksheet.merge_cells("A1:C1")
+    worksheet["A1"] = "Инструкция по работе с учебными словами"
+    worksheet["A1"].font = Font(bold=True, color="FFFFFF", size=15)
+    worksheet["A1"].fill = PatternFill("solid", fgColor="1F4E78")
+    worksheet["A1"].alignment = Alignment(vertical="center")
+    worksheet.row_dimensions[1].height = 28
+
+    worksheet.merge_cells("A2:C2")
+    worksheet["A2"] = (
+        "Экспорт включает активные и архивные слова."
+        if include_archived
+        else (
+            "Экспорт включает активные слова. Архивные слова скрыты; "
+            "для просмотра запустите /bulk_edit_with_archived."
+        )
+    )
+    worksheet["A2"].alignment = Alignment(wrap_text=True, vertical="top")
+    worksheet.row_dimensions[2].height = 32
+
+    section_fill = PatternFill("solid", fgColor="D9EAF7")
+    section_font = Font(bold=True, color="1F1F1F")
+    header_fill = PatternFill("solid", fgColor="E2F0D9")
+    header_font = Font(bold=True)
+
+    worksheet.merge_cells("A4:C4")
+    worksheet["A4"] = "Основные правила"
+    worksheet["A4"].font = section_font
+    worksheet["A4"].fill = section_fill
+    for cell in worksheet[4][:3]:
+        cell.fill = section_fill
+
+    rules = (
+        (
+            "Темы",
+            (
+                "Назначьте слову одну или несколько тем. Без темы оно не будет видно "
+                "в редакторе тем и тематических уроках."
+            ),
+        ),
+        (
+            "Как убрать слово",
+            (
+                "Удалите всю строку и загрузите файл. Слово будет архивировано, а не "
+                "удалено из базы. Не удаляйте строки слов, которые хотите оставить активными."
+            ),
+        ),
+        (
+            "Архив и восстановление",
+            (
+                "В /bulk_edit_with_archived установите is_archived = 0 и назначьте тему, "
+                "чтобы восстановить слово. Значение 1 оставляет его в архиве."
+            ),
+        ),
+        (
+            "Новые слова",
+            (
+                "Добавьте отдельную строку, оставьте item_key пустым и заполните text. "
+                "Не меняйте и не копируйте item_key существующих слов."
+            ),
+        ),
+    )
+    for row in rules:
+        worksheet.append(row)
+
+    worksheet.merge_cells("A11:C11")
+    worksheet["A11"] = "Столбцы листа learning_items"
+    worksheet["A11"].font = section_font
+    worksheet["A11"].fill = section_fill
+    for cell in worksheet[11][:3]:
+        cell.fill = section_fill
+
+    worksheet.append(("Столбец", "Назначение", "Как редактировать"))
+    for cell in worksheet[12][:3]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    columns = (
+        (
+            "item_key",
+            "Постоянный идентификатор слова.",
+            "Не меняйте и не копируйте. Для нового слова оставьте пустым.",
+        ),
+        (
+            "text",
+            "Английское слово или фраза.",
+            "Измените текст в этой ячейке, чтобы обновить существующее слово.",
+        ),
+        (
+            "translation_ru",
+            "Перевод на русский.",
+            "Необязательное поле; пустая ячейка удаляет этот перевод.",
+        ),
+        (
+            "translation_uk",
+            "Перевод на украинский.",
+            "Необязательное поле; пустая ячейка удаляет этот перевод.",
+        ),
+        (
+            "translation_bg",
+            "Перевод на болгарский.",
+            "Необязательное поле; пустая ячейка удаляет этот перевод.",
+        ),
+        (
+            "topics",
+            "Группы/темы, к которым относится слово.",
+            (
+                "Перечислите названия тем; разделяйте их новой строкой, запятой или "
+                "точкой с запятой. Если поле пустое, слово не появится в редакторе и "
+                "уроках по темам."
+            ),
+        ),
+        (
+            "image_ref",
+            "Ссылка или путь к изображению.",
+            "Это редактируемое поле; оставьте пустым, чтобы убрать изображение.",
+        ),
+        (
+            "image",
+            "Предпросмотр изображения.",
+            "Только для просмотра. Не редактируйте: импорт игнорирует эту колонку.",
+        ),
+        (
+            "audio_ref",
+            "Ссылка или путь к аудио.",
+            "Это редактируемое поле; оставьте пустым, чтобы убрать аудио.",
+        ),
+        (
+            "is_archived",
+            "Состояние слова: 0 — активно, 1 — в архиве.",
+            "Используйте 1 для временного исключения из обучения; чтобы восстановить, "
+            "укажите 0 и назначьте тему.",
+        ),
+    )
+    for row in columns:
+        worksheet.append(row)
+
+    for row in worksheet.iter_rows(min_row=5, max_row=10, min_col=1, max_col=3):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    for row in worksheet.iter_rows(min_row=13, max_row=22, min_col=1, max_col=3):
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    worksheet.column_dimensions["A"].width = 24
+    worksheet.column_dimensions["B"].width = 44
+    worksheet.column_dimensions["C"].width = 88
+    for row_number in range(5, 11):
+        worksheet.row_dimensions[row_number].height = 48
+    for row_number in range(13, 23):
+        worksheet.row_dimensions[row_number].height = 42
+
+    metadata_start = 24
+    worksheet.cell(metadata_start, 1, "field").font = header_font
+    worksheet.cell(metadata_start, 2, "value").font = header_font
+    for row_number, (field, value) in enumerate(
+        (
+            ("version", WORKBOOK_VERSION),
+            ("family_id", family_id),
+            ("exported_at_utc", utc_now()),
+        ),
+        start=metadata_start + 1,
+    ):
+        worksheet.cell(row_number, 1, field)
+        worksheet.cell(row_number, 2, value)
+
+
+def _list_family_learning_item_rows(
+    family_id: int,
+    *,
+    include_archived: bool = False,
+) -> list[dict[str, object]]:
+    archive_filter = "" if include_archived else "AND learning_items.is_archived = 0"
     with get_connection() as connection:
         rows = connection.execute(
-            """
+            f"""
             SELECT
                 learning_items.id,
                 learning_items.text,
@@ -122,6 +308,7 @@ def _list_family_learning_item_rows(family_id: int) -> list[dict[str, object]]:
             LEFT JOIN assets AS audio_assets
               ON audio_assets.id = audio_links.asset_id
             WHERE learning_items.family_id = ?
+              {archive_filter}
             GROUP BY
                 learning_items.id,
                 learning_items.text,

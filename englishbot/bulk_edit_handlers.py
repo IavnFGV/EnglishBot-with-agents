@@ -34,7 +34,7 @@ from .bulk_edit import (
     set_bulk_edit_backup_path,
     update_bulk_edit_export_path,
 )
-from .command_registry import BULK_EDIT_COMMAND
+from .command_registry import BULK_EDIT_COMMAND, BULK_EDIT_WITH_ARCHIVED_COMMAND
 from .db import save_user
 from .families import get_user_family
 from .i18n import translate_for_user
@@ -55,7 +55,21 @@ async def start_bulk_edit(message: Message) -> None:
     await start_bulk_edit_flow(message, actor_user=message.from_user)
 
 
-async def start_bulk_edit_flow(message: Message, *, actor_user: User | None) -> None:
+@router.message(Command(BULK_EDIT_WITH_ARCHIVED_COMMAND.name))
+async def start_bulk_edit_with_archived(message: Message) -> None:
+    await start_bulk_edit_flow(
+        message,
+        actor_user=message.from_user,
+        include_archived=True,
+    )
+
+
+async def start_bulk_edit_flow(
+    message: Message,
+    *,
+    actor_user: User | None,
+    include_archived: bool = False,
+) -> None:
     if actor_user is None:
         return
     save_user(actor_user)
@@ -65,7 +79,11 @@ async def start_bulk_edit_flow(message: Message, *, actor_user: User | None) -> 
             translate_for_user(
                 actor_user.id,
                 "family.command_family_only",
-                command=BULK_EDIT_COMMAND.token,
+                command=(
+                    BULK_EDIT_WITH_ARCHIVED_COMMAND.token
+                    if include_archived
+                    else BULK_EDIT_COMMAND.token
+                ),
             )
         )
         return
@@ -105,7 +123,10 @@ async def start_bulk_edit_flow(message: Message, *, actor_user: User | None) -> 
         return
 
     try:
-        export_result = export_family_workbook(int(family["id"]))
+        export_result = export_family_workbook(
+            int(family["id"]),
+            include_archived=include_archived,
+        )
         session = update_bulk_edit_export_path(int(session["id"]), str(export_result.file_path))
     except Exception:
         cancel_bulk_edit_session(int(session["id"]))
@@ -121,7 +142,11 @@ async def start_bulk_edit_flow(message: Message, *, actor_user: User | None) -> 
         document=FSInputFile(export_result.file_path),
         caption=translate_for_user(
             actor_user.id,
-            "bulk_edit.export.ready",
+            (
+                "bulk_edit.export.ready.with_archived"
+                if include_archived
+                else "bulk_edit.export.ready"
+            ),
             learning_item_count=export_result.learning_item_count,
             topic_count=export_result.topic_count,
         ),

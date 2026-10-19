@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-19
+- Simplified the workbook guide and made `/bulk_edit` export active words only; deleting a row archives it, while `/bulk_edit_with_archived` includes archived words for review and restoration.
+- Added the teacher command `/bulk_edit_with_archived` with localized descriptions and kept both export modes on the same bulk-edit session and import flow.
+
 ## 2026-10-01
 - Fixed Mini App medium-mode phrase masks so browsers preserve the wider gap between words instead of collapsing it into the normal spacing between letter slots.
 - Replaced separate staged practice/homework progression with shared easy, medium, and hard modes selected at learner entry or assignment creation. One correct answer completes a word; hard-mode Help opens letters for the same word and records assistance.

@@ -13,7 +13,12 @@ from englishbot import db
 from englishbot.assets import PRIMARY_AUDIO_ROLE, PRIMARY_IMAGE_ROLE, resolve_asset_ref_for_role, resolve_runtime_asset_path
 from englishbot.families import create_family, create_family_learning_item, create_family_topic, list_family_topics, replace_topic_items
 from englishbot.topics import get_topic_learning_item_ids
-from englishbot.vocabulary import get_learning_item, list_learning_item_translations, create_learning_item_translation, create_lexeme
+from englishbot.vocabulary import (
+    create_learning_item_translation,
+    create_lexeme,
+    get_learning_item,
+    list_learning_item_translations,
+)
 from englishbot.workbook_export import export_family_workbook
 from englishbot.workbook_import import (
     WorkbookImportPreparationError,
@@ -175,6 +180,43 @@ def test_import_accepts_excel_style_float_archive_flags(tmp_path: Path, monkeypa
 
     assert summary.updated == 0
     assert get_learning_item(first_item_id)["is_archived"] == 0
+
+
+def test_import_restores_archived_item_from_archived_export(tmp_path: Path, monkeypatch) -> None:
+    family_id = setup_db(tmp_path, monkeypatch)
+    first_item_id = create_family_learning_item(family_id, create_lexeme("apple"), "apple")
+    archived_item_id = create_family_learning_item(family_id, create_lexeme("pear"), "pear")
+    topic_id = create_family_topic(family_id, "fruits", "Fruits")
+    replace_topic_items(topic_id, [first_item_id, archived_item_id])
+    standard_export = export_family_workbook(
+        family_id,
+        output_path=tmp_path / "family-active.xlsx",
+    ).file_path
+    workbook = load_workbook(standard_export)
+    workbook["learning_items"].delete_rows(3, 1)
+    workbook.save(standard_export)
+    archive_summary = apply_family_workbook_import(standard_export, family_id, started_by_user_id=1401)
+    assert archive_summary.archived == 1
+
+    workbook_path = export_family_workbook(
+        family_id,
+        output_path=tmp_path / "family-with-archived.xlsx",
+        include_archived=True,
+    ).file_path
+    workbook = load_workbook(workbook_path)
+    assert workbook["learning_items"]["B3"].value == "pear"
+    assert workbook["learning_items"]["F3"].value in (None, "")
+    workbook["learning_items"]["J3"] = 0
+    workbook["learning_items"]["F3"] = "Fruits"
+    workbook.save(workbook_path)
+
+    summary = apply_family_workbook_import(workbook_path, family_id, started_by_user_id=1401)
+
+    restored_item = get_learning_item(archived_item_id)
+    assert summary.updated == 1
+    assert restored_item is not None
+    assert restored_item["is_archived"] == 0
+    assert get_topic_learning_item_ids(topic_id) == [first_item_id, archived_item_id]
 
 
 def test_import_reports_row_level_progress(tmp_path: Path, monkeypatch) -> None:

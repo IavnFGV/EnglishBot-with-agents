@@ -15,7 +15,7 @@ from englishbot.workbook_export import (
     LEARNING_ITEM_ROW_HEIGHT_POINTS,
     export_family_workbook,
 )
-from englishbot.vocabulary import create_learning_item_translation, create_lexeme
+from englishbot.vocabulary import archive_learning_item, create_learning_item_translation, create_lexeme
 
 
 def setup_db(tmp_path: Path) -> None:
@@ -46,9 +46,29 @@ def test_export_creates_valid_xlsx_with_display_only_image_formula(
 
     result = export_family_workbook(family_id, output_path=tmp_path / "family.xlsx")
     workbook = load_workbook(result.file_path, data_only=False)
+    instructions_sheet = workbook["meta"]
     sheet = workbook["learning_items"]
 
     assert workbook.sheetnames == ["meta", "learning_items"]
+    assert instructions_sheet["A1"].value == "Инструкция по работе с учебными словами"
+    instructions = [
+        str(cell)
+        for row in instructions_sheet.iter_rows(values_only=True)
+        for cell in row
+        if cell is not None
+    ]
+    assert any("Как убрать слово" in value for value in instructions)
+    assert any("Удалите всю строку" in value for value in instructions)
+    assert any("/bulk_edit_with_archived" in value for value in instructions)
+    assert any("0 — активно" in value for value in instructions)
+    assert "is_archived" in instructions
+    assert "item_key" in instructions
+    assert any("идентификатор" in value for value in instructions)
+    assert any(row == ("version", "family_bulk_edit_v1", None) for row in instructions_sheet.iter_rows(
+        min_row=25,
+        max_row=25,
+        values_only=True,
+    ))
     assert result.topic_count == 1
     assert result.learning_item_count == 1
     assert [cell.value for cell in sheet[1]] == [
@@ -67,6 +87,34 @@ def test_export_creates_valid_xlsx_with_display_only_image_formula(
     assert sheet["H2"].value == "=IMAGE(G2)"
     assert sheet.column_dimensions[IMAGE_COLUMN_LETTER].width == IMAGE_COLUMN_WIDTH
     assert sheet.row_dimensions[2].height == LEARNING_ITEM_ROW_HEIGHT_POINTS
+
+
+def test_export_hides_archived_items_unless_requested(tmp_path: Path) -> None:
+    setup_db(tmp_path)
+    owner = type("User", (), {"id": 1303, "username": "owner", "first_name": "Owner", "last_name": None})()
+    db.save_user(owner)
+    family_id = int(create_family("Home", owner.id)["id"])
+    active_item_id = create_family_learning_item(family_id, create_lexeme("apple"), "apple")
+    archived_item_id = create_family_learning_item(family_id, create_lexeme("pear"), "pear")
+    archive_learning_item(archived_item_id)
+
+    active_export = export_family_workbook(family_id, output_path=tmp_path / "active.xlsx")
+    active_sheet = load_workbook(active_export.file_path)["learning_items"]
+    assert active_export.learning_item_count == 1
+    assert [row[1] for row in active_sheet.iter_rows(min_row=2, values_only=True)] == ["apple"]
+    assert active_sheet["J2"].value == 0
+
+    complete_export = export_family_workbook(
+        family_id,
+        output_path=tmp_path / "complete.xlsx",
+        include_archived=True,
+    )
+    complete_sheet = load_workbook(complete_export.file_path)["learning_items"]
+    assert complete_export.learning_item_count == 2
+    assert [row[1] for row in complete_sheet.iter_rows(min_row=2, values_only=True)] == ["apple", "pear"]
+    assert complete_sheet["J2"].value == 0
+    assert complete_sheet["J3"].value == 1
+    assert active_item_id != archived_item_id
 
 
 def test_export_uses_public_static_url_for_local_image_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

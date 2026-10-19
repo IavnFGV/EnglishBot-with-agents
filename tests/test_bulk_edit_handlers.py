@@ -6,15 +6,26 @@ from types import SimpleNamespace
 
 import pytest
 from aiogram.types import User
+from openpyxl import load_workbook
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from englishbot import db
 from englishbot.bulk_edit import get_active_bulk_edit_session
-from englishbot.bulk_edit_handlers import handle_bulk_edit_callback, start_bulk_edit, upload_bulk_edit_workbook
+from englishbot.bulk_edit_handlers import (
+    handle_bulk_edit_callback,
+    start_bulk_edit,
+    start_bulk_edit_with_archived,
+    upload_bulk_edit_workbook,
+)
 from englishbot.families import create_family, create_family_learning_item
 from englishbot.user_profiles import set_user_language
-from englishbot.vocabulary import create_learning_item_translation, create_lexeme, list_learning_items
+from englishbot.vocabulary import (
+    archive_learning_item,
+    create_learning_item_translation,
+    create_lexeme,
+    list_learning_items,
+)
 from englishbot.workbook_import import (
     WorkbookImportPreparationError,
     WorkbookImportProgress,
@@ -164,6 +175,22 @@ def test_bulk_edit_start_and_active_session_messages_follow_user_language(tmp_pa
     asyncio.run(start_bulk_edit(followup_message))
 
     assert followup_message.answers[0]["text"].startswith("Ваша сессия bulk edit всё ещё активна.")
+
+
+def test_bulk_edit_with_archived_exports_archived_words(tmp_path: Path, monkeypatch) -> None:
+    owner = setup_db(tmp_path, monkeypatch)
+    archive_learning_item(int(list_learning_items(family_id=1, include_archived=True)[0]["id"]))
+    message = FakeMessage(owner)
+
+    asyncio.run(start_bulk_edit_with_archived(message))
+
+    session = get_active_bulk_edit_session()
+    assert session is not None
+    exported_file = Path(str(session["export_file_path"]))
+    sheet = load_workbook(exported_file)["learning_items"]
+    assert sheet["B2"].value == "apple"
+    assert sheet["J2"].value == 1
+    assert message.documents[0]["kwargs"]["caption"].startswith("Workbook exported with archived words.")
 
 
 def test_apply_shows_progress_status_before_completion(tmp_path: Path, monkeypatch) -> None:
