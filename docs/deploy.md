@@ -101,6 +101,10 @@ The task intentionally does not create SQLite backups. The app is responsible fo
 
 ## GitHub Actions deploy
 
+Use a maintained Python 3.12 patch release for local validation (tested with
+3.12.16). The old 3.12.2 interpreter fails while importing current aiogram/Pydantic
+typing annotations; the container and CI use the current 3.12 release.
+
 Workflow file:
 
 ```text
@@ -113,12 +117,14 @@ Required GitHub Actions secrets:
 - `VPS_USER`
 - `VPS_PORT`
 - `VPS_SSH_KEY`
+- `VPS_HOST_FINGERPRINT`: SHA256 fingerprint of the SSH host key negotiated by the action, verified through an existing trusted connection (ECDSA on the current VPS).
 
 Deploy behavior:
 
 - every `push` to any branch runs tests only
 - every `pull_request` to `main` runs tests only
-- `push` to `main` or `workflow_dispatch` runs tests first, then deploys
+- `push` to `main` or `workflow_dispatch` on `main` runs tests and a Python dependency vulnerability audit first, then deploys; manual runs on other branches never deploy
+- deployments are serialized, verify the SSH host fingerprint, and fast-forward to the exact tested commit; conflicting server-local changes stop deployment rather than being discarded
 - deploy clones or updates the repo in `/opt/dockge/stacks/englishbot`
 - deploy ensures `/srv/services/englishbot/{data,logs,backups}` exists
 - deploy atomically writes the current build metadata to `/srv/services/englishbot/build.env` before Compose starts
@@ -127,9 +133,9 @@ Deploy behavior:
 - deploy bootstraps those host paths with `sudo` before running git operations as the SSH user
 - deploy prints whether each key directory already existed or was created, plus `ls -ld` for the final ownership and mode state
 - deploy copies `assets/images/no-image.png` from the checked-out repo into `/srv/service-static/englishbot/images/no-image.png` so fresh VPS assets keep the teacher-content fallback placeholder without app-side bootstrap logic
-- deploy verifies that `/opt/dockge/stacks/englishbot/scheduled-tasks` exists before calling the infra helper
-- deploy runs `docker compose up -d --build`
-- deploy calls `/usr/local/bin/infra-vps-register-service-scheduled-tasks`
+- deploy runs `docker compose build --pull`, then `docker compose up -d --no-build --wait --wait-timeout 120`; the health check requests `/healthz` on the internal port
+- deploy verifies `infra/service.env` and calls `/usr/local/bin/infra-vps-register --card ... --service-dir ...` to refresh routing and service-owned tasks
+- `.github/dependabot.yml` schedules weekly pip and GitHub Actions update PRs; enable Dependabot alerts separately in GitHub repository settings
 
 Before the first successful deploy, create a real `.env` file on the VPS inside `/opt/dockge/stacks/englishbot`. Keep secrets such as `TELEGRAM_BOT_TOKEN` out of git.
 

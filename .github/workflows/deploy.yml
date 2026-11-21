@@ -9,6 +9,9 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -25,26 +28,44 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade "pip>=26.3,<27"
+          python -m pip install -r requirements.txt
 
       - name: Run tests
         run: python -m pytest
 
+      - name: Audit Python dependencies
+        run: |
+          python -m pip install pip-audit
+          python -m pip_audit --progress-spinner off
+
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    concurrency:
+      group: deploy-englishbot-production
+      cancel-in-progress: false
+    env:
+      DEPLOY_SHA: ${{ github.sha }}
 
     steps:
+      - name: Require trusted SSH host fingerprint
+        env:
+          VPS_HOST_FINGERPRINT: ${{ secrets.VPS_HOST_FINGERPRINT }}
+        run: test -n "$VPS_HOST_FINGERPRINT"
+
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           port: ${{ secrets.VPS_PORT }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          fingerprint: ${{ secrets.VPS_HOST_FINGERPRINT }}
+          envs: DEPLOY_SHA
+          command_timeout: 15m
           script: |
             set -euo pipefail
 
@@ -85,8 +106,7 @@ jobs:
 
             if [ ! -d "${SERVICE_DIR}/.git" ]; then
               echo "[deploy] cloning repository into ${SERVICE_DIR}"
-              rm -rf "${SERVICE_DIR}"
-              git clone "${REPO_URL}" "${SERVICE_DIR}"
+              git clone --branch main --single-branch "${REPO_URL}" "${SERVICE_DIR}"
             else
               echo "[deploy] repository already present in ${SERVICE_DIR}"
             fi
@@ -94,9 +114,11 @@ jobs:
             cd "${SERVICE_DIR}"
             echo "[deploy] current revision before fetch: $(git rev-parse --short HEAD 2>/dev/null || echo missing)"
 
-            git fetch --all --prune
-            git reset --hard origin/main
-            echo "[deploy] current revision after reset: $(git rev-parse --short HEAD)"
+            test "$(git branch --show-current)" = main
+            git fetch --no-tags origin "${DEPLOY_SHA}"
+            git merge --ff-only "${DEPLOY_SHA}"
+            test "$(git rev-parse HEAD)" = "${DEPLOY_SHA}"
+            echo "[deploy] current revision after fast-forward: $(git rev-parse --short HEAD)"
 
             if [ ! -f .env ]; then
               echo "ERROR: .env is missing in ${SERVICE_DIR}. Create it manually on the VPS before deploy."
@@ -168,8 +190,9 @@ jobs:
               docker network create edge
             fi
 
-            echo "[deploy] running docker compose up -d --build"
-            docker compose up -d --build
+            echo "[deploy] building with a fresh base image and waiting for health"
+            docker compose build --pull
+            docker compose up -d --no-build --wait --wait-timeout 120
             echo "[deploy] docker compose ps"
             docker compose ps
 

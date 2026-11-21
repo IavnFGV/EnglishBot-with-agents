@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-21
+- Require Pillow 13 and a patched pip during container builds; audit Python dependencies in CI and schedule dependency update PRs.
+- Verify the SSH host fingerprint, serialize main-only deployments, deploy the tested commit without discarding server edits, refresh base images, and wait for the container health check.
+
 ## 2026-10-19
 - Simplified the workbook guide and made `/bulk_edit` export active words only; deleting a row archives it, while `/bulk_edit_with_archived` includes archived words for review and restoration.
 - Added the teacher command `/bulk_edit_with_archived` with localized descriptions and kept both export modes on the same bulk-edit session and import flow.

@@ -15,6 +15,7 @@
 - The app loads `.env`, configures logging, logs startup environment with secrets redacted, initializes/migrates SQLite, starts the status server, registers Telegram commands, and begins long polling.
 - Telegram runtime uses `aiogram 3.x` and `aiogram-dialog`.
 - The internal HTTP server listens on `0.0.0.0:8080` for health/build metadata and the optional learner Mini App.
+- Deployment requires `VPS_HOST_FINGERPRINT`, fast-forwards to the tested main commit, refreshes the base image, and waits for `/healthz`; CI audits dependencies and requires Pillow 13.
 
 ## Implemented product slices
 - Telegram-first learner flow with `/start`, `/learn`, `/me`, `/settings`, and `/cancel`.
