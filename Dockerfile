@@ -22,8 +22,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Debian security fixes land here before the upstream python image is rebuilt.
+# The build metadata ARGs above change on every deploy, so this re-runs each build.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
-RUN python -m pip install --no-cache-dir --upgrade "pip>=26.3,<27" \
+RUN python -m pip install --no-cache-dir --upgrade "pip>=26.3,<27" "setuptools>=78.1.1,<81" \
     && python -m pip install --no-cache-dir -r requirements.txt
 
 COPY . .
