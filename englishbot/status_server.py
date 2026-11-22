@@ -87,7 +87,13 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
             digest = hashlib.sha256((MINI_APP_DIR / name).read_bytes()).hexdigest()[:12]
             page = page.replace(f"/mini-app/{name}\"".encode(), f"/mini-app/{name}?v={digest}\"".encode())
         return _response(200, page, "text/html; charset=utf-8")
-    if path in {"/mini-app/app.js", "/mini-app/style.css"} and method == "GET":
+    if path in {"/mini-app/editor", "/mini-app/editor/"} and method == "GET":
+        page = (MINI_APP_DIR / "editor.html").read_bytes()
+        for name in ("editor.js", "editor.css"):
+            digest = hashlib.sha256((MINI_APP_DIR / name).read_bytes()).hexdigest()[:12]
+            page = page.replace(f"/mini-app/{name}\"".encode(), f"/mini-app/{name}?v={digest}\"".encode())
+        return _response(200, page, "text/html; charset=utf-8")
+    if path in {"/mini-app/app.js", "/mini-app/style.css", "/mini-app/editor.js", "/mini-app/editor.css"} and method == "GET":
         name = path.rsplit("/", 1)[-1]
         content_type = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/css; charset=utf-8"
         return _response(200, (MINI_APP_DIR / name).read_bytes(), content_type)
@@ -99,6 +105,8 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
             raise MiniAppError("media_not_found", 404) from exc
         return _response(200, image_bytes, "image/png", "public, max-age=3600")
     parts = path.strip("/").split("/")
+    if parts[:3] == ["mini-app", "api", "editor"]:
+        return await _editor_api_response(method, parts[3:], headers, reader)
     if len(parts) < 4 or parts[:3] != ["mini-app", "api", "sessions"]:
         raise MiniAppError("session_not_found", 404)
     try:
@@ -160,6 +168,37 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
         content_type = {".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav"}[file_path.suffix.lower()]
         return _response(200, await asyncio.to_thread(file_path.read_bytes), content_type, "private, max-age=3600")
     raise MiniAppError("session_not_found", 404)
+
+
+EDITOR_JSON_BODY_LIMIT: Final[int] = 32 * 1024
+EDITOR_IMAGE_BODY_LIMIT: Final[int] = 15 * 1024 * 1024
+
+
+async def _editor_api_response(method: str, parts: list[str], headers: dict[str, str], reader: asyncio.StreamReader) -> bytes:
+    from .config import load_config
+    from .dictionary_editor import route_editor_request
+    from .mini_app import MiniAppError, validate_init_data
+
+    user_id = validate_init_data(headers.get("x-telegram-init-data", ""), load_config())
+    body = b""
+    if method == "POST":
+        limit = EDITOR_IMAGE_BODY_LIMIT if parts[-1:] == ["image"] else EDITOR_JSON_BODY_LIMIT
+        try:
+            length = int(headers.get("content-length", "0"))
+        except ValueError as exc:
+            raise MiniAppError("invalid_request") from exc
+        if length < 0 or length > limit:
+            raise MiniAppError("request_too_large", 413)
+        if length:
+            try:
+                body = await asyncio.wait_for(reader.readexactly(length), timeout=60)
+            except (asyncio.IncompleteReadError, asyncio.TimeoutError) as exc:
+                raise MiniAppError("invalid_request") from exc
+    result = await asyncio.to_thread(route_editor_request, method, parts, user_id, body)
+    if isinstance(result, tuple):
+        content, content_type = result
+        return _response(200, content, content_type, "private, max-age=86400")
+    return _json_response(200, result)
 
 
 async def _handle_connection(

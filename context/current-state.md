@@ -76,7 +76,7 @@
 - The old `/admin` env config tail is gone too: `.env.example` no longer documents `ENGLISHBOT_ADMIN_TELEGRAM_USER_ID`, and `englishbot/config.py` no longer exposes an admin-id helper.
 - The old publish shell is now gone from the active teacher UI too: `teacher_content` no longer exposes publish buttons or publish target screens, and the dead publish/granttopic i18n strings have been removed.
 - SQLite bootstrap no longer keeps `workspaces`, `workspace_members`, `invites`, `student_topic_access`, `assignments`, or `assignment_items` on the active schema path, and `training_sessions` now uses only `family_homework_assignment_id` for active homework runtime.
-- Teacher content editing through `/teacher_content` dialog flows.
+- `/teacher_content` opens the dictionary web editor (`dictionary_editor.py`, `mini_app_static/editor.*`, API under `/mini-app/api/editor/`, Telegram `initData` auth, family-scoped) when `ENGLISHBOT_MINI_APP_URL` is set; the older Telegram dialog editor remains as a secondary button and is the fallback without a Mini App URL.
 - Homework assignments from family topics or explicit family item selection.
 - Learner homework list/overview dialog and resumable homework sessions.
 - Learner `/topics` launch flow over shared family topics.
