@@ -1,6 +1,6 @@
 # Runtime dependencies
 aiogram>=3.32.0,<4
-aiogram-dialog>=2,<3
+aiogram-dialog>=2.6.0,<3
 openpyxl>=3.1.5,<4
 Pillow>=13,<14
 python-dotenv>=1.2.4,<2
