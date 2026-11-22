@@ -1,3 +1,4 @@
+import logging
 import random
 import sqlite3
 from dataclasses import replace
@@ -8,6 +9,9 @@ from .exercises import ResolvedLearningItem, TranslationEntry, build_exercise
 from .families import get_user_family, list_family_learning_items
 from .user_profiles import get_user_hint_language
 from .vocabulary import get_learning_item_with_translations, get_lexeme, list_learning_items
+
+
+logger = logging.getLogger(__name__)
 
 
 ACTIVE_STATUS = "active"
@@ -458,6 +462,23 @@ def submit_training_answer(
         updated_correct_answers,
         current_item_order=int(question["current_index"]),
         item_completed=bool(next_item_state["is_completed"]),
+    )
+    logger.info(
+        "Training answer: user=%s session=%s homework=%s item=%s type=%s expected=%r given=%r "
+        "result=%s failed_attempts=%s used_help=%s completed=%s deferred=%s session_status=%s",
+        telegram_user_id,
+        int(session["id"]),
+        session["family_homework_assignment_id"],
+        int(question["learning_item_id"]),
+        question.get("exercise_type"),
+        str(question["expected_answer"]),
+        answer_text,
+        "correct" if is_correct else "wrong",
+        next_item_state["failed_attempts"],
+        bool(question.get("used_help")),
+        bool(next_item_state["is_completed"]),
+        bool(next_item_state["is_deferred"]),
+        status,
     )
 
     result: dict[str, object] = {

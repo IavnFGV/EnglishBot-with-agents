@@ -256,3 +256,21 @@ def test_correct_answer_after_mistake_is_still_prioritized_for_review(tmp_path):
     start_fixed(user_id, count=1)
     answer_current_question(user_id)
     assert get_user_progress(user_id, 1)["status"] == "done"
+
+
+def test_each_answer_is_logged_with_expected_and_given_text(tmp_path, caplog):
+    setup_db(tmp_path)
+    user_id = seed_user_with_learning_items(3)
+    start_fixed(user_id)
+    expected = str(get_current_question(user_id)["expected_answer"])
+
+    with caplog.at_level("INFO", logger="englishbot.training"):
+        submit_training_answer(user_id, "wrong")
+
+    [record] = [r for r in caplog.records if r.getMessage().startswith("Training answer:")]
+    message = record.getMessage()
+    assert f"user={user_id}" in message
+    assert f"expected={expected!r}" in message
+    assert "given='wrong'" in message
+    assert "result=wrong" in message
+    assert "failed_attempts=1" in message

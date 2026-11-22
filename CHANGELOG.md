@@ -2,7 +2,8 @@
 
 ## 2026-11-22
 - Added a dictionary web editor at `/mini-app/editor`, opened from `/teacher_content` when the Mini App URL is set: topics, words, translations, and pictures from the phone gallery or a link. Pictures are re-encoded server-side as upright JPEGs up to 1024px so Telegram always accepts them. The Telegram editor stays reachable from the same message for now.
-- The bot now writes a daily SQLite backup into the backup directory (previously backups existed only before an Excel import) and prunes interaction log rows older than 90 days.
+- The bot now writes a daily SQLite backup into the backup directory (previously backups existed only before an Excel import). The interaction log is kept until it exceeds about 200 MB, then the oldest rows are trimmed to about 150 MB.
+- Every training answer from Telegram or the Mini App is logged at INFO with user, session, homework, item, exercise type, expected and given text, and the resulting decision.
 - Tagged the full-featured state as `v1.0-full` before simplifying the app for home use.
 
 ## 2026-11-21
