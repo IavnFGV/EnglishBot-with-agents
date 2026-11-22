@@ -34,6 +34,8 @@ LABEL_KEYS = (
     "search", "draft_title", "draft_name", "draft_topic", "already_known", "assign_to",
     "dont_assign", "mode", "save_draft", "draft_saved", "draft_saved_assigned", "add_item",
     "new_topic_option", "draft_empty", "draft_unavailable", "draft_words",
+    "sets", "no_sets", "set_words", "set_assignments", "assign_again", "assign",
+    "assigned_ok", "assignment_active", "assignment_completed", "never_assigned",
 )
 
 
@@ -385,8 +387,32 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
             return set_word_image_from_url(user_id, word_id, _json(body).get("url"))
         if method == "POST" and rest == ["image", "delete"]:
             return clear_word_image(user_id, word_id)
+    if parts and parts[0] == "sets":
+        return _route_sets(method, parts[1:], user_id, body)
     if len(parts) >= 2 and parts[0] == "imports":
         return _route_import(method, _int_part(parts[1]), parts[2:], user_id, body)
+    raise _error("not_found", 404)
+
+
+def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
+    from .homework_sets import HomeworkSetError, assign_set, get_set, list_sets, rename_set
+
+    try:
+        if method == "GET" and rest == []:
+            return {"sets": list_sets(user_id), "labels": editor_labels(user_id)}
+        if rest:
+            set_id = _int_part(rest[0])
+            if method == "GET" and rest[1:] == []:
+                return get_set(user_id, set_id)
+            if method == "POST" and rest[1:] == []:
+                return rename_set(user_id, set_id, _json(body).get("title"))
+            if method == "POST" and rest[1:] == ["assign"]:
+                payload = _json(body)
+                result = assign_set(user_id, set_id, payload.get("assign_to"), payload.get("mode"))
+                result["_notify"] = [{"chat_id": result["assigned_to"], "title": result["title"]}]
+                return result
+    except HomeworkSetError as exc:
+        raise _error(exc.code, exc.status) from exc
     raise _error("not_found", 404)
 
 

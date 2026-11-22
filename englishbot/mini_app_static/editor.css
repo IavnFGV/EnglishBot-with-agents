@@ -57,3 +57,4 @@ select { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid va
 .draft-fields .sub { color: var(--hint); font-size: .92rem; overflow-wrap: anywhere; }
 label.draft-row { flex-direction: row; font-weight: 400; cursor: pointer; }
 .draft-row .draft-check { padding-top: 10px; }
+.item.excluded { opacity: .45; }

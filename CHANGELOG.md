@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-11-23
+- The web editor has a "Homework sets" screen: saved sets can be renamed at any time (their assignments are renamed too, so the learner sees the new name) and assigned again to a family member with a chosen mode; deleted words are skipped.
 - Forwarding tutor homework (text or photos) to the bot now collects a homework set; choosing "Topic words" sends it to an OpenRouter model (optional, `ENGLISHBOT_OPENROUTER_API_KEY`, fallback list in `ENGLISHBOT_AI_MODELS`) and opens an editable draft in the web editor. Saving files new words under topics, reuses known words without duplicates, records the set items, and can assign homework with a chosen mode; the child is notified.
 
 ## 2026-11-22

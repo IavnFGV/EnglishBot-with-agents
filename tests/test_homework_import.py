@@ -363,3 +363,77 @@ def test_http_draft_load_save_and_notify_child(family: int, monkeypatch) -> None
 
     status, result = request(f"/mini-app/api/editor/imports/{set_id}")
     assert (status, result["error"]) == (409, "draft_not_available")
+
+
+# Saved sets: list, rename, assign again
+
+
+def saved_set(assign_to: int | None = KID) -> int:
+    set_id = make_draft([])
+    save_draft(MOM, set_id, {
+        "title": "ДЗ 23.11",
+        "assign_to": assign_to,
+        "items": [
+            {"en": "owl", "ru": "сова", "topic": "Birds"},
+            {"en": "crow", "ru": "ворона", "topic": "Birds"},
+        ],
+    })
+    return set_id
+
+
+def test_saved_sets_are_listed_with_words_and_assignments(family: int) -> None:
+    from englishbot.homework_sets import get_set, list_sets
+
+    set_id = saved_set()
+    make_draft([])  # an unsaved draft must not be listed
+
+    assert [(row["id"], row["title"], row["item_count"], row["assignment_count"]) for row in list_sets(MOM)] == [(set_id, "ДЗ 23.11", 2, 1)]
+    assert list_sets(STRANGER) == []
+    details = get_set(MOM, set_id)
+    assert [word["text"] for word in details["words"]] == ["owl", "crow"]
+    assert details["assignments"][0]["to"] == "Teia"
+    assert error_code(lambda: get_set(STRANGER, set_id)) == "set_not_found"
+
+
+def test_rename_set_also_renames_its_assignments(family: int) -> None:
+    from englishbot.homework_sets import rename_set
+
+    set_id = saved_set()
+    assert rename_set(MOM, set_id, "  Птицы, часть 1 ")["title"] == "Птицы, часть 1"
+    with db.get_connection() as connection:
+        assert connection.execute("SELECT title FROM homework_sets WHERE id = ?", (set_id,)).fetchone()[0] == "Птицы, часть 1"
+        assert [row[0] for row in connection.execute("SELECT title FROM homework_assignments WHERE homework_set_id = ?", (set_id,))] == ["Птицы, часть 1"]
+    assert error_code(lambda: rename_set(MOM, set_id, "   ")) == "text_required"
+
+
+def test_assign_set_again_skips_deleted_words(family: int) -> None:
+    from englishbot.dictionary_editor import delete_word
+    from englishbot.homework_sets import assign_set, get_set
+
+    set_id = saved_set(assign_to=None)
+    owl_id = get_set(MOM, set_id)["words"][0]["id"]
+    delete_word(MOM, owl_id)
+
+    result = assign_set(MOM, set_id, KID, "hard")
+
+    assert result["word_count"] == 1
+    with db.get_connection() as connection:
+        assignment = connection.execute("SELECT training_mode, homework_set_id FROM homework_assignments WHERE id = ?", (result["assignment_id"],)).fetchone()
+        assert tuple(assignment) == ("hard", set_id)
+    assert error_code(lambda: assign_set(MOM, set_id, STRANGER, "easy")) == "invalid_recipient"
+    assert error_code(lambda: assign_set(MOM, set_id, KID, "nope")) == "invalid_mode"
+
+
+def test_http_sets_rename_and_assign_notifies(family: int, monkeypatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    bot = FakeBot()
+    monkeypatch.setattr(status_server, "_mini_app_bot", bot)
+    set_id = saved_set(assign_to=None)
+
+    status, listing = request("/mini-app/api/editor/sets")
+    assert status == 200 and listing["sets"][0]["id"] == set_id and listing["labels"]["sets"]
+    status, renamed = request(f"/mini-app/api/editor/sets/{set_id}", method="POST", body=json.dumps({"title": "Birds 1"}).encode())
+    assert (status, renamed["title"]) == (200, "Birds 1")
+    status, assigned = request(f"/mini-app/api/editor/sets/{set_id}/assign", method="POST", body=json.dumps({"assign_to": KID, "mode": "easy"}).encode())
+    assert status == 200 and assigned["word_count"] == 2
+    assert bot.sent[0]["chat_id"] == KID and "Birds 1" in bot.sent[0]["text"]

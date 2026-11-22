@@ -334,3 +334,143 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
         "assignment_id": assignment_id,
         "assigned_to": assign_to if assignment_id else None,
     }
+
+
+def _require_saved(connection, user_id: int, set_id: int):
+    row = _get_set(connection, user_id, set_id)
+    if row["status"] != STATUS_SAVED:
+        raise HomeworkSetError("set_not_found", 404)
+    return row
+
+
+def list_sets(user_id: int) -> list[dict[str, object]]:
+    family_id = _family_id(user_id)
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT homework_sets.id, homework_sets.title, homework_sets.saved_at,
+                   (SELECT COUNT(*) FROM homework_set_items WHERE homework_set_id = homework_sets.id) AS item_count,
+                   (SELECT COUNT(*) FROM homework_assignments WHERE homework_set_id = homework_sets.id) AS assignment_count
+            FROM homework_sets
+            WHERE family_id = ? AND status = ?
+            ORDER BY homework_sets.saved_at DESC, homework_sets.id DESC
+            """,
+            (family_id, STATUS_SAVED),
+        ).fetchall()
+    return [
+        {
+            "id": int(row["id"]),
+            "title": str(row["title"] or ""),
+            "saved_at": str(row["saved_at"] or ""),
+            "item_count": int(row["item_count"]),
+            "assignment_count": int(row["assignment_count"]),
+        }
+        for row in rows
+    ]
+
+
+def _member_names(family_id: int) -> dict[int, str]:
+    return {int(member["telegram_user_id"]): _display_name(member) for member in list_family_members(family_id)}
+
+
+def get_set(user_id: int, set_id: int) -> dict[str, object]:
+    family_id = _family_id(user_id)
+    with get_connection() as connection:
+        row = _require_saved(connection, user_id, set_id)
+        words = connection.execute(
+            """
+            SELECT learning_items.id, learning_items.text, learning_items.is_archived,
+                   (SELECT translation_text FROM learning_item_translations
+                    WHERE learning_item_id = learning_items.id AND language_code = 'ru') AS ru
+            FROM homework_set_items
+            JOIN learning_items ON learning_items.id = homework_set_items.learning_item_id
+            WHERE homework_set_items.homework_set_id = ?
+            ORDER BY homework_set_items.item_order
+            """,
+            (set_id,),
+        ).fetchall()
+        assignments = connection.execute(
+            """
+            SELECT id, assigned_to_user_id, status, training_mode, created_at
+            FROM homework_assignments WHERE homework_set_id = ? ORDER BY id DESC
+            """,
+            (set_id,),
+        ).fetchall()
+    names = _member_names(family_id)
+    members = [{"id": member_id, "name": name} for member_id, name in names.items()]
+    members.sort(key=lambda member: member["id"] == user_id)
+    return {
+        "set": {"id": set_id, "title": str(row["title"] or ""), "saved_at": str(row["saved_at"] or "")},
+        "words": [
+            {"id": int(word["id"]), "text": str(word["text"]), "ru": str(word["ru"] or ""), "archived": bool(word["is_archived"])}
+            for word in words
+        ],
+        "assignments": [
+            {
+                "id": int(assignment["id"]),
+                "to": names.get(int(assignment["assigned_to_user_id"]), str(assignment["assigned_to_user_id"])),
+                "status": str(assignment["status"]),
+                "mode": translate_for_user(user_id, f"training.mode.{assignment['training_mode']}"),
+                "created_at": str(assignment["created_at"]),
+            }
+            for assignment in assignments
+        ],
+        "members": members,
+        "modes": [{"code": mode, "label": translate_for_user(user_id, f"training.mode.{mode}")} for mode in TRAINING_MODES],
+    }
+
+
+def rename_set(user_id: int, set_id: int, title: object) -> dict[str, object]:
+    """Rename the set and every homework assigned from it, so the learner sees the new name."""
+    clean_title = _clean(title)
+    if not clean_title:
+        raise HomeworkSetError("text_required")
+    with get_connection() as connection:
+        _require_saved(connection, user_id, set_id)
+        timestamp = utc_now()
+        connection.execute(
+            "UPDATE homework_sets SET title = ?, updated_at = ? WHERE id = ?",
+            (clean_title, timestamp, set_id),
+        )
+        connection.execute(
+            "UPDATE homework_assignments SET title = ?, updated_at = ? WHERE homework_set_id = ?",
+            (clean_title, timestamp, set_id),
+        )
+    return {"id": set_id, "title": clean_title}
+
+
+def assign_set(user_id: int, set_id: int, assign_to: object, mode: object) -> dict[str, object]:
+    """Assign the set's still-active words again as a new homework."""
+    family_id = _family_id(user_id)
+    training_mode = str(mode or "easy")
+    if training_mode not in TRAINING_MODES:
+        raise HomeworkSetError("invalid_mode")
+    try:
+        recipient = int(assign_to)
+    except (TypeError, ValueError) as exc:
+        raise HomeworkSetError("invalid_recipient") from exc
+    if recipient not in _member_names(family_id):
+        raise HomeworkSetError("invalid_recipient")
+    with get_connection() as connection:
+        row = _require_saved(connection, user_id, set_id)
+        word_ids = [
+            int(item["learning_item_id"])
+            for item in connection.execute(
+                """
+                SELECT homework_set_items.learning_item_id
+                FROM homework_set_items
+                JOIN learning_items ON learning_items.id = homework_set_items.learning_item_id
+                WHERE homework_set_items.homework_set_id = ? AND learning_items.is_archived = 0
+                ORDER BY homework_set_items.item_order
+                """,
+                (set_id,),
+            ).fetchall()
+        ]
+    if not word_ids:
+        raise HomeworkSetError("set_empty")
+    title = str(row["title"] or "")
+    assignment_id = create_homework_assignment(
+        family_id, user_id, recipient, word_ids,
+        title=title, training_mode=training_mode, homework_set_id=set_id,
+    )
+    return {"assignment_id": assignment_id, "assigned_to": recipient, "title": title, "word_count": len(word_ids)}

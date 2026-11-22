@@ -101,13 +101,14 @@ async function showTopics() {
   screen(
     el('h1', {}, t('title')),
     el('button', { onclick: () => askTopicTitle('', async (title) => showWords((await postJson('/topics', { title })).id)) }, t('new_topic')),
+    el('button', { class: 'secondary', onclick: showSets }, t('sets')),
     data.topics.length ? list : el('p', { class: 'muted' }, t('no_topics')),
   );
 }
 
-function askTopicTitle(initial, onSubmit) {
+function askTopicTitle(initial, onSubmit, caption = t('topic_title')) {
   const previousBack = backHandler;
-  const input = el('input', { type: 'text', value: initial, maxLength: 200, placeholder: t('topic_title') });
+  const input = el('input', { type: 'text', value: initial, maxLength: 200, placeholder: caption });
   const status = el('p', { class: 'status' });
   const submit = async () => {
     if (!input.value.trim()) { input.focus(); return; }
@@ -116,7 +117,7 @@ function askTopicTitle(initial, onSubmit) {
   input.addEventListener('keydown', (event) => { if (event.key === 'Enter') submit(); });
   setBack(previousBack || showTopics);
   screen(
-    el('label', {}, t('topic_title'), input),
+    el('label', {}, caption, input),
     el('div', { class: 'row' },
       el('button', { class: 'secondary grow', onclick: previousBack || showTopics }, t('cancel')),
       el('button', { class: 'grow', onclick: submit }, t('save'))),
@@ -296,6 +297,70 @@ async function shrinkImage(file) {
   } catch {
     return file;
   }
+}
+
+// Saved homework sets: rename and assign again
+
+function formatDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+}
+
+async function showSets() {
+  setBack(showTopics);
+  let data;
+  try { data = await getJson('/sets'); } catch (error) { fail(error); return; }
+  labels = data.labels || labels;
+  const list = el('div', { class: 'list' }, ...data.sets.map((set) => el('button', { class: 'item', onclick: () => showSet(set.id) },
+    el('span', { class: 'texts' },
+      el('span', { class: 'title' }, set.title),
+      el('span', { class: 'sub' }, `${formatDate(set.saved_at)} · ${t('word_count', { count: set.item_count })}`)))));
+  screen(el('h1', {}, t('sets')), data.sets.length ? list : el('p', { class: 'muted' }, t('no_sets')));
+}
+
+async function showSet(setId, message = '') {
+  setBack(showSets);
+  let data;
+  try { data = await getJson(`/sets/${setId}`); } catch (error) { fail(error); return; }
+  const status = el('p', { class: 'status' });
+  const setStatus = (text, kind = '') => { status.className = `status ${kind}`; status.textContent = text; };
+  const heading = el('h1', {}, data.set.title);
+  const rename = () => askTopicTitle(data.set.title, async (title) => {
+    await postJson(`/sets/${setId}`, { title });
+    showSet(setId);
+  }, t('draft_name'));
+  const recipient = el('select', {}, ...data.members.map((member) => el('option', { value: String(member.id) }, member.name)));
+  const mode = el('select', {}, ...data.modes.map((option) => el('option', { value: option.code }, option.label)));
+  const assignButton = el('button', {}, t('assign'));
+  assignButton.addEventListener('click', async () => {
+    assignButton.disabled = true;
+    try {
+      await postJson(`/sets/${setId}/assign`, { assign_to: Number(recipient.value), mode: mode.value });
+      showSet(setId, t('assigned_ok'));
+    } catch (error) { setStatus(errorText(error), 'error'); assignButton.disabled = false; }
+  });
+  const assignments = data.assignments.length
+    ? el('div', { class: 'list' }, ...data.assignments.map((assignment) => el('div', { class: 'item' },
+      el('span', { class: 'texts' },
+        el('span', { class: 'title' }, `${assignment.to} · ${formatDate(assignment.created_at)}`),
+        el('span', { class: 'sub' }, `${assignment.mode} · ${assignment.status === 'completed' ? t('assignment_completed') : t('assignment_active')}`)))))
+    : el('p', { class: 'muted' }, t('never_assigned'));
+  const words = el('div', { class: 'list' }, ...data.words.map((word) => el('div', { class: `item${word.archived ? ' excluded' : ''}` },
+    el('span', { class: 'texts' }, el('span', { class: 'title' }, word.text), el('span', { class: 'sub' }, word.ru)))));
+  screen(
+    heading,
+    el('button', { class: 'secondary', onclick: rename }, t('rename')),
+    el('strong', {}, t('assign_again')),
+    el('label', {}, t('assign_to'), recipient),
+    el('label', {}, t('mode'), mode),
+    assignButton,
+    status,
+    el('strong', {}, t('set_assignments')),
+    assignments,
+    el('strong', {}, `${t('set_words')}: ${data.words.length}`),
+    words,
+  );
+  if (message) setStatus(message, 'ok');
 }
 
 // Homework draft produced from forwarded tutor messages
