@@ -2,9 +2,19 @@ version: 2
 updates:
   - package-ecosystem: pip
     directory: /
+    target-branch: main
     schedule:
       interval: weekly
+    # One PR per week for routine minor/patch bumps; security updates still
+    # arrive immediately as separate PRs.
+    groups:
+      python-minor-patch:
+        update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: /
+    target-branch: main
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
