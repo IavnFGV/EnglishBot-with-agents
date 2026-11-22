@@ -31,6 +31,7 @@ from .user_profiles import get_user_role
 from . import cancel_handlers  # noqa: F401
 from . import bulk_edit_handlers  # noqa: F401
 from . import homework_handlers  # noqa: F401
+from . import homework_import_handlers  # noqa: F401  # before training: forwarded text must not reach answer handlers
 from . import owner_handlers  # noqa: F401
 from . import settings_handlers  # noqa: F401
 from . import teacher_assignment_handlers  # noqa: F401

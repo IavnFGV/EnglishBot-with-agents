@@ -298,4 +298,113 @@ async function shrinkImage(file) {
   }
 }
 
-showTopics();
+// Homework draft produced from forwarded tutor messages
+
+async function showDraft(setId) {
+  setBack(null);
+  let data;
+  try { data = await getJson(`/imports/${setId}`); } catch (error) {
+    try { labels = (await getJson('/topics')).labels || labels; } catch { /* keep keys */ }
+    const text = error.message === 'draft_not_available' ? t('draft_unavailable') : errorText(error);
+    app.replaceChildren(el('p', { class: 'status error' }, text), el('button', { onclick: showTopics }, t('topics')));
+    return;
+  }
+  labels = data.labels || labels;
+  document.title = t('draft_title');
+  const topicList = el('datalist', { id: 'draft-topics' }, ...data.topics.map((topic) => el('option', { value: topic.title })));
+  const titleInput = el('input', { type: 'text', value: data.set.title, maxLength: 200 });
+  const rows = el('div', { class: 'list draft-list' });
+  const rowState = [];
+
+  const knownRows = el('div', { class: 'list draft-list' });
+  const addRow = (item) => {
+    const known = Boolean(item.existing_id);
+    const state = {
+      item,
+      include: el('input', { type: 'checkbox', checked: item.include !== false }),
+      en: el('input', { type: 'text', value: item.en || '', maxLength: 100, placeholder: 'English', autocapitalize: 'off' }),
+      ru: el('input', { type: 'text', value: item.ru || '', maxLength: 200, placeholder: t('translation') }),
+      topic: el('input', { type: 'text', value: item.topic || '', maxLength: 100, placeholder: t('draft_topic') }),
+    };
+    state.topic.setAttribute('list', 'draft-topics');
+    // Known words are reused as they are, so they get a compact read-only line.
+    const fields = known
+      ? el('div', { class: 'draft-fields compact' },
+        el('span', { class: 'title' }, item.en),
+        el('span', { class: 'sub' }, [item.ru, state.topic.value].filter(Boolean).join(' · ')))
+      : el('div', { class: 'draft-fields' }, state.en, state.ru, state.topic);
+    const card = el('label', { class: 'draft-row' }, el('span', { class: 'draft-check' }, state.include), fields);
+    state.include.addEventListener('change', () => card.classList.toggle('excluded', !state.include.checked));
+    rowState.push(state);
+    (known ? knownRows : rows).append(card);
+    return state;
+  };
+  data.items.forEach(addRow);
+  const knownCount = data.items.filter((item) => item.existing_id).length;
+
+  const allTopic = el('input', { type: 'text', maxLength: 100, placeholder: t('draft_topic') });
+  allTopic.setAttribute('list', 'draft-topics');
+  const firstTopic = data.items.find((item) => item.topic)?.topic || '';
+  allTopic.value = firstTopic;
+  const applyTopic = () => rowState.forEach((state) => {
+    state.topic.value = allTopic.value;
+    const sub = state.item.existing_id && state.include.closest('.draft-row')?.querySelector('.sub');
+    if (sub) sub.textContent = [state.item.ru, allTopic.value].filter(Boolean).join(' · ');
+  });
+
+  const recipient = el('select', {},
+    ...data.members.map((member) => el('option', { value: String(member.id) }, member.name)),
+    el('option', { value: '' }, t('dont_assign')));
+  const mode = el('select', {}, ...data.modes.map((option) => el('option', { value: option.code }, option.label)));
+  const status = el('p', { class: 'status' });
+  const saveButton = el('button', {}, t('save_draft'));
+
+  saveButton.addEventListener('click', async () => {
+    const items = rowState.map((state) => ({
+      en: state.en.value, ru: state.ru.value, topic: state.topic.value,
+      include: state.include.checked, existing_id: state.item.existing_id || null,
+    }));
+    const chosen = items.filter((item) => item.include && item.en.trim());
+    if (!chosen.length) { status.className = 'status error'; status.textContent = t('draft_empty'); return; }
+    const missingTopic = rowState.find((state) => state.include.checked && state.en.value.trim() && !state.item.existing_id && !state.topic.value.trim());
+    if (missingTopic) { missingTopic.topic.focus(); return; }
+    saveButton.disabled = true;
+    status.className = 'status'; status.textContent = t('uploading');
+    try {
+      const result = await postJson(`/imports/${setId}/save`, {
+        title: titleInput.value, items, mode: mode.value,
+        assign_to: recipient.value ? Number(recipient.value) : null,
+      });
+      const message = result.assignment_id ? t('draft_saved_assigned') : t('draft_saved');
+      screen(
+        el('h1', {}, result.title),
+        el('p', { class: 'status ok' }, message.replace('{count}', result.word_count)),
+        el('button', { onclick: () => (webApp?.close ? webApp.close() : showTopics()) }, t('back')),
+        el('button', { class: 'secondary', onclick: showTopics }, t('topics')),
+      );
+    } catch (error) {
+      saveButton.disabled = false;
+      status.className = 'status error';
+      status.textContent = error.message === 'draft_not_available' ? t('draft_unavailable') : errorText(error);
+    }
+  });
+
+  screen(
+    topicList,
+    el('h1', {}, t('draft_title')),
+    el('label', {}, t('draft_name'), titleInput),
+    el('label', {}, t('draft_topic'), el('div', { class: 'row' }, el('span', { class: 'grow' }, allTopic), el('button', { class: 'secondary', onclick: applyTopic }, '↓'))),
+    el('strong', {}, `${t('draft_words')}: ${data.items.length - knownCount}`),
+    rows.childElementCount ? rows : null,
+    el('button', { class: 'secondary', onclick: () => { const state = addRow({ en: '', ru: '', topic: allTopic.value }); state.en.focus(); } }, t('add_item')),
+    knownCount ? el('strong', {}, `${t('already_known')}: ${knownCount}`) : null,
+    knownCount ? knownRows : null,
+    el('label', {}, t('assign_to'), recipient),
+    el('label', {}, t('mode'), mode),
+    saveButton,
+    status,
+  );
+}
+
+const importId = Number(new URLSearchParams(location.search).get('import'));
+if (importId) showDraft(importId); else showTopics();

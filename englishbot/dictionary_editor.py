@@ -31,7 +31,9 @@ LABEL_KEYS = (
     "other_languages", "save", "saved", "delete_word", "delete_word_confirm",
     "photo", "choose_photo", "photo_url", "use_url", "remove_photo", "no_words",
     "no_topics", "uploading", "error", "expired", "back", "cancel", "word_count",
-    "search",
+    "search", "draft_title", "draft_name", "draft_topic", "already_known", "assign_to",
+    "dont_assign", "mode", "save_draft", "draft_saved", "draft_saved_assigned", "add_item",
+    "new_topic_option", "draft_empty", "draft_unavailable", "draft_words",
 )
 
 
@@ -383,4 +385,25 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
             return set_word_image_from_url(user_id, word_id, _json(body).get("url"))
         if method == "POST" and rest == ["image", "delete"]:
             return clear_word_image(user_id, word_id)
+    if len(parts) >= 2 and parts[0] == "imports":
+        return _route_import(method, _int_part(parts[1]), parts[2:], user_id, body)
+    raise _error("not_found", 404)
+
+
+def _route_import(method: str, set_id: int, rest: list[str], user_id: int, body: bytes):
+    from .homework_sets import HomeworkSetError, get_draft, save_draft
+
+    try:
+        if method == "GET" and rest == []:
+            draft = get_draft(user_id, set_id)
+            draft["labels"] = editor_labels(user_id)
+            return draft
+        if method == "POST" and rest == ["save"]:
+            result = save_draft(user_id, set_id, _json(body))
+            if result["assigned_to"] is not None:
+                # status_server delivers this through the bot after the response is built.
+                result["_notify"] = [{"chat_id": result["assigned_to"], "title": result["title"]}]
+            return result
+    except HomeworkSetError as exc:
+        raise _error(exc.code, exc.status) from exc
     raise _error("not_found", 404)

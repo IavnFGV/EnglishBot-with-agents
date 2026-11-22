@@ -10,6 +10,8 @@ DEFAULT_TTS_TIMEOUT_SECONDS = 5.0
 DEFAULT_TTS_MODEL_KEY = "internal-tts"
 DEFAULT_ENV_PATH = Path(".env")
 DEFAULT_INFRA_RUNTIME_ENV_PATH = Path("/srv/services/englishbot/infra-runtime.env")
+# Free OpenRouter models tried in order; ":free" variants never charge the account.
+DEFAULT_AI_MODELS = ("particle-ai/particle-1:free", "nvidia/nemotron-3.5-super-vl:free")
 
 
 def load_environment() -> None:
@@ -96,3 +98,15 @@ def get_mini_app_url() -> str | None:
         logging.getLogger(__name__).warning("Mini App URL is invalid; Telegram training remains available")
         return None
     return value.rstrip("/")
+
+
+def get_openrouter_api_key() -> str | None:
+    value = (os.getenv("ENGLISHBOT_OPENROUTER_API_KEY") or "").strip()
+    return value or None
+
+
+def get_ai_models() -> list[str]:
+    raw_value = os.getenv("ENGLISHBOT_AI_MODELS")
+    if raw_value is None or not raw_value.strip():
+        return list(DEFAULT_AI_MODELS)
+    return [model.strip() for model in raw_value.split(",") if model.strip()]

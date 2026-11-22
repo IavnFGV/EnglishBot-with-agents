@@ -43,3 +43,17 @@ details label { margin-top: 10px; }
 .status.error { color: var(--danger); }
 .section { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; }
 .spacer { height: 8px; }
+select { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid var(--hint); border-radius: 12px; font: inherit; color: var(--text); background: var(--bg); }
+.draft-row { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid color-mix(in srgb, var(--hint) 25%, transparent); }
+.draft-row:last-child { border-bottom: 0; }
+.draft-row.excluded .draft-fields { opacity: .45; }
+.draft-check { flex: none; padding-top: 12px; }
+.draft-check input { width: 22px; height: 22px; }
+.draft-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.draft-fields input { min-height: 42px; }
+.draft-fields input:disabled { opacity: .75; }
+.draft-fields.compact { gap: 2px; justify-content: center; min-height: 40px; }
+.draft-fields .title { font-weight: 600; overflow-wrap: anywhere; }
+.draft-fields .sub { color: var(--hint); font-size: .92rem; overflow-wrap: anywhere; }
+label.draft-row { flex-direction: row; font-weight: 400; cursor: pointer; }
+.draft-row .draft-check { padding-top: 10px; }

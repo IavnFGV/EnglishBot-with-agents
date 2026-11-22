@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-11-23
+- Forwarding tutor homework (text or photos) to the bot now collects a homework set; choosing "Topic words" sends it to an OpenRouter model (optional, `ENGLISHBOT_OPENROUTER_API_KEY`, fallback list in `ENGLISHBOT_AI_MODELS`) and opens an editable draft in the web editor. Saving files new words under topics, reuses known words without duplicates, records the set items, and can assign homework with a chosen mode; the child is notified.
+
 ## 2026-11-22
 - Fixed `/teacher_content` still opening the old Telegram editor: a duplicate command handler in `teacher_content_dialog.py` ran first; a routing test now ensures one handler.
 - Added a dictionary web editor at `/mini-app/editor`, opened from `/teacher_content` when the Mini App URL is set: topics, words, translations, and pictures from the phone gallery or a link. Pictures are re-encoded server-side as upright JPEGs up to 1024px so Telegram always accepts them. The Telegram editor stays reachable from the same message for now.

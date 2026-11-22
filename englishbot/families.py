@@ -383,6 +383,7 @@ def create_homework_assignment(
     *,
     title: str | None = None,
     training_mode: str = "easy",
+    homework_set_id: int | None = None,
 ) -> int:
     from .training import validate_training_mode
 
@@ -426,11 +427,12 @@ def create_homework_assignment(
                 status,
                 created_at,
                 updated_at,
-                completed_at
+                completed_at,
+                homework_set_id
             )
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL, ?)
             """,
-            (family_id, assigned_by_user_id, assigned_to_user_id, title, training_mode, timestamp, timestamp),
+            (family_id, assigned_by_user_id, assigned_to_user_id, title, training_mode, timestamp, timestamp, homework_set_id),
         )
         assignment_id = int(cursor.lastrowid)
         for item_order, learning_item_id in enumerate(learning_item_ids):

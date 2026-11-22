@@ -174,6 +174,24 @@ EDITOR_JSON_BODY_LIMIT: Final[int] = 32 * 1024
 EDITOR_IMAGE_BODY_LIMIT: Final[int] = 15 * 1024 * 1024
 
 
+async def _send_homework_notifications(notifications: list[dict[str, object]]) -> None:
+    from .homework_handlers import build_homework_button
+    from .i18n import translate_for_user
+
+    if _mini_app_bot is None:
+        return
+    for notification in notifications:
+        chat_id = int(notification["chat_id"])
+        try:
+            await _mini_app_bot.send_message(
+                chat_id=chat_id,
+                text=translate_for_user(chat_id, "homework.notification.assigned", title=notification["title"]),
+                reply_markup=build_homework_button(chat_id),
+            )
+        except Exception:
+            logger.exception("Could not notify homework recipient: chat_id=%s", chat_id)
+
+
 async def _editor_api_response(method: str, parts: list[str], headers: dict[str, str], reader: asyncio.StreamReader) -> bytes:
     from .config import load_config
     from .dictionary_editor import route_editor_request
@@ -195,6 +213,8 @@ async def _editor_api_response(method: str, parts: list[str], headers: dict[str,
             except (asyncio.IncompleteReadError, asyncio.TimeoutError) as exc:
                 raise MiniAppError("invalid_request") from exc
     result = await asyncio.to_thread(route_editor_request, method, parts, user_id, body)
+    if isinstance(result, dict) and "_notify" in result:
+        await _send_homework_notifications(result.pop("_notify"))
     if isinstance(result, tuple):
         content, content_type = result
         return _response(200, content, content_type, "private, max-age=86400")

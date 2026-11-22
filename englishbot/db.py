@@ -1154,6 +1154,50 @@ def init_db() -> None:
             ON bulk_edit_sessions (status, expires_at)
             """
         )
+        # A homework set is one batch of tutor homework: collected sources, an AI draft,
+        # and after saving, the items it contains. Assignments may point back to it.
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS homework_sets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                family_id INTEGER NOT NULL,
+                created_by_user_id INTEGER NOT NULL,
+                kind TEXT,
+                title TEXT,
+                status TEXT NOT NULL,
+                sources_json TEXT NOT NULL DEFAULT '[]',
+                draft_json TEXT,
+                error TEXT,
+                control_chat_id INTEGER,
+                control_message_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                saved_at TEXT,
+                FOREIGN KEY (family_id) REFERENCES families (id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_homework_sets_creator_status
+            ON homework_sets (created_by_user_id, status)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS homework_set_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                homework_set_id INTEGER NOT NULL,
+                item_kind TEXT NOT NULL,
+                learning_item_id INTEGER,
+                item_order INTEGER NOT NULL,
+                FOREIGN KEY (homework_set_id) REFERENCES homework_sets (id),
+                FOREIGN KEY (learning_item_id) REFERENCES learning_items (id)
+            )
+            """
+        )
+        if "homework_set_id" not in get_table_columns(connection, "homework_assignments"):
+            connection.execute("ALTER TABLE homework_assignments ADD COLUMN homework_set_id INTEGER")
         connection.execute("DROP TABLE IF EXISTS assignment_items")
         connection.execute("DROP TABLE IF EXISTS assignments")
         connection.execute("DROP TABLE IF EXISTS messages")
