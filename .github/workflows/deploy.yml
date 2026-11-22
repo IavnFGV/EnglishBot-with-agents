@@ -23,10 +23,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: "pip"
@@ -58,7 +58,7 @@ jobs:
     steps:
       - name: Read Dependabot metadata
         id: meta
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
 
       # requirements.txt uses ranges (aiogram>=3,<4). fetch-metadata misreads a
       # floor bump like ">=1,<2" -> ">=1.2.4,<2" as major. Treat a PR as safe when
