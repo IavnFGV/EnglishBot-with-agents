@@ -1,5 +1,5 @@
 # Runtime dependencies
-aiogram>=3,<4
+aiogram>=3.32.0,<4
 aiogram-dialog>=2,<3
 openpyxl>=3.1.5,<4
 Pillow>=13,<14
