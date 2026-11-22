@@ -48,7 +48,7 @@ Inside the container:
 - The bot runs `python -m englishbot`.
 - SQLite is used at `/app/data/englishbot.sqlite3`, backed by the host bind mount `/srv/services/englishbot/data`.
 - App logs go to `/app/logs`, backed by `/srv/services/englishbot/logs`.
-- SQLite backup files should be created by application code in `/app/backups`, backed by `/srv/services/englishbot/backups`.
+- The app writes one SQLite backup per UTC day (`daily__YYYY-MM-DD.sqlite3`, staged in `.partial/` first) to `/app/backups`, backed by `/srv/services/englishbot/backups`.
 - Runtime media files live in `/app/assets`, backed by `/srv/service-static/englishbot`.
 - The 10 newest user-uploaded bulk-edit workbooks are retained in `/app/data/bulk-edit/uploads` for diagnostics; older uploads are pruned automatically, while generated exports are temporary.
 
@@ -75,19 +75,19 @@ On the host:
 Service-owned scheduled task source of truth lives in this repo:
 
 ```text
-scheduled-tasks/
+infra/scheduled-tasks/
 ```
 
 Current task:
 
 ```text
-scheduled-tasks/backup-maintenance.sh
+infra/scheduled-tasks/backup-maintenance.sh
 ```
 
 Task config:
 
 ```text
-scheduled-tasks/backup-maintenance.env
+infra/scheduled-tasks/backup-maintenance.env
 ```
 
 That host-side task:

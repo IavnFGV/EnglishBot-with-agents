@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-22
+- The bot now writes a daily SQLite backup into the backup directory (previously backups existed only before an Excel import) and prunes interaction log rows older than 90 days.
+- Tagged the full-featured state as `v1.0-full` before simplifying the app for home use.
+
 ## 2026-11-21
 - Require Pillow 13 and a patched pip during container builds; audit Python dependencies in CI and schedule dependency update PRs.
 - Verify the SSH host fingerprint, serialize main-only deployments, deploy the tested commit without discarding server edits, refresh base images, and wait for the container health check.

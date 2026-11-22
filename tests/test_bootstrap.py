@@ -14,6 +14,10 @@ class FakeBot:
     pass
 
 
+async def fake_maintenance_loop() -> None:
+    return None
+
+
 def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
     calls: list[str] = []
     fake_bot = FakeBot()
@@ -66,6 +70,7 @@ def test_bootstrap_run_uses_one_central_startup_order(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
+    monkeypatch.setattr(bootstrap, "run_daily_maintenance_loop", fake_maintenance_loop)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -137,6 +142,7 @@ def test_bootstrap_run_logs_compact_startup_banner(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
+    monkeypatch.setattr(bootstrap, "run_daily_maintenance_loop", fake_maintenance_loop)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -205,6 +211,7 @@ def test_bootstrap_run_logs_status_server_startup(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
+    monkeypatch.setattr(bootstrap, "run_daily_maintenance_loop", fake_maintenance_loop)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
@@ -269,6 +276,7 @@ def test_bootstrap_run_logs_startup_environment(monkeypatch) -> None:
     monkeypatch.setattr(bootstrap, "configure_logging", fake_configure_logging)
     monkeypatch.setattr(bootstrap, "load_build_info", fake_load_build_info)
     monkeypatch.setattr(bootstrap, "init_db", fake_init_db)
+    monkeypatch.setattr(bootstrap, "run_daily_maintenance_loop", fake_maintenance_loop)
     monkeypatch.setattr(bootstrap, "start_status_server", fake_start_status_server)
     monkeypatch.setattr(bootstrap, "build_bot", fake_build_bot)
     monkeypatch.setattr(bootstrap, "configure_bot_commands", fake_configure_bot_commands)
