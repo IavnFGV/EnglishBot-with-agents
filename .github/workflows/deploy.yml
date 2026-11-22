@@ -60,8 +60,27 @@ jobs:
         id: meta
         uses: dependabot/fetch-metadata@v2
 
+      # requirements.txt uses ranges (aiogram>=3,<4). fetch-metadata misreads a
+      # floor bump like ">=1,<2" -> ">=1.2.4,<2" as major. Treat a PR as safe when
+      # it only touches requirements.txt and keeps every upper bound unchanged.
+      - name: Detect floor-only requirement bumps
+        id: floor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          files="$(gh pr diff "$PR_URL" --name-only)"
+          diff="$(gh pr diff "$PR_URL")"
+          old="$(printf '%s\n' "$diff" | grep -E '^-[^-]' | grep -oE '<[0-9][0-9.]*' | sort || true)"
+          new="$(printf '%s\n' "$diff" | grep -E '^\+[^+]' | grep -oE '<[0-9][0-9.]*' | sort || true)"
+          if [ "$files" = "requirements.txt" ] && [ -n "$old" ] && [ "$old" = "$new" ]; then
+            echo "safe=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Merge and deploy
-        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.floor.outputs.safe == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
