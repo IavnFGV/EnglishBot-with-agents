@@ -4,6 +4,6 @@ aiogram-dialog>=2,<3
 openpyxl>=3.1.5,<4
 Pillow>=13,<14
 python-dotenv>=1.2.4,<2
-pytest>=9,<10
+pytest>=9.2.0,<10
 
 # SQLite uses Python stdlib `sqlite3`, so no extra package is required.
