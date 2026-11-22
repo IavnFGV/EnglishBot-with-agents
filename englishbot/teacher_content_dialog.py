@@ -8,19 +8,16 @@ from pathlib import Path
 from aiogram import F
 from aiogram.enums import ContentType
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from aiogram_dialog import Dialog, DialogManager, ShowMode, StartMode, Window
+from aiogram_dialog import Dialog, DialogManager, ShowMode, Window
 from aiogram_dialog.api.entities.media import MediaAttachment
 from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import Button, Column, Row, Select
 from aiogram_dialog.widgets.media import DynamicMedia
 from aiogram_dialog.widgets.text import Format
 
-from .command_registry import TEACHER_CONTENT_COMMAND
 from .assets import NO_IMAGE_PLACEHOLDER_PATH, is_valid_local_image_path, store_teacher_content_image
-from .db import save_user
 from .families import get_user_family
 from .i18n import translate_for_user
 from .runtime import router
@@ -52,37 +49,6 @@ class PromptKind(StrEnum):
     CREATE_TOPIC = "create_topic"
     CREATE_ITEM = "create_item"
     EDIT_FIELD = "edit_field"
-
-
-async def start_teacher_content_dialog(message: Message, dialog_manager: DialogManager) -> None:
-    if message.from_user is None:
-        return
-    save_user(message.from_user)
-    family = get_user_family(message.from_user.id)
-    if family is None:
-        return
-    await dialog_manager.start(
-        TeacherContentDialogSG.topics,
-        mode=StartMode.RESET_STACK,
-        data={"family_id": int(family["id"])},
-    )
-
-
-@router.message(Command(TEACHER_CONTENT_COMMAND.name))
-async def teacher_content_command(message: Message, dialog_manager: DialogManager) -> None:
-    if message.from_user is None:
-        return
-    save_user(message.from_user)
-    if get_user_family(message.from_user.id) is None:
-        await message.answer(
-            translate_for_user(
-                message.from_user.id,
-                "family.command_family_only",
-                command=TEACHER_CONTENT_COMMAND.token,
-            )
-        )
-        return
-    await start_teacher_content_dialog(message, dialog_manager)
 
 
 async def _on_topic_selected(

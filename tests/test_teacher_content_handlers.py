@@ -225,6 +225,39 @@ def test_teacher_content_command_rejects_user_without_family(tmp_path: Path) -> 
     assert message.answers == ["Command /teacher_content is available only inside a family setup."]
 
 
+def test_teacher_content_command_offers_web_editor_when_mini_app_is_configured(tmp_path: Path, monkeypatch) -> None:
+    setup_db(tmp_path)
+    user = make_user(104, "Family")
+    seed_family_user(user)
+    monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "https://example.org/mini-app")
+    manager = FakeDialogManager(user)
+    message = FakeMessage(user)
+    message.chat = SimpleNamespace(id=user.id, type="private")
+
+    asyncio.run(teacher_content(message, manager))
+
+    assert manager.start_calls == []
+    keyboard = message.answer_calls[0]["kwargs"]["reply_markup"]
+    assert keyboard.inline_keyboard[0][0].web_app.url == "https://example.org/mini-app/editor"
+
+
+def test_only_one_handler_is_registered_for_teacher_content_command() -> None:
+    import englishbot.bot  # noqa: F401  # registers every handler module
+    from aiogram.filters import Command
+    from englishbot.runtime import router
+
+    matching = [
+        handler
+        for handler in router.message.handlers
+        if any(
+            isinstance(filter_object.callback, Command)
+            and "teacher_content" in [str(command) for command in filter_object.callback.commands]
+            for filter_object in handler.filters or []
+        )
+    ]
+    assert [handler.callback.__module__ for handler in matching] == ["englishbot.teacher_content_handlers"]
+
+
 def test_dialog_navigation_renders_family_topic_and_item_screens(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(103, "Family")
