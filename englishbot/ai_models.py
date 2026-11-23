@@ -136,9 +136,10 @@ CATALOG_CACHE_SECONDS = 600
 TEST_SAMPLE = (
     "НТ\n1) Повторить буквосочетания sh /ш/, ch /ч/\n"
     "2) Выучить слова, тема «Сказки»:\nDragon — дракон\nCastle — замок\nWizard / Witch — волшебник / ведьма\n"
-    "3) Разговорная практика: Do you like dragons? — Yes, I do."
+    "3) Разговорная практика: Do you like dragons? — Yes, I do.\n"
+    "4) Неправильные глаголы: go went gone — идти, fly — летать"
 )
-TEST_EXPECTED = ("dragon", "castle", "wizard", "witch")
+TEST_EXPECTED = ("dragon", "castle", "wizard", "witch", "go went gone", "fly flew flown")
 
 
 def get_free_vision_models_cached() -> list[dict[str, object]]:
@@ -165,10 +166,12 @@ def run_model_check(model: str) -> dict[str, object]:
     except AIExtractionUnavailable as exc:
         return {"ok": False, "seconds": round(time.monotonic() - started, 1), "error": str(exc)}
     found = {item["en"].lower() for item in result.items}
+    found |= {f'{verb["base"]} {verb["past"]} {verb["participle"]}' for verb in result.verbs}
     return {
         "ok": True,
         "seconds": round(time.monotonic() - started, 1),
         "found": sum(1 for word in TEST_EXPECTED if word in found),
         "expected": len(TEST_EXPECTED),
         "items": result.items,
+        "verbs": result.verbs,
     }

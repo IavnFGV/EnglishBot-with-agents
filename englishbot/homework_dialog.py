@@ -29,6 +29,7 @@ from .learner_training_dialog import start_training_dialog
 LIST_PAGE_SIZE = 5
 CAPTION_LIMIT = 1000  # Telegram allows 1024 characters under a photo
 BUTTON_TITLE_LIMIT = 40
+DRILL_TASK_KINDS = ("words", "verbs")  # drilled in training, not ticked off
 
 
 class HomeworkDialogSG(StatesGroup):
@@ -212,7 +213,7 @@ async def get_overview_window_data(
         action_label=translate_for_user(user_id, f"homework.dialog.action.{action_key}"),
         resume_details=resume_details,
     )
-    task_lines = [_task_line(user_id, assignment, task) for task in assignment["tasks"]]
+    task_lines = [line for task in assignment["tasks"] if (line := _task_line(user_id, assignment, task))]
     if task_lines:
         screen_text += "\n\n" + "\n".join(task_lines)
     return {
@@ -221,7 +222,7 @@ async def get_overview_window_data(
         "task_buttons": [
             {"id": str(task["id"]), "label": _task_button_label(user_id, task)}
             for task in assignment["tasks"]
-            if task["kind"] != "words"
+            if task["kind"] not in DRILL_TASK_KINDS
         ],
         "action_label": translate_for_user(user_id, f"homework.dialog.action.{action_key}"),
         "back_label": translate_for_user(user_id, "homework.dialog.action.back"),
@@ -247,13 +248,21 @@ def _task_title(user_id: int, task: dict[str, object]) -> str:
     return str(task["title"]) or translate_for_user(user_id, f"homework.task.untitled.{task['kind']}")
 
 
-def _task_line(user_id: int, assignment: dict[str, object], task: dict[str, object]) -> str:
-    if task["kind"] == "words":
-        if assignment["words_done"]:
-            return translate_for_user(user_id, "homework.task.words_done_line")
-        return translate_for_user(
-            user_id, "homework.task.words_line", done=assignment["completed_items"], total=assignment["total_items"]
-        )
+def _drill_line(user_id: int, assignment: dict[str, object]) -> str:
+    """One line for everything drilled in training: words, verbs, or both share one progress."""
+    kinds = {task["kind"] for task in assignment["tasks"] if task["kind"] in DRILL_TASK_KINDS}
+    prefix = "mixed" if len(kinds) > 1 else "verbs" if kinds == {"verbs"} else "words"
+    if assignment["words_done"]:
+        return translate_for_user(user_id, f"homework.task.{prefix}_done_line")
+    return translate_for_user(
+        user_id, f"homework.task.{prefix}_line", done=assignment["completed_items"], total=assignment["total_items"]
+    )
+
+
+def _task_line(user_id: int, assignment: dict[str, object], task: dict[str, object]) -> str | None:
+    if task["kind"] in DRILL_TASK_KINDS:
+        first = next(other for other in assignment["tasks"] if other["kind"] in DRILL_TASK_KINDS)
+        return _drill_line(user_id, assignment) if first is task else None
     if task["kind"] == "paper":
         return translate_for_user(user_id, "homework.task.paper_line", mark="✅" if task["done"] else "⬜", title=_task_title(user_id, task))
     return translate_for_user(user_id, "homework.task.note_line", title=_task_title(user_id, task))

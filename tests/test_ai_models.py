@@ -152,10 +152,10 @@ def test_models_api_is_owner_only_and_edits_queue(setup, monkeypatch) -> None:
 
 
 def test_model_check_scores_the_sample(setup, monkeypatch) -> None:
-    reply = '{"words":[{"en":"Dragon","ru":"дракон","topic":"Fairy Tales"},{"en":"Castle","ru":"замок","topic":"Fairy Tales"},{"en":"Wizard","ru":"волшебник","topic":"Fairy Tales"}]}'
+    reply = '{"words":[{"en":"Dragon","ru":"дракон","topic":"Fairy Tales"},{"en":"Castle","ru":"замок","topic":"Fairy Tales"},{"en":"Wizard","ru":"волшебник","topic":"Fairy Tales"}],"verbs":[{"base":"go","past":"went","participle":"gone","ru":"идти"}]}'
     monkeypatch.setattr(ai_extraction, "_post", lambda body, key: {"choices": [{"message": {"content": reply}}]})
     result = editor(OWNER, "POST", ["models", "test"], {"model": FREE_B})
-    assert (result["ok"], result["found"], result["expected"]) == (True, 3, 4)
+    assert (result["ok"], result["found"], result["expected"]) == (True, 4, 6)
     monkeypatch.setattr(ai_extraction, "_post", lambda body, key: (_ for _ in ()).throw(OSError("down")))
     failed = editor(OWNER, "POST", ["models", "test"], {"model": FREE_B})
     assert failed["ok"] is False and "down" in failed["error"]

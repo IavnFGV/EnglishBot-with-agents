@@ -133,3 +133,5 @@ img.crop-image { display: block; max-width: 100%; max-height: 62vh; pointer-even
 .crop-handle.se { bottom: -14px; right: -14px; }
 .crop-stage { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+.row.verb-forms { gap: 6px; }
+.row.verb-forms input { flex: 1; min-width: 0; }

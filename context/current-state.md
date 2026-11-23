@@ -35,20 +35,20 @@ Defined in `englishbot/command_registry.py`. The Telegram menu shows five, with 
 - `/homework` and `/start` open the learner homework list; homework is personal, resumable, and complete only when every word is done.
 - Homework is assigned from family topics or picked words (`/create_assignment`), or from a homework set (below). The assigner picks the mode.
 - Homework sets (`homework_sets.py`, `homework_import_handlers.py`, `ai_extraction.py`):
-  - Forwarding tutor messages (text or photos) to the bot collects a set; "Topic words" sends it to an optional OpenRouter model, which drafts words only.
+  - Forwarding tutor messages (text or photos) to the bot collects a set; "🤖 Recognize with AI: words and verbs" sends it to an optional OpenRouter model, which drafts words and irregular verbs (V1/V2/V3 + translation) in one pass.
   - The draft is reviewed in the web editor (`/mini-app/editor?import=<id>`). Saving files new words under topics, reuses known words without duplicates, and can assign homework; the child is notified.
   - The draft can also pick existing dictionary words from any topic.
   - Saved sets can be renamed (assignments follow), re-assigned, edited (later assignments only), archived, and restored. Unsaved drafts are listed and can be deleted.
-  - A set is an ordered list of tasks (`homework_set_tasks`: `words`, `paper`, `note`) with photos (`homework_set_photos` gallery, `homework_set_task_assets` links). Drafts can be filled by hand without AI.
+  - A set is an ordered list of tasks (`homework_set_tasks`: `words`, `verbs`, `paper`, `note`) with photos (`homework_set_photos` gallery, `homework_set_task_assets` links). Drafts can be filled by hand without AI.
   - Word pictures: the model returns a picture number and 0-1000 box per word; the server cuts it (`homework_set_photos.role = 'crop'`), the parent can recut or upload in the draft, and saving copies chosen pictures into the dictionary. Saving, cancelling, and the 30-day abandoned-draft cleanup delete unneeded photos and files.
   - Learners see the tasks in `/homework`: paper tasks with photos are ticked off by the learner (`homework_assignment_task_done`); homework completes when its words are drilled (`homework_assignments.words_completed_at`) and every paper task is ticked.
-  - Item types other than words (phrases, irregular verbs) are future work.
+  - Irregular verbs (`verbs.py`): `learning_items.item_type = 'verb'` with V2/V3 in `details_json`. The quiz shows "go — идти" and asks for "went gone": easy offers mistakes of the same verb, medium jumbles both forms, hard accepts any separator and either variant of "was/were". Known verbs are reused by base form; a plain word with the same text stays separate. Phrases and question-answer pairs are future work.
 - The editor's "Homework" screen lists all family homework with progress and cancels unfinished ones.
 - AI model queue (`ai_models.py`, tables `app_settings`, `ai_model_stats`): only `:free` OpenRouter ids are accepted. The owner-only "Models" screen manages the queue and runs test checks. Models are tried in order. A daily sync drops models that are no longer free and notifies the owner.
 
 ## Content authoring
 - `/teacher_content` (button "Dictionary and homework") opens the dictionary web editor (`dictionary_editor.py`, `mini_app_static/editor.*`, API `/mini-app/api/editor/`) when the Mini App URL is set. The older Telegram dialog editor is a secondary button and the fallback.
-- The web editor edits topics, words, translations, and pictures (gallery or link). Pictures are normalized server-side to upright JPEG up to 1024px. Deletes archive rows.
+- The web editor edits topics, words (or irregular verbs with V2/V3), translations, and pictures (gallery or link). Pictures are normalized server-side to upright JPEG up to 1024px. Deletes archive rows.
 
 ## Heroine pictures (optional)
 - `heroine_pictures.py` plus the `heroine-artist` container (`infra/heroine-artist/`: Codex CLI, stdlib worker). They share only `ENGLISHBOT_HEROINE_DIR` (`jobs/`, `results/`, `status.json`, `refs/`); the artist has no secrets or DB.
@@ -82,7 +82,7 @@ Defined in `englishbot/command_registry.py`. The Telegram menu shows five, with 
 
 ## Next work
 - Remove the Telegram dialog editor and `/create_assignment` once the web editor fully replaces them.
-- Homework import beyond words: phrases and question-answer pairs, then irregular verbs, then a task checklist; analysis and proposed model in `docs/homework-task-types.md`.
+- Homework import beyond words and verbs: phrases and question-answer pairs; analysis and proposed model in `docs/homework-task-types.md`.
 
 ## Tests
 - `python -m pytest` is the canonical suite and the CI command; tests are focused per module or flow.

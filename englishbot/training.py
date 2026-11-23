@@ -8,6 +8,7 @@ from .db import DEFAULT_HINT_LANGUAGE, get_connection, utc_now
 from .exercises import ResolvedLearningItem, TranslationEntry, build_exercise
 from .families import get_user_family, list_family_learning_items
 from .user_profiles import get_user_hint_language
+from .verbs import ITEM_TYPE_VERB, ITEM_TYPE_WORD, answer_matches as verb_answer_matches, expected_answer as verb_expected_answer, load_forms
 from .vocabulary import get_learning_item_with_translations, get_lexeme, list_learning_items
 
 
@@ -395,6 +396,8 @@ def get_current_question(telegram_user_id: int) -> dict[str, object] | None:
         "is_completed": bool(item_snapshot["is_completed"]),
         "prompt": prompt_text,
         "expected_answer": expected_answer,
+        "item_type": exercise.item_type,
+        "speech_text": exercise.speech_text or expected_answer,
     }
 
 
@@ -407,7 +410,10 @@ def submit_training_answer(
     if session is None or question is None:
         return None
 
-    is_correct = _normalize_answer(answer_text) == _normalize_answer(str(question["expected_answer"]))
+    if question.get("item_type") == ITEM_TYPE_VERB:
+        is_correct = verb_answer_matches(str(question["expected_answer"]), answer_text)
+    else:
+        is_correct = _normalize_answer(answer_text) == _normalize_answer(str(question["expected_answer"]))
     next_item_state = _calculate_next_item_state(question, is_correct)
     updated_correct_answers = int(session["correct_answers"]) + (1 if is_correct else 0)
 
@@ -1097,18 +1103,32 @@ def _resolve_learning_item(learning_item_id: int) -> ResolvedLearningItem:
         raise NoLearningItemsError
 
     image_asset = get_learning_item_asset(int(learning_item["id"]), role=PRIMARY_IMAGE_ROLE)
+    entries = [
+        TranslationEntry(
+            language_code=str(translation["language_code"]),
+            translation_text=str(translation["translation_text"]),
+        )
+        for translation in translations
+    ]
+    headword = str(lexeme["lemma"])
+    item_type, verb_base = ITEM_TYPE_WORD, None
+    forms = load_forms(learning_item.get("details_json")) if learning_item.get("item_type") == ITEM_TYPE_VERB else None
+    if forms is not None:
+        # The learner sees "go — идти" and answers with the other two forms.
+        item_type, verb_base = ITEM_TYPE_VERB, str(learning_item["text"]).strip() or headword
+        headword = verb_expected_answer(*forms)
+        entries = [
+            TranslationEntry(entry.language_code, f"{verb_base} — {entry.translation_text.strip()}")
+            for entry in entries if entry.translation_text.strip()
+        ]
     return ResolvedLearningItem(
         learning_item_id=int(learning_item["id"]),
-        headword=str(lexeme["lemma"]),
-        translations=[
-            TranslationEntry(
-                language_code=str(translation["language_code"]),
-                translation_text=str(translation["translation_text"]),
-            )
-            for translation in translations
-        ],
+        headword=headword,
+        translations=entries,
         image_ref=resolve_asset_ref(image_asset),
         image_asset_id=int(image_asset["asset_id"]) if image_asset is not None else None,
+        item_type=item_type,
+        verb_base=verb_base,
     )
 
 

@@ -16,6 +16,7 @@ from .db import get_connection, get_user, utc_now
 from .families import get_user_family
 from .homework import get_assignment, get_assignment_progress_snapshot, pending_paper_task_count
 from .i18n import translate_for_user
+from .verbs import verb_task_text
 from .training import (
     append_medium_answer_letter,
     get_current_question,
@@ -123,6 +124,7 @@ def public_question(question: dict[str, object]) -> dict[str, object]:
         "type": question["exercise_type"],
         "prompt": question["prompt"],
         "hint": question["hint_text"],
+        "task": verb_task_text(int(question["telegram_user_id"]), question),
         "first_letter": question["first_letter"],
         "options": question["options"] if question["exercise_type"] == "multiple_choice" else None,
         "letters": question["jumbled_letters"] if question["exercise_type"] == "jumbled_letters" else None,

@@ -183,7 +183,7 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
                 if int(parts[5]) >= len(voices):
                     raise MiniAppError("invalid_voice")
                 voice_id = voices[int(parts[5])].voice_id
-            variant = await asyncio.to_thread(get_or_create_learning_item_tts_variant, client=client, learning_item_id=int(question["learning_item_id"]), text=str(question["expected_answer"]), preferred_voice_id=voice_id)
+            variant = await asyncio.to_thread(get_or_create_learning_item_tts_variant, client=client, learning_item_id=int(question["learning_item_id"]), text=str(question.get("speech_text") or question["expected_answer"]), preferred_voice_id=voice_id)
             file_path = resolve_runtime_asset_path(str(variant["local_path"])).resolve()
             file_path.relative_to(resolve_runtime_asset_path("assets").resolve())
             if not file_path.is_file() or file_path.suffix.lower() not in {".mp3", ".ogg", ".wav"}:

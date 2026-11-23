@@ -21,6 +21,7 @@ from .families import create_homework_assignment, get_user_family, list_family_m
 from .i18n import translate_for_user
 from .teacher_content import create_teacher_topic, create_teacher_topic_item
 from .training import TRAINING_MODES
+from .verbs import DEFAULT_VERB_TOPIC, ITEM_TYPE_WORD, VerbFormsError, create_family_verb, find_family_verb, load_forms, validate_forms
 
 
 logger = logging.getLogger(__name__)
@@ -40,12 +41,14 @@ MAX_INSTRUCTIONS_LENGTH = 4000
 MAX_PHOTO_SIDE = 1600  # worksheets must stay readable, so larger than dictionary pictures
 KIND_MANUAL = "manual"  # no AI: the draft starts from the forwarded text and photos only
 
-# Task kinds of a homework set. Words are drilled in training; paper work is ticked off;
-# notes (rules, theory, the tutor's text) are only shown.
+# Task kinds of a homework set. Words and irregular verbs are drilled in training; paper work is
+# ticked off; notes (rules, theory, the tutor's text) are only shown.
 TASK_WORDS = "words"
+TASK_VERBS = "verbs"
 TASK_PAPER = "paper"
 TASK_NOTE = "note"
-TASK_KINDS = (TASK_WORDS, TASK_PAPER, TASK_NOTE)
+TASK_KINDS = (TASK_WORDS, TASK_VERBS, TASK_PAPER, TASK_NOTE)
+DRILL_KINDS = (TASK_WORDS, TASK_VERBS)
 
 
 class HomeworkSetError(Exception):
@@ -174,8 +177,8 @@ def _existing_words(connection, family_id: int) -> dict[str, int]:
     return {
         str(row["text"]).strip().lower(): int(row["id"])
         for row in connection.execute(
-            "SELECT id, text FROM learning_items WHERE family_id = ? AND is_archived = 0 ORDER BY id",
-            (family_id,),
+            "SELECT id, text FROM learning_items WHERE family_id = ? AND is_archived = 0 AND item_type = ? ORDER BY id",
+            (family_id, ITEM_TYPE_WORD),
         ).fetchall()
     }
 
@@ -415,9 +418,11 @@ def _write_draft(connection, row, draft: dict[str, object]) -> None:
     )
 
 
-def _draft_tasks(row, items: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Words first, then the tutor's forwarded text as a note the parent can keep, edit, or switch off."""
-    tasks = [_new_task(TASK_WORDS, items=items)]
+def _draft_tasks(row, items: list[dict[str, object]], verbs: list[dict[str, object]] | None = None) -> list[dict[str, object]]:
+    """Words, then verbs, then the tutor's forwarded text as a note the parent can keep, edit, or switch off."""
+    tasks = [_new_task(TASK_WORDS, items=items)] if items or not verbs else []
+    if verbs:
+        tasks.append(_new_task(TASK_VERBS, items=verbs))
     text = _tutor_text(json.loads(row["sources_json"] or "[]"))
     if text:
         tasks.append(_new_task(TASK_NOTE, title=translate_for_user(int(row["created_by_user_id"]), "homework_task.tutor_text"), instructions=text))
@@ -459,9 +464,18 @@ def store_extraction(set_id: int, result: ExtractionResult, picture_ids: list[in
                     item["image_id"] = crop
                     item["crop"] = {"photo": source, "box": entry["box"]}
             items.append(item)
-        _write_draft(connection, row, {"model": result.model, "tasks": _draft_tasks(row, items)})
-    known = sum(1 for item in items if item["existing_id"])
-    return {"total": len(items), "new": len(items) - known, "existing": known}
+        verbs = []
+        for verb in result.verbs:
+            existing_id = find_family_verb(connection, family_id, verb["base"])
+            verbs.append({
+                **verb,
+                "topic": _match_topic_title(DEFAULT_VERB_TOPIC, topics),
+                "existing_id": existing_id,
+            })
+        _write_draft(connection, row, {"model": result.model, "tasks": _draft_tasks(row, items, verbs)})
+    entries = [*items, *verbs]
+    known = sum(1 for item in entries if item["existing_id"])
+    return {"total": len(entries), "words": len(items), "verbs": len(verbs), "new": len(entries) - known, "existing": known}
 
 
 def store_manual_draft(set_id: int) -> None:
@@ -597,6 +611,21 @@ def _ensure_word(user_id: int, family_id: int, english: str, russian: str, topic
     return word_id, True
 
 
+def _ensure_verb(user_id: int, family_id: int, entry: dict[str, object], topic_cache: dict[str, int]) -> tuple[int, bool]:
+    """Reuse the family verb with this base form or create it with its forms; return (id, created)."""
+    try:
+        base, past, participle = validate_forms(entry.get("base"), entry.get("past"), entry.get("participle"))
+    except VerbFormsError as exc:
+        raise HomeworkSetError("invalid_verb_forms") from exc
+    topic_id = _resolve_topic_id(user_id, family_id, _clean(entry.get("topic")) or DEFAULT_VERB_TOPIC, topic_cache)
+    with get_connection() as connection:
+        verb_id = find_family_verb(connection, family_id, base)
+        if verb_id is not None:
+            _link_word_to_topic(connection, int(topic_id), verb_id)
+            return verb_id, False
+    return create_family_verb(family_id, int(topic_id), base, past, participle, _clean(entry.get("ru"))), True
+
+
 def _clean_instructions(value: object) -> str:
     lines = [" ".join(line.split()) for line in str(value or "").replace("\r", "").split("\n")]
     return "\n".join(lines).strip()[:MAX_INSTRUCTIONS_LENGTH]
@@ -616,7 +645,7 @@ def _payload_tasks(payload: dict[str, object], photo_ids: list[int]) -> list[dic
         kind = str(raw.get("kind") or "")
         if kind not in TASK_KINDS:
             raise HomeworkSetError("invalid_task_kind")
-        items = raw.get("items") if kind == TASK_WORDS else []
+        items = raw.get("items") if kind in DRILL_KINDS else []
         photos = raw.get("photos") or []
         if not isinstance(items, list) or not isinstance(photos, list):
             raise HomeworkSetError("invalid_request")
@@ -634,11 +663,14 @@ def _payload_tasks(payload: dict[str, object], photo_ids: list[int]) -> list[dic
             "kind": kind,
             "title": _clean(raw.get("title")),
             "instructions": _clean_instructions(raw.get("instructions")),
-            "items": [item for item in items if isinstance(item, dict) and item.get("include", True) and _clean(item.get("en"))],
+            "items": [
+                item for item in items
+                if isinstance(item, dict) and item.get("include", True) and _clean(item.get("base" if kind == TASK_VERBS else "en"))
+            ],
             "photos": attached,
         })
     # A task with nothing in it would only be an empty line for the learner.
-    return [task for task in tasks if task["items"] or task["photos"] or task["instructions"] or (task["kind"] != TASK_WORDS and task["title"])]
+    return [task for task in tasks if task["items"] or task["photos"] or task["instructions"] or (task["kind"] not in DRILL_KINDS and task["title"])]
 
 
 def _insert_task(connection, set_id: int, order: int, task: dict[str, object]) -> int:
@@ -718,6 +750,13 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
     for task in tasks:
         task_word_ids = []
         for entry in task["items"]:
+            if task["kind"] == TASK_VERBS:
+                word_id, is_new = _ensure_verb(user_id, family_id, entry, topic_cache)
+                created += int(is_new)
+                if word_id not in word_ids:
+                    word_ids.append(word_id)
+                    task_word_ids.append(word_id)
+                continue
             word_id, is_new = _ensure_word(user_id, family_id, _clean(entry.get("en")), _clean(entry.get("ru")), _clean(entry.get("topic")), topic_cache)
             created += int(is_new)
             picture = _entry_picture(entry, set_asset_ids)
@@ -853,6 +892,7 @@ def get_set(user_id: int, set_id: int) -> dict[str, object]:
         words = connection.execute(
             """
             SELECT learning_items.id, learning_items.text, learning_items.is_archived, homework_set_items.task_id,
+                   learning_items.item_type, learning_items.details_json,
                    (SELECT translation_text FROM learning_item_translations
                     WHERE learning_item_id = learning_items.id AND language_code = 'ru') AS ru
             FROM homework_set_items
@@ -886,7 +926,7 @@ def get_set(user_id: int, set_id: int) -> dict[str, object]:
         "task_kinds": _task_kinds(user_id),
         "words": [
             {
-                "id": int(word["id"]), "text": str(word["text"]), "ru": str(word["ru"] or ""),
+                "id": int(word["id"]), "text": _display_text(word), "ru": str(word["ru"] or ""),
                 "archived": bool(word["is_archived"]), "task_id": int(word["task_id"]) if word["task_id"] is not None else None,
             }
             for word in words
@@ -905,6 +945,12 @@ def get_set(user_id: int, set_id: int) -> dict[str, object]:
         "defaults": _assignment_defaults(user_id, family_id),
         "modes": [{"code": mode, "label": translate_for_user(user_id, f"training.mode.{mode}")} for mode in TRAINING_MODES],
     }
+
+
+def _display_text(word) -> str:
+    """A verb is listed with all three forms: "go – went – gone"."""
+    forms = load_forms(word["details_json"]) if word["item_type"] != ITEM_TYPE_WORD else None
+    return " – ".join([str(word["text"]), *forms]) if forms else str(word["text"])
 
 
 def rename_set(user_id: int, set_id: int, title: object) -> dict[str, object]:
@@ -982,7 +1028,7 @@ def list_drafts(user_id: int) -> list[dict[str, object]]:
             "item_count": sum(
                 len(task.get("items") or [])
                 for task in _tasks_of_draft(json.loads(row["draft_json"] or "{}"))
-                if task.get("kind") == TASK_WORDS
+                if task.get("kind") in DRILL_KINDS
             ),
         }
         for row in rows

@@ -21,6 +21,7 @@ from .families import get_user_family
 from .i18n import LANGUAGE_LABELS, translate_for_user
 from .mini_app import MiniAppError
 from .teacher_content import TRANSLATION_LANGUAGE_CODES, create_teacher_topic, create_teacher_topic_item
+from .verbs import ITEM_TYPE_VERB, ITEM_TYPE_WORD, VerbFormsError, create_family_verb, load_forms, set_item_verb_forms
 
 
 MAX_IMAGE_SIDE = 1024
@@ -50,6 +51,7 @@ LABEL_KEYS = (
     "heroine_requested", "heroine_use", "heroine_redraw", "heroine_skip", "heroine_none", "heroine_failed",
     "heroine_scene", "heroine_state_offline", "heroine_state_auth_required", "heroine_state_limited",
     "heroine_count_drawing", "heroine_count_ready", "heroine_ready_open",
+    "verb", "verb_base", "verb_past", "verb_participle", "verb_hint", "verb_forms_invalid", "create_verb",
 )
 
 
@@ -190,7 +192,9 @@ def delete_topic(user_id: int, topic_id: int) -> dict[str, object]:
 
 
 def _serialize_word(connection, word_id: int) -> dict[str, object]:
-    word = connection.execute("SELECT id, text FROM learning_items WHERE id = ?", (word_id,)).fetchone()
+    word = connection.execute(
+        "SELECT id, text, item_type, details_json FROM learning_items WHERE id = ?", (word_id,)
+    ).fetchone()
     translations = {
         str(row["language_code"]): str(row["translation_text"])
         for row in connection.execute(
@@ -204,7 +208,24 @@ def _serialize_word(connection, word_id: int) -> dict[str, object]:
         "text": str(word["text"]),
         "translations": {code: translations.get(code, "") for code in TRANSLATION_LANGUAGE_CODES},
         "image_id": int(image["asset_id"]) if image is not None else None,
+        **_verb_fields(word),
     }
+
+
+def _verb_fields(word) -> dict[str, object]:
+    forms = load_forms(word["details_json"]) if word["item_type"] == ITEM_TYPE_VERB else None
+    if forms is None:
+        return {"type": ITEM_TYPE_WORD, "forms": None}
+    return {"type": ITEM_TYPE_VERB, "forms": {"past": forms[0], "participle": forms[1]}}
+
+
+def _verb_payload(verb: object) -> dict[str, object] | None:
+    """The editor sends {"past", "participle"} for a verb and null for a plain word."""
+    if verb is None:
+        return None
+    if not isinstance(verb, dict):
+        raise _error("invalid_verb_forms")
+    return verb
 
 
 def list_words(user_id: int, topic_id: int) -> dict[str, object]:
@@ -248,21 +269,37 @@ def _write_translations(connection, word_id: int, translations: object) -> None:
             )
 
 
-def create_word(user_id: int, topic_id: int, text: object, translations: object = None) -> dict[str, object]:
+def create_word(user_id: int, topic_id: int, text: object, translations: object = None, verb: object = None) -> dict[str, object]:
     family_id = _family_id(user_id)
     clean_text = _clean_text(text, required=True)
+    forms = _verb_payload(verb)
     with get_connection() as connection:
         _require_topic(connection, family_id, topic_id)
-    word_id = int(create_teacher_topic_item(user_id, family_id, topic_id, clean_text)["learning_item_id"])
+    if forms is not None:
+        try:
+            word_id = create_family_verb(family_id, topic_id, clean_text, forms.get("past"), forms.get("participle"))
+        except VerbFormsError as exc:
+            raise _error("invalid_verb_forms") from exc
+    else:
+        word_id = int(create_teacher_topic_item(user_id, family_id, topic_id, clean_text)["learning_item_id"])
     with get_connection() as connection:
         _write_translations(connection, word_id, translations)
         return _serialize_word(connection, word_id)
 
 
-def update_word(user_id: int, word_id: int, text: object = None, translations: object = None) -> dict[str, object]:
+def update_word(
+    user_id: int, word_id: int, text: object = None, translations: object = None, verb: object = ...,
+) -> dict[str, object]:
+    """verb: forms dict makes the item a verb, None a plain word; omitted keeps its type."""
     family_id = _family_id(user_id)
     with get_connection() as connection:
         word = _require_word(connection, family_id, word_id)
+        if verb is not ...:
+            try:
+                base = _clean_text(text, required=True) if text is not None else str(word["text"])
+                set_item_verb_forms(connection, word_id, _verb_payload(verb), base.lower())
+            except VerbFormsError as exc:
+                raise _error("invalid_verb_forms") from exc
         if text is not None:
             clean_text = _clean_text(text, required=True)
             timestamp = utc_now()
@@ -270,10 +307,16 @@ def update_word(user_id: int, word_id: int, text: object = None, translations: o
                 "UPDATE learning_items SET text = ?, updated_at = ? WHERE id = ?",
                 (clean_text, timestamp, word_id),
             )
-            connection.execute(
-                "UPDATE lexemes SET lemma = ?, updated_at = ? WHERE id = ?",
-                (clean_text, timestamp, int(word["lexeme_id"])),
-            )
+            same = connection.execute(
+                "SELECT id FROM lexemes WHERE lemma = ? AND id != ?", (clean_text, int(word["lexeme_id"]))
+            ).fetchone()
+            if same is not None:  # lemmas are unique: share the existing one instead of renaming into it
+                connection.execute("UPDATE learning_items SET lexeme_id = ? WHERE id = ?", (int(same["id"]), word_id))
+            else:
+                connection.execute(
+                    "UPDATE lexemes SET lemma = ?, updated_at = ? WHERE id = ?",
+                    (clean_text, timestamp, int(word["lexeme_id"])),
+                )
         _write_translations(connection, word_id, translations)
         return _serialize_word(connection, word_id)
 
@@ -389,7 +432,9 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
     if method == "GET" and parts in ([], ["topics"]):
         return list_topics(user_id)
     if parts == ["words", "search"] and method == "POST":
-        return {"words": search_words(user_id, _json(body).get("q"))}
+        payload = _json(body)
+        item_type = payload.get("type") if payload.get("type") in (ITEM_TYPE_WORD, ITEM_TYPE_VERB) else None
+        return {"words": search_words(user_id, payload.get("q"), item_type=item_type)}
     if method == "POST" and parts == ["topics"]:
         return create_topic(user_id, _json(body).get("title"))
     if len(parts) >= 2 and parts[0] == "topics":
@@ -403,13 +448,13 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
             return list_words(user_id, topic_id)
         if method == "POST" and rest == ["words"]:
             payload = _json(body)
-            return create_word(user_id, topic_id, payload.get("text"), payload.get("translations"))
+            return create_word(user_id, topic_id, payload.get("text"), payload.get("translations"), payload.get("verb"))
     if len(parts) >= 2 and parts[0] == "words":
         word_id = _int_part(parts[1])
         rest = parts[2:]
         if method == "POST" and rest == []:
             payload = _json(body)
-            return update_word(user_id, word_id, payload.get("text"), payload.get("translations"))
+            return update_word(user_id, word_id, payload.get("text"), payload.get("translations"), payload.get("verb", ...))
         if method == "POST" and rest == ["delete"]:
             return delete_word(user_id, word_id)
         if method == "GET" and rest == ["image"]:
@@ -442,8 +487,8 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
     raise _error("not_found", 404)
 
 
-def search_words(user_id: int, query: object, limit: int = 20) -> list[dict[str, object]]:
-    """Family words whose English text or translation contains the query (any letter case)."""
+def search_words(user_id: int, query: object, limit: int = 20, item_type: object = None) -> list[dict[str, object]]:
+    """Family words whose English text or translation contains the query (any letter case); optionally one type."""
     family_id = _family_id(user_id)
     needle = _clean_text(query, required=False).casefold()
     if not needle:
@@ -457,9 +502,10 @@ def search_words(user_id: int, query: object, limit: int = 20) -> list[dict[str,
             FROM learning_items
             LEFT JOIN learning_item_translations ON learning_item_translations.learning_item_id = learning_items.id
             WHERE learning_items.family_id = ? AND learning_items.is_archived = 0
+              AND (? IS NULL OR learning_items.item_type = ?)
             GROUP BY learning_items.id
             """,
-            (family_id,),
+            (family_id, item_type, item_type),
         ).fetchall()
         matches = sorted(
             (row for row in rows if needle in f"{row['text']} {row['translations'] or ''}".casefold()),

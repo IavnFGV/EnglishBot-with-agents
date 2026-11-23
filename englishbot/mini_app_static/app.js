@@ -339,6 +339,7 @@ function render() {
   card.append(pictureFrame);
   loadImage(q.image_asset_id, pictureFrame);
   card.append(el('div', 'prompt', q.prompt));
+  if (q.task) card.append(el('div', 'hint task', q.task));
   if (q.hint && q.hint !== q.prompt) card.append(el('div', 'hint', q.hint));
   if (q.type === 'typed_answer' && q.first_letter) card.append(el('div', 'hint', t('starts', { letter: q.first_letter })));
   app.append(card);

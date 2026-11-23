@@ -313,7 +313,7 @@ def test_forward_then_words_produces_draft_link(family: int, monkeypatch) -> Non
     assert [source.text for source in seen_sources] == ["Dragon - дракон", None]
     assert seen_sources[1].image is not None
     final_text, final_keyboard = second.edits[-1]
-    assert "Words found: 1" in final_text
+    assert "found words: 1, irregular verbs: 0 (new: 1" in final_text
     assert final_keyboard.inline_keyboard[0][0].web_app.url.startswith("https://example.org/mini-app/editor?import=")
 
 
@@ -655,7 +655,7 @@ def test_empty_draft_from_the_editor_has_one_words_task(family: int) -> None:
     set_id = create_empty_draft(MOM)["id"]
     draft = get_draft(MOM, set_id)
     assert [task["kind"] for task in draft["tasks"]] == ["words"] and draft["photos"] == []
-    assert {kind["code"] for kind in draft["task_kinds"]} == {"words", "paper", "note"}
+    assert {kind["code"] for kind in draft["task_kinds"]} == {"words", "verbs", "paper", "note"}
 
 
 def test_manual_draft_skips_ai_and_keeps_text_and_photos(family: int, monkeypatch) -> None:

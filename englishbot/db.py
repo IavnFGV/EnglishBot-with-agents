@@ -40,6 +40,15 @@ def _is_url_like_asset_ref(value: str) -> bool:
     return normalized.startswith("http://") or normalized.startswith("https://")
 
 
+def _ensure_learning_item_type_schema(connection: sqlite3.Connection) -> None:
+    """Learning items are words by default; irregular verbs keep their forms in details_json."""
+    columns = get_table_columns(connection, "learning_items")
+    if "item_type" not in columns:
+        connection.execute("ALTER TABLE learning_items ADD COLUMN item_type TEXT NOT NULL DEFAULT 'word'")
+    if "details_json" not in columns:
+        connection.execute("ALTER TABLE learning_items ADD COLUMN details_json TEXT")
+
+
 def _ensure_homework_task_schema(connection: sqlite3.Connection) -> None:
     """A homework set holds ordered tasks (words to drill, paper work, notes) with attached photos."""
     connection.execute(
@@ -462,7 +471,8 @@ def _rebuild_learning_items_for_family_schema(connection: sqlite3.Connection) ->
         "created_at",
         "updated_at",
     }
-    if learning_item_columns == expected_columns:
+    # Item type columns are added later by _ensure_learning_item_type_schema and must survive restarts.
+    if learning_item_columns - {"item_type", "details_json"} == expected_columns:
         return
 
     connection.execute("DROP TRIGGER IF EXISTS trg_learning_items_set_workbook_key")
@@ -1287,6 +1297,7 @@ def init_db() -> None:
         if "homework_set_id" not in get_table_columns(connection, "homework_assignments"):
             connection.execute("ALTER TABLE homework_assignments ADD COLUMN homework_set_id INTEGER")
         _ensure_homework_task_schema(connection)
+        _ensure_learning_item_type_schema(connection)
         _ensure_heroine_picture_schema(connection)
         connection.execute("DROP TABLE IF EXISTS assignment_items")
         connection.execute("DROP TABLE IF EXISTS assignments")

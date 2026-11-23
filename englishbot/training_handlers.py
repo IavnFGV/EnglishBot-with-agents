@@ -37,6 +37,7 @@ from .homework_progress_image import render_homework_progress_image
 from .runtime import router
 from .tts import TTSClientError, build_tts_client, get_or_create_learning_item_tts_variant, is_tts_enabled
 from .user_profiles import get_user_tts_voice_id
+from .verbs import verb_task_text
 from .training import (
     NoLearningItemsError,
     append_medium_answer_letter,
@@ -211,7 +212,7 @@ async def play_current_question_tts(message: Message, telegram_user_id: int) -> 
     if client is None:
         return False
 
-    text_to_speak = str(question.get("expected_answer") or "").strip()
+    text_to_speak = str(question.get("speech_text") or question.get("expected_answer") or "").strip()
     learning_item_id = question.get("learning_item_id")
     if not text_to_speak or not isinstance(learning_item_id, int):
         return False
@@ -572,6 +573,9 @@ def render_question_text(
             hint_text=hint_text,
             first_letter=question["first_letter"],
         )
+    task_line = verb_task_text(telegram_user_id, question)
+    if task_line:
+        question_text = f"{task_line}\n{question_text}"
     if not feedback:
         return question_text
     return f"{feedback}\n{question_text}"

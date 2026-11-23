@@ -3,6 +3,8 @@ import random
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
+from .verbs import ITEM_TYPE_VERB, ITEM_TYPE_WORD, speech_text as verb_speech_text, tricky_options
+
 
 ExerciseStage = Literal["easy", "medium", "hard"]
 ExerciseType = Literal["multiple_choice", "jumbled_letters", "typed_answer"]
@@ -21,6 +23,9 @@ class ResolvedLearningItem:
     translations: Sequence[TranslationEntry]
     image_ref: str | None = None
     image_asset_id: int | None = None
+    # For a verb the headword is the expected "V2 V3" answer and verb_base is the shown base form.
+    item_type: str = ITEM_TYPE_WORD
+    verb_base: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +51,8 @@ class ExerciseInstance:
     image_ref: str | None
     image_asset_id: int | None
     first_letter: str | None
+    item_type: str = ITEM_TYPE_WORD
+    speech_text: str | None = None
 
 
 class ExerciseBuildError(Exception):
@@ -59,20 +66,35 @@ def build_exercise(
     distractor_pool: Sequence[ResolvedLearningItem | DistractorLexeme],
 ) -> ExerciseInstance:
     expected_answer = _normalize_required_text(learning_item.headword, "learning item headword")
-    prompt_text = _select_hint_text(learning_item.translations, hint_language, expected_answer)
+    prompt_text = _select_hint_text(learning_item.translations, hint_language, learning_item.verb_base or expected_answer)
+    is_verb = learning_item.item_type == ITEM_TYPE_VERB and bool(learning_item.verb_base)
+    # Words compete with words and verbs with verbs, so a choice never mixes the two.
+    distractor_pool = [
+        distractor for distractor in distractor_pool
+        if getattr(distractor, "item_type", ITEM_TYPE_WORD) == learning_item.item_type
+    ]
+    common = {
+        "item_type": learning_item.item_type,
+        "speech_text": verb_speech_text(str(learning_item.verb_base), expected_answer) if is_verb else expected_answer,
+    }
 
     if stage == "easy":
+        options = (
+            _build_verb_options(expected_answer, str(learning_item.verb_base), distractor_pool)
+            if is_verb else _build_multiple_choice_options(expected_answer, distractor_pool)
+        )
         return ExerciseInstance(
             exercise_type="multiple_choice",
             stage=stage,
             learning_item_id=learning_item.learning_item_id,
             prompt_payload=ExercisePromptPayload(prompt_text=prompt_text),
             expected_answer=expected_answer,
-            options=_build_multiple_choice_options(expected_answer, distractor_pool),
+            options=options,
             hint_text=None,
             image_ref=learning_item.image_ref,
             image_asset_id=learning_item.image_asset_id,
             first_letter=None,
+            **common,
         )
 
     if stage == "medium":
@@ -90,6 +112,7 @@ def build_exercise(
             image_ref=learning_item.image_ref,
             image_asset_id=learning_item.image_asset_id,
             first_letter=None,
+            **common,
         )
 
     return ExerciseInstance(
@@ -103,7 +126,29 @@ def build_exercise(
         image_ref=learning_item.image_ref,
         image_asset_id=learning_item.image_asset_id,
         first_letter=expected_answer[:1],
+        **common,
     )
+
+
+def _build_verb_options(
+    expected_answer: str,
+    verb_base: str,
+    distractor_pool: Sequence[ResolvedLearningItem | DistractorLexeme],
+) -> list[str]:
+    """The right "V2 V3" plus one made-up mistake of this verb and one more mistake or another verb."""
+    tricky = tricky_options(verb_base, expected_answer)
+    others = [
+        _extract_headword(distractor).strip() for distractor in distractor_pool
+        if _extract_headword(distractor).strip() and _extract_headword(distractor).strip() != expected_answer
+    ]
+    randomizer = random.Random(_build_deterministic_seed(expected_answer, [verb_base, *tricky]))
+    selected = tricky[:1]
+    rest = [option for option in [*tricky[1:4], *others[:4]] if option not in selected]
+    if rest:
+        selected.append(randomizer.choice(rest))
+    options = [expected_answer, *selected]
+    randomizer.shuffle(options)
+    return options
 
 
 def _select_hint_text(
