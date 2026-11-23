@@ -72,7 +72,7 @@ async function act(action, value) {
     })).json();
     render();
   } catch (error) {
-    if (error.message === 'stale_question' || error.message === 'session_completed') await refresh();
+    if (['stale_question', 'session_completed', 'invalid_answer'].includes(error.message)) await refresh();
     else showError(error);
   } finally { busy = false; }
 }
@@ -238,6 +238,7 @@ function render() {
     const card = el('div', 'card');
     card.append(el('div', 'prompt', t('great')));
     card.append(el('div', 'hint', t('outcome', state.summary)));
+    if (state.paper_left) card.append(el('div', 'hint', t('paper_left', { count: state.paper_left })));
     const close = el('button', '', t('back'));
     close.onclick = () => webApp?.close();
     card.append(close);
@@ -292,22 +293,24 @@ function render() {
     input.autocomplete = 'off'; input.autocapitalize = 'off'; input.spellcheck = false;
     input.placeholder = t('type');
     input.maxLength = 200;
-    input.addEventListener('keydown', event => { if (event.key === 'Enter') act('hard', input.value); });
+    const submitTyped = () => { if (input.value.trim()) act('hard', input.value); else input.focus(); };
+    input.addEventListener('keydown', event => { if (event.key === 'Enter') submitTyped(); });
     app.append(input);
     const actions = el('div', 'actions');
     const check = el('button', '', t('check'));
-    check.onclick = () => act('hard', input.value);
+    check.onclick = submitTyped;
     actions.append(check);
     if (q.can_skip_hard) actions.append(button(t('skip'), 'skip', null, 'secondary'));
     app.append(actions);
   }
-  const feedback = el('div', `feedback ${state.feedback === 'correct' ? 'correct' : state.feedback === 'incorrect' ? 'error' : ''}`, state.feedback === 'correct' ? t('feedback_correct') : state.feedback === 'incorrect' ? t('feedback_incorrect') : state.feedback === 'skipped' ? t('feedback_skipped') : '');
+  const feedback = el('div', `feedback ${state.feedback === 'correct' ? 'correct' : state.feedback === 'incorrect' ? 'error' : ''}`, state.feedback === 'correct' ? t('feedback_correct') : state.feedback === 'incorrect' ? t('feedback_incorrect', { answer: state.correct_answer || '' }) : state.feedback === 'skipped' ? t('feedback_skipped') : '');
   app.append(feedback);
   if (q.tts_available) {
     const listenButton = el('button', 'secondary', t('listen'));
     listenButton.onclick = listen;
     app.append(listenButton);
   }
+  if (q.type === 'typed_answer') app.querySelector('input.answer')?.focus();
 }
 
 if (!session || !initData) showError(new Error('unauthorized'));

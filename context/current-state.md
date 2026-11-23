@@ -28,7 +28,7 @@ Defined in `englishbot/command_registry.py`. The Telegram menu shows five, with 
 - `/learn` picks words needing review, then unseen words, then the oldest answered, with random ties.
 - Telegram quiz UI is one `aiogram-dialog` shell (`learner_training_dialog.py`) shared by `/learn` and homework. Question cards show the item image when available and fall back to text.
 - Optional TTS (`ENGLISHBOT_TTS_BASE_URL`): inline Listen and Voice buttons, voice saved per user, synthesized audio persisted per item/voice/model/text hash, stale voice messages cleaned up.
-- Optional learner Mini App (`ENGLISHBOT_MINI_APP_URL`): same SQLite session as Telegram, Telegram `initData` verified server-side, `question_version` rejects stale answers.
+- Optional learner Mini App (`ENGLISHBOT_MINI_APP_URL`): same SQLite session as Telegram, Telegram `initData` verified server-side, `question_version` rejects stale answers. A wrong answer shows the correct one; the finish screen lists paper tasks left.
 - Every answer is logged at INFO with expected vs given text and the decision.
 
 ## Homework

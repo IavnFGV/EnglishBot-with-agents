@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-11-23
+- Learner Mini App: a wrong answer now shows the correct one (the engine moves to the next word, so "Try again!" was misleading); an empty typed answer is no longer sent and a rejected answer refreshes the screen instead of showing "Connection lost"; the finish screen says how many paper tasks are left; the typed-answer field gets focus.
 - The `/teacher_content` button now reads "📚 Dictionary and homework" ("📚 Словарь и домашки") instead of "Open dictionary editor", and its intro mentions tutor tasks and assigning homework.
 - The Telegram menu now shows five commands (`/learn`, `/homework`, `/topics`, `/teacher_content`, `/settings`) with descriptions in the user's Telegram language; other commands still work when typed, and the owner's longer personal menu is cleared. `/start` and `/help` no longer suggest `/create_assignment`.
 - Removed the Excel bulk edit: `/bulk_edit`, `/bulk_edit_with_archived`, workbook export/import, the bulk-edit session gate and monitor, its button in the Telegram editor, the `bulk_edit_sessions` table, and the `openpyxl` dependency. Content is edited in the web editor.

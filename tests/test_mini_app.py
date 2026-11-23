@@ -9,7 +9,7 @@ from englishbot import db
 from englishbot.assets import PRIMARY_IMAGE_ROLE, create_asset, link_asset_to_learning_item
 from englishbot.families import create_family, create_family_learning_item, add_family_member, create_homework_assignment
 from englishbot.mini_app import (
-    MiniAppError, apply_action, authorize_session, claim_completion_notification,
+    MiniAppError, apply_action, authorize_session, claim_completion_notification, interface_labels,
     public_question, question_token, safe_media_path, session_state,
     sign_test_init_data, validate_init_data,
 )
@@ -434,3 +434,24 @@ def test_interface_choice_uses_existing_session_and_https_url(tmp_path: Path, mo
 def test_invalid_optional_url_falls_back_to_telegram(monkeypatch) -> None:
     monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "http://localhost:8080/mini-app")
     assert get_mini_app_url() is None
+
+
+def test_wrong_answer_reveals_expected_answer_and_labels_take_it(tmp_path: Path) -> None:
+    user_id, session_id = seed(tmp_path, mode="hard")
+    question = get_current_question(user_id)
+    expected = str(question["expected_answer"])
+    state = apply_action(user_id, session_id, question_token(question), "hard", "zzz")
+    assert state["feedback"] == "incorrect"
+    assert state["correct_answer"] == expected
+    assert "expected_answer" not in state["question"]
+    correct = apply_action(user_id, session_id, state["question"]["token"], "hard", str(get_current_question(user_id)["expected_answer"]))
+    assert correct["feedback"] == "correct" and "correct_answer" not in correct
+    labels = interface_labels(user_id)
+    assert "{answer}" in labels["feedback_incorrect"]
+    assert "{count}" in labels["paper_left"]
+
+
+def test_mini_app_script_does_not_send_empty_typed_answer() -> None:
+    script = (Path(__file__).parents[1] / "englishbot" / "mini_app_static" / "app.js").read_text()
+    assert "if (input.value.trim()) act('hard', input.value)" in script
+    assert "'invalid_answer'].includes(error.message)" in script

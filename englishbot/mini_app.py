@@ -14,7 +14,7 @@ from .assets import get_learning_item_asset, resolve_runtime_asset_path, PRIMARY
 from .config import get_tts_base_url
 from .db import get_connection, get_user, utc_now
 from .families import get_user_family
-from .homework import get_assignment, get_assignment_progress_snapshot
+from .homework import get_assignment, get_assignment_progress_snapshot, pending_paper_task_count
 from .i18n import translate_for_user
 from .training import (
     append_medium_answer_letter,
@@ -143,6 +143,7 @@ def interface_labels(user_id: int) -> dict[str, str]:
         "check", "skip", "listen", "type", "connection", "retry",
         "audio_unavailable", "expired", "starts", "feedback_correct",
         "feedback_incorrect", "feedback_skipped", "homework_progress", "outcome",
+        "paper_left",
     )
     return {
         key: translate_for_user(
@@ -154,6 +155,7 @@ def interface_labels(user_id: int) -> dict[str, str]:
             total="{total}",
             deferred="{deferred}",
             assisted="{assisted}",
+            answer="{answer}",
         )
         for key in keys
     }
@@ -179,6 +181,8 @@ def session_state(user_id: int, session_id: int) -> dict[str, object]:
                 for item in snapshot["items"]
             ],
         }
+        if state["status"] == "completed":
+            state["paper_left"] = pending_paper_task_count(int(assignment_id))
     return state
 
 
@@ -227,6 +231,9 @@ def apply_action(user_id: int, session_id: int, token: str, action: str, value: 
     state = session_state(user_id, session_id)
     if result is not None:
         state["feedback"] = "correct" if result["is_correct"] else "incorrect"
+        if not result["is_correct"]:
+            # The engine moves on after a wrong answer, so show what was expected.
+            state["correct_answer"] = str(result["expected_answer"])
         if result.get("skipped_hard"):
             state["feedback"] = "skipped"
     return state

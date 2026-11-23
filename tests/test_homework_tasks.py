@@ -227,3 +227,22 @@ def test_round_summary_reminds_about_paper_work(family: int) -> None:
     paper = [task for task in list_assignment_tasks(KID, assignment_id) if task["kind"] == "paper"]
     set_assignment_task_done(KID, assignment_id, paper[0]["id"], True)
     assert pending_paper_task_count(assignment_id) == 1
+
+
+def test_mini_app_completion_reports_paper_tasks_left(family: int) -> None:
+    from englishbot.mini_app import session_state
+    from englishbot.training import get_current_question, submit_training_answer
+
+    set_id, _ = draft_with_photos(0)
+    save_draft(MOM, set_id, {"assign_to": KID, "tasks": [
+        {"kind": "words", "items": [{"en": "owl", "ru": "сова", "topic": "Birds"}]},
+        {"kind": "paper", "title": "Crossword"},
+    ]})
+    assignment_id = assignment_id_of(set_id)
+    session_id = int(start_assignment_training_session(KID, assignment_id)["session_id"])
+    assert "paper_left" not in session_state(KID, session_id)
+    while (question := get_current_question(KID)) is not None:
+        submit_training_answer(KID, str(question["expected_answer"]))
+    state = session_state(KID, session_id)
+    assert state["status"] == "completed"
+    assert state["paper_left"] == 1
