@@ -559,7 +559,7 @@ async function showHomework() {
 
 const photoCache = new Map();
 
-function photoImg(setId, assetId, className = 'photo') {
+function photoImg(setId, assetId, className = 'photo', zoom = true) {
   const img = el('img', { class: className, alt: '', loading: 'lazy' });
   const key = `${setId}/${assetId}`;
   if (!photoCache.has(key)) {
@@ -570,7 +570,7 @@ function photoImg(setId, assetId, className = 'photo') {
   }
   photoCache.get(key).then((url) => { if (url) img.src = url; });
   // Tap to see a worksheet at full width.
-  img.addEventListener('click', () => img.classList.toggle('zoomed'));
+  if (zoom) img.addEventListener('click', () => img.classList.toggle('zoomed'));
   return img;
 }
 
@@ -655,7 +655,137 @@ async function createHomework() {
 
 // Homework draft: an ordered list of tasks (words, paper work, notes), each with its own photos
 
-function wordsEditor(items, defaultTopic) {
+// Word picture: a thumbnail next to the word; tapping it opens the cut-out editor.
+
+function wordThumb(ctx, state) {
+  const button = el('button', { class: 'word-thumb', type: 'button', title: t('word_picture'), 'aria-label': t('word_picture') });
+  const render = () => {
+    const { id, user } = state.image;
+    if (id) button.replaceChildren(photoImg(ctx.setId, id, 'photo', false));
+    else if (!user && state.item.current_image && state.item.existing_id) {
+      const img = el('img', { class: 'photo', alt: '' });
+      fillImage(img, { id: state.item.existing_id, image_id: `word-${state.item.existing_id}` });
+      button.replaceChildren(img);
+    } else button.replaceChildren(el('span', { class: 'word-thumb-empty' }, '🖼+'));
+  };
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openPictureEditor(ctx, state, render);
+  });
+  render();
+  return button;
+}
+
+function openPictureEditor(ctx, state, onChange) {
+  const pages = ctx.photos();
+  const crop = state.item.crop;
+  const overlay = el('div', { class: 'cropper' });
+  const status = el('p', { class: 'status' });
+  const setStatus = (text, kind = '') => { status.className = `status ${kind}`; status.textContent = text; };
+  const stage = el('div', { class: 'crop-stage' });
+  const frame = el('div', { class: 'crop-frame' }, ...['nw', 'ne', 'sw', 'se'].map((corner) => el('span', { class: `crop-handle ${corner}` })));
+  let source = null;
+  let box = null; // [y_min, x_min, y_max, x_max] in 0-1000 of the page
+  const close = () => { overlay.remove(); document.body.classList.remove('no-scroll'); };
+  const choose = (image) => { state.image = image; onChange(); close(); };
+  const place = () => {
+    frame.style.top = `${box[0] / 10}%`;
+    frame.style.left = `${box[1] / 10}%`;
+    frame.style.height = `${(box[2] - box[0]) / 10}%`;
+    frame.style.width = `${(box[3] - box[1]) / 10}%`;
+  };
+  const showPage = (id, initial = null) => {
+    source = id;
+    box = initial ? [...initial] : [250, 250, 750, 750];
+    stage.replaceChildren(photoImg(ctx.setId, id, 'crop-image', false), frame);
+    place();
+  };
+  const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
+  frame.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    const corner = [...event.target.classList].find((name) => ['nw', 'ne', 'sw', 'se'].includes(name)) || 'move';
+    const rect = stage.getBoundingClientRect();
+    const start = [event.clientX, event.clientY];
+    const from = [...box];
+    frame.setPointerCapture(event.pointerId);
+    const move = (moveEvent) => {
+      let dy = ((moveEvent.clientY - start[1]) / rect.height) * 1000;
+      let dx = ((moveEvent.clientX - start[0]) / rect.width) * 1000;
+      let [top, left, bottom, right] = from;
+      if (corner === 'move') {
+        dy = clamp(dy, -top, 1000 - bottom);
+        dx = clamp(dx, -left, 1000 - right);
+        top += dy; bottom += dy; left += dx; right += dx;
+      } else {
+        if (corner.includes('n')) top = clamp(top + dy, 0, bottom - 40);
+        if (corner.includes('s')) bottom = clamp(bottom + dy, top + 40, 1000);
+        if (corner.includes('w')) left = clamp(left + dx, 0, right - 40);
+        if (corner.includes('e')) right = clamp(right + dx, left + 40, 1000);
+      }
+      box = [top, left, bottom, right];
+      place();
+    };
+    const stop = () => {
+      frame.removeEventListener('pointermove', move);
+      frame.removeEventListener('pointerup', stop);
+      frame.removeEventListener('pointercancel', stop);
+    };
+    frame.addEventListener('pointermove', move);
+    frame.addEventListener('pointerup', stop);
+    frame.addEventListener('pointercancel', stop);
+  });
+
+  const doneButton = el('button', {}, t('picture_done'));
+  doneButton.addEventListener('click', async () => {
+    doneButton.disabled = true;
+    setStatus(t('uploading'));
+    try {
+      const result = await postJson(`/imports/${ctx.setId}/crop`, { photo: source, box: box.map(Math.round) });
+      state.item.crop = { photo: source, box: box.map(Math.round) };
+      choose({ id: result.id, user: true });
+    } catch (error) {
+      doneButton.disabled = false;
+      setStatus(error.message === 'crop_too_small' ? t('picture_too_small') : errorText(error), 'error');
+    }
+  });
+  const fileInput = el('input', { type: 'file', accept: 'image/*', hidden: true });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    setStatus(t('uploading'));
+    try {
+      const blob = await shrinkImage(file);
+      const result = await (await api(`/imports/${ctx.setId}/word-picture`, { method: 'POST', body: blob, contentType: blob.type || 'application/octet-stream' })).json();
+      choose({ id: result.id, user: true });
+    } catch (error) { setStatus(errorText(error), 'error'); }
+  });
+  const otherPages = pages.length > 1
+    ? el('div', { class: 'section' },
+      el('span', { class: 'sub' }, t('picture_other_page')),
+      el('div', { class: 'photo-strip' }, ...pages.map((id) => el('button', { class: 'photo-pick', onclick: () => showPage(id) }, photoImg(ctx.setId, id, 'photo', false)))))
+    : null;
+
+  if (pages.length) showPage(crop && pages.includes(crop.photo) ? crop.photo : pages[0], crop && pages.includes(crop.photo) ? crop.box : null);
+  overlay.append(
+    el('strong', {}, `${t('word_picture')}: ${state.en.value || state.item.en || ''}`),
+    state.item.current_image && !state.image.user ? el('p', { class: 'muted' }, t('picture_kept')) : null,
+    pages.length ? el('p', { class: 'muted' }, t('picture_hint')) : el('p', { class: 'muted' }, t('no_photos')),
+    pages.length ? stage : null,
+    pages.length ? doneButton : null,
+    status,
+    otherPages,
+    fileInput,
+    el('button', { class: 'secondary', onclick: () => fileInput.click() }, t('picture_upload')),
+    el('div', { class: 'row' },
+      el('button', { class: 'secondary grow', onclick: close }, t('cancel')),
+      el('button', { class: 'secondary grow', onclick: () => choose({ id: null, user: true }) }, t('picture_remove'))),
+  );
+  document.body.classList.add('no-scroll');
+  document.body.append(overlay);
+}
+
+function wordsEditor(items, defaultTopic, ctx) {
   const rows = el('div', { class: 'list draft-list' });
   const knownRows = el('div', { class: 'list draft-list' });
   const rowState = [];
@@ -667,6 +797,7 @@ function wordsEditor(items, defaultTopic) {
       en: el('input', { type: 'text', value: item.en || '', maxLength: 100, placeholder: 'English', autocapitalize: 'off' }),
       ru: el('input', { type: 'text', value: item.ru || '', maxLength: 200, placeholder: t('translation') }),
       topic: el('input', { type: 'text', value: item.topic || '', maxLength: 100, placeholder: t('draft_topic') }),
+      image: { id: item.image_id || null, user: Boolean(item.image_user) },
     };
     state.topic.setAttribute('list', 'draft-topics');
     // Known words are reused as they are, so they get a compact read-only line.
@@ -675,7 +806,7 @@ function wordsEditor(items, defaultTopic) {
         el('span', { class: 'title' }, item.en),
         el('span', { class: 'sub' }, [item.ru, state.topic.value].filter(Boolean).join(' · ')))
       : el('div', { class: 'draft-fields' }, state.en, state.ru, state.topic);
-    const card = el('label', { class: 'draft-row' }, el('span', { class: 'draft-check' }, state.include), fields);
+    const card = el('label', { class: 'draft-row' }, el('span', { class: 'draft-check' }, state.include), wordThumb(ctx, state), fields);
     state.include.addEventListener('change', () => card.classList.toggle('excluded', !state.include.checked));
     card.classList.toggle('excluded', !state.include.checked);
     rowState.push(state);
@@ -751,6 +882,8 @@ function wordsEditor(items, defaultTopic) {
     collect: () => rowState.map((state) => ({
       en: state.en.value, ru: state.ru.value, topic: state.topic.value,
       include: state.include.checked, existing_id: state.item.existing_id || null,
+      current_image: Boolean(state.item.current_image), crop: state.item.crop || null,
+      image_id: state.image.id, image_user: state.image.user,
     })),
     // The first new word without a topic, so saving can point at it.
     missingTopic: () => rowState.find((state) => state.include.checked && state.en.value.trim() && !state.item.existing_id && !state.topic.value.trim()),
@@ -808,7 +941,7 @@ async function showDraft(setId, backTo = null) {
     const enabled = el('input', { type: 'checkbox', checked: task.enabled !== false });
     const title = el('input', { type: 'text', value: task.title || '', maxLength: 200, placeholder: t('task_title') });
     const instructions = el('textarea', { value: task.instructions || '', maxLength: 4000, rows: 4, placeholder: t('task_instructions') });
-    const words = task.kind === 'words' ? wordsEditor(task.items || [], '') : null;
+    const words = task.kind === 'words' ? wordsEditor(task.items || [], '', { setId, photos: () => photos }) : null;
     view.label = () => title.value.trim() || kindLabel(data.task_kinds, task.kind);
     title.addEventListener('input', refreshPhotos);
 

@@ -40,6 +40,7 @@ Defined in `englishbot/command_registry.py`: `/start`, `/help`, `/version`, `/le
   - The draft can also pick existing dictionary words from any topic.
   - Saved sets can be renamed (assignments follow), re-assigned, edited (later assignments only), archived, and restored. Unsaved drafts are listed and can be deleted.
   - A set is an ordered list of tasks (`homework_set_tasks`: `words`, `paper`, `note`) with photos (`homework_set_photos` gallery, `homework_set_task_assets` links). Drafts can be filled by hand without AI.
+  - Word pictures: the model returns a picture number and 0-1000 box per word; the server cuts it (`homework_set_photos.role = 'crop'`), the parent can recut or upload in the draft, and saving copies chosen pictures into the dictionary. Saving, cancelling, and the 30-day abandoned-draft cleanup delete unneeded photos and files.
   - Learners see the tasks in `/homework`: paper tasks with photos are ticked off by the learner (`homework_assignment_task_done`); homework completes when its words are drilled (`homework_assignments.words_completed_at`) and every paper task is ticked.
   - Item types other than words (phrases, irregular verbs) are future work.
 - The editor's "Homework" screen lists all family homework with progress and cancels unfinished ones.

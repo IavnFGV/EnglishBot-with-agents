@@ -206,7 +206,7 @@ async def _editor_api_response(method: str, parts: list[str], headers: dict[str,
     user_id = validate_init_data(headers.get("x-telegram-init-data", ""), load_config())
     body = b""
     if method == "POST":
-        limit = EDITOR_IMAGE_BODY_LIMIT if parts[-1:] in (["image"], ["photos"]) else EDITOR_JSON_BODY_LIMIT
+        limit = EDITOR_IMAGE_BODY_LIMIT if parts[-1:] in (["image"], ["photos"], ["word-picture"]) else EDITOR_JSON_BODY_LIMIT
         try:
             length = int(headers.get("content-length", "0"))
         except ValueError as exc:

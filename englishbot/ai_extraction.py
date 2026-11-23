@@ -35,7 +35,11 @@ Rules:
 - If the source lists alternatives like "Birthday boy / Birthday girl", make separate entries.
 - "topic" is a short English topic name such as "Fairy Tales" or "Food"; use one topic for one list.
 - Skip letters, sounds, phonics rules, transcriptions, grammar explanations, whole sentences, and instructions to the parent.
-- Never invent words that are not in the material. An empty list is fine."""
+- Never invent words that are not in the material. An empty list is fine.
+- Pictures are numbered ("Picture 1", "Picture 2", ...). When a word has its own drawing or photo in a picture, add
+  "picture": that number and "box": [y_min, x_min, y_max, x_max] around the drawing only, normalized to 0-1000.
+  The box must exclude all printed text: the word, transcription, and translation. In a matching exercise, match
+  the word to the drawing that shows it. Leave both out when the word has no drawing of its own."""
 
 
 class AIExtractionUnavailable(Exception):
@@ -51,7 +55,7 @@ class ExtractionSource:
 @dataclass
 class ExtractionResult:
     model: str
-    items: list[dict[str, str]] = field(default_factory=list)
+    items: list[dict[str, object]] = field(default_factory=list)
 
 
 def is_ai_extraction_configured() -> bool:
@@ -71,12 +75,35 @@ def _build_user_content(sources: list[ExtractionSource]) -> list[dict[str, objec
     content: list[dict[str, object]] = [
         {"type": "text", "text": "Homework material follows (forwarded messages and pictures)."}
     ]
+    picture = 0
     for source in sources:
         if source.text:
             content.append({"type": "text", "text": source.text})
         if source.image:
+            picture += 1
+            content.append({"type": "text", "text": f"Picture {picture}:"})
             content.append({"type": "image_url", "image_url": {"url": _prepare_image(source.image)}})
     return content
+
+
+def _picture_box(entry: dict[str, object]) -> dict[str, object]:
+    """The picture number and 0-1000 box of a word's drawing, or nothing when absent or malformed."""
+    box = entry.get("box")
+    try:
+        picture = int(str(entry.get("picture")).strip())
+    except ValueError:
+        return {}
+    if picture < 1:
+        return {}
+    if not isinstance(box, list) or len(box) != 4:
+        return {}
+    try:
+        y_min, x_min, y_max, x_max = (max(0.0, min(1000.0, float(value))) for value in box)
+    except (TypeError, ValueError):
+        return {}
+    if y_max - y_min < 20 or x_max - x_min < 20:
+        return {}
+    return {"picture": picture, "box": [y_min, x_min, y_max, x_max]}
 
 
 def parse_json_object(raw: str) -> dict[str, object]:
@@ -90,7 +117,7 @@ def parse_json_object(raw: str) -> dict[str, object]:
     return payload
 
 
-def normalize_words(payload: dict[str, object]) -> list[dict[str, str]]:
+def normalize_words(payload: dict[str, object]) -> list[dict[str, object]]:
     words = payload.get("words")
     if not isinstance(words, list):
         return []
@@ -106,7 +133,7 @@ def normalize_words(payload: dict[str, object]) -> list[dict[str, str]]:
         if not english or len(english) > 100 or key in seen:
             continue
         seen.add(key)
-        result.append({"en": english, "ru": russian[:200], "topic": topic[:100]})
+        result.append({"en": english, "ru": russian[:200], "topic": topic[:100], **_picture_box(entry)})
         if len(result) >= MAX_ITEMS:
             break
     return result

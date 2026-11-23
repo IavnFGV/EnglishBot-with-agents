@@ -2,11 +2,20 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 
 from .ai_extraction import KIND_WORDS, SUPPORTED_KINDS, ExtractionResult
-from .assets import ASSET_TYPE_IMAGE, get_asset, resolve_runtime_asset_path, store_homework_photo
+from .assets import (
+    ASSET_TYPE_IMAGE,
+    PRIMARY_IMAGE_ROLE,
+    get_asset,
+    delete_unreferenced_files,
+    get_learning_item_asset,
+    resolve_runtime_asset_path,
+    store_homework_photo,
+)
 from .db import get_connection, utc_now
 from .families import create_homework_assignment, get_user_family, list_family_members
 from .i18n import translate_for_user
@@ -135,6 +144,7 @@ def cancel_set(user_id: int, set_id: int) -> None:
             "UPDATE homework_sets SET status = ?, updated_at = ? WHERE id = ?",
             (STATUS_CANCELLED, utc_now(), set_id),
         )
+        _drop_set_assets(connection, set_id, keep=set())
 
 
 def begin_processing(user_id: int, set_id: int, kind: str) -> list[dict[str, str]]:
@@ -190,7 +200,14 @@ def _match_topic_title(title: str, topics: list[dict[str, object]]) -> str:
 # Photos of a set
 
 
-def _store_photo(connection, set_id: int, content: bytes) -> int:
+ROLE_SOURCE = "source"
+ROLE_CROP = "crop"
+CROP_INSET = 0.06  # model boxes often clip a caption edge; trimming the border removes it
+MIN_CROP_SIDE = 80
+ABANDONED_DRAFT_DAYS = 30
+
+
+def _store_photo(connection, set_id: int, content: bytes, role: str = ROLE_SOURCE) -> int:
     from .dictionary_editor import normalize_image
 
     local_path = store_homework_photo(set_id, normalize_image(content, MAX_PHOTO_SIDE))
@@ -200,19 +217,137 @@ def _store_photo(connection, set_id: int, content: bytes) -> int:
         (ASSET_TYPE_IMAGE, local_path, utc_now()),
     ).lastrowid)
     connection.execute(
-        "INSERT INTO homework_set_photos (homework_set_id, asset_id, created_at) VALUES (?, ?, ?)",
-        (set_id, asset_id, utc_now()),
+        "INSERT INTO homework_set_photos (homework_set_id, asset_id, created_at, role) VALUES (?, ?, ?, ?)",
+        (set_id, asset_id, utc_now(), role),
     )
     return asset_id
 
 
-def _set_photo_ids(connection, set_id: int) -> list[int]:
-    return [
+def _set_photo_ids(connection, set_id: int, role: str | None = ROLE_SOURCE) -> list[int]:
+    """Gallery pages by default; role=None also includes word crops."""
+    query = "SELECT asset_id FROM homework_set_photos WHERE homework_set_id = ?"
+    params: tuple = (set_id,)
+    if role is not None:
+        query += " AND role = ?"
+        params = (set_id, role)
+    return [int(row["asset_id"]) for row in connection.execute(query + " ORDER BY id", params).fetchall()]
+
+
+def _asset_path(connection, asset_id: int) -> Path | None:
+    asset = get_asset(asset_id, connection=connection)
+    if asset is None or not asset["local_path"]:
+        return None
+    path = resolve_runtime_asset_path(str(asset["local_path"]))
+    return path if path.is_file() else None
+
+
+def _cut(connection, set_id: int, source_id: int, box: object, inset: float) -> int | None:
+    """Cut a 0-1000 [y_min, x_min, y_max, x_max] box out of a gallery page; None when too small."""
+    from PIL import Image
+
+    if not isinstance(box, list) or len(box) != 4:
+        raise HomeworkSetError("invalid_request")
+    try:
+        y_min, x_min, y_max, x_max = (max(0.0, min(1000.0, float(value))) for value in box)
+    except (TypeError, ValueError) as exc:
+        raise HomeworkSetError("invalid_request") from exc
+    path = _asset_path(connection, source_id)
+    if path is None:
+        raise HomeworkSetError("image_not_found", 404)
+    with Image.open(path) as image:
+        width, height = image.size
+        left, right = x_min * width / 1000, x_max * width / 1000
+        top, bottom = y_min * height / 1000, y_max * height / 1000
+        pad_x, pad_y = (right - left) * inset, (bottom - top) * inset
+        area = (round(left + pad_x), round(top + pad_y), round(right - pad_x), round(bottom - pad_y))
+        if min(area[2] - area[0], area[3] - area[1]) < MIN_CROP_SIDE:
+            return None
+        output = BytesIO()
+        image.convert("RGB").crop(area).save(output, format="JPEG", quality=90)
+    return _store_photo(connection, set_id, output.getvalue(), ROLE_CROP)
+
+
+def _drop_set_assets(connection, set_id: int, keep: set[int]) -> None:
+    """Delete the set's photos and crops except `keep`, with their files."""
+    rows = connection.execute(
+        """
+        SELECT homework_set_photos.asset_id, assets.local_path FROM homework_set_photos
+        LEFT JOIN assets ON assets.id = homework_set_photos.asset_id
+        WHERE homework_set_photos.homework_set_id = ?
+        """,
+        (set_id,),
+    ).fetchall()
+    doomed = [row for row in rows if int(row["asset_id"]) not in keep]
+    for row in doomed:
+        asset_id = int(row["asset_id"])
+        connection.execute("DELETE FROM homework_set_photos WHERE homework_set_id = ? AND asset_id = ?", (set_id, asset_id))
+        connection.execute("DELETE FROM telegram_asset_file_cache WHERE asset_id = ?", (asset_id,))
+        connection.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+    delete_unreferenced_files(connection, [row["local_path"] for row in doomed])
+
+
+def _attached_photo_ids(connection, set_id: int) -> set[int]:
+    return {
         int(row["asset_id"])
         for row in connection.execute(
-            "SELECT asset_id FROM homework_set_photos WHERE homework_set_id = ? ORDER BY id", (set_id,)
+            """
+            SELECT homework_set_task_assets.asset_id FROM homework_set_task_assets
+            JOIN homework_set_tasks ON homework_set_tasks.id = homework_set_task_assets.task_id
+            WHERE homework_set_tasks.homework_set_id = ?
+            """,
+            (set_id,),
         ).fetchall()
-    ]
+    }
+
+
+def cleanup_abandoned_sets(max_age_days: int = ABANDONED_DRAFT_DAYS) -> int:
+    """Cancel drafts and batches left untouched for a long time and delete their photos."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat(timespec="seconds")
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT id FROM homework_sets WHERE status IN (?, ?, ?, ?) AND updated_at < ?",
+            (STATUS_COLLECTING, STATUS_PROCESSING, STATUS_DRAFT, STATUS_FAILED, cutoff),
+        ).fetchall()
+        for row in rows:
+            connection.execute(
+                "UPDATE homework_sets SET status = ?, updated_at = ? WHERE id = ?",
+                (STATUS_CANCELLED, utc_now(), int(row["id"])),
+            )
+            _drop_set_assets(connection, int(row["id"]), keep=set())
+    return len(rows)
+
+
+def crop_set_photo(user_id: int, set_id: int, source_id: object, box: object) -> dict[str, object]:
+    """A word picture cut by hand from one of the set's pages."""
+    with get_connection() as connection:
+        row = _get_set(connection, user_id, set_id)
+        if row["status"] != STATUS_DRAFT:
+            raise HomeworkSetError("draft_not_available", 409)
+        try:
+            source = int(source_id)
+        except (TypeError, ValueError) as exc:
+            raise HomeworkSetError("invalid_request") from exc
+        if source not in _set_photo_ids(connection, set_id):
+            raise HomeworkSetError("image_not_found", 404)
+        asset_id = _cut(connection, set_id, source, box, inset=0)
+    if asset_id is None:
+        raise HomeworkSetError("crop_too_small")
+    return {"id": asset_id}
+
+
+def add_word_picture(user_id: int, set_id: int, content: bytes) -> dict[str, object]:
+    """A word picture uploaded from the phone instead of cut from a page."""
+    with get_connection() as connection:
+        row = _get_set(connection, user_id, set_id)
+        if row["status"] != STATUS_DRAFT:
+            raise HomeworkSetError("draft_not_available", 409)
+        try:
+            asset_id = _store_photo(connection, set_id, content, ROLE_CROP)
+        except HomeworkSetError:
+            raise
+        except Exception as exc:
+            raise HomeworkSetError("invalid_image") from exc
+    return {"id": asset_id}
 
 
 def store_source_photos(set_id: int, images: list[bytes]) -> list[int]:
@@ -246,11 +381,10 @@ def add_set_photo(user_id: int, set_id: int, content: bytes) -> dict[str, object
 def set_photo_path(user_id: int, set_id: int, asset_id: int) -> Path:
     with get_connection() as connection:
         _get_set(connection, user_id, set_id)
-        if asset_id not in _set_photo_ids(connection, set_id):
+        if asset_id not in _set_photo_ids(connection, set_id, role=None):
             raise HomeworkSetError("image_not_found", 404)
-        asset = get_asset(asset_id, connection=connection)
-    path = resolve_runtime_asset_path(str(asset["local_path"])) if asset is not None and asset["local_path"] else None
-    if path is None or not path.is_file():
+        path = _asset_path(connection, asset_id)
+    if path is None:
         raise HomeworkSetError("image_not_found", 404)
     return path
 
@@ -290,8 +424,15 @@ def _draft_tasks(row, items: list[dict[str, object]]) -> list[dict[str, object]]
     return tasks
 
 
-def store_extraction(set_id: int, result: ExtractionResult) -> dict[str, int]:
-    """Turn model output into an editable draft, marking words the family already has."""
+def _word_has_picture(connection, word_id: int) -> bool:
+    return get_learning_item_asset(word_id, role=PRIMARY_IMAGE_ROLE, connection=connection) is not None
+
+
+def store_extraction(set_id: int, result: ExtractionResult, picture_ids: list[int] | None = None) -> dict[str, int]:
+    """Turn model output into an editable draft, marking known words and cutting word pictures.
+
+    picture_ids[n - 1] is the gallery page the model saw as "Picture n"; without it no pictures are cut.
+    """
     with get_connection() as connection:
         row = connection.execute("SELECT * FROM homework_sets WHERE id = ?", (set_id,)).fetchone()
         family_id = int(row["family_id"])
@@ -299,12 +440,25 @@ def store_extraction(set_id: int, result: ExtractionResult) -> dict[str, int]:
         topics = _active_topics(connection, family_id)
         items = []
         for entry in result.items:
-            items.append({
+            existing_id = existing.get(str(entry["en"]).lower())
+            item = {
                 "en": entry["en"],
                 "ru": entry["ru"],
-                "topic": _match_topic_title(entry["topic"], topics) if entry["topic"] else "",
-                "existing_id": existing.get(entry["en"].lower()),
-            })
+                "topic": _match_topic_title(str(entry["topic"]), topics) if entry["topic"] else "",
+                "existing_id": existing_id,
+                "current_image": bool(existing_id and _word_has_picture(connection, existing_id)),
+            }
+            picture = entry.get("picture")
+            if picture_ids and isinstance(picture, int) and picture <= len(picture_ids):
+                source = picture_ids[picture - 1]
+                try:
+                    crop = _cut(connection, set_id, source, entry.get("box"), inset=CROP_INSET)
+                except HomeworkSetError:
+                    crop = None
+                if crop is not None:
+                    item["image_id"] = crop
+                    item["crop"] = {"photo": source, "box": entry["box"]}
+            items.append(item)
         _write_draft(connection, row, {"model": result.model, "tasks": _draft_tasks(row, items)})
     known = sum(1 for item in items if item["existing_id"])
     return {"total": len(items), "new": len(items) - known, "existing": known}
@@ -503,6 +657,33 @@ def _insert_task(connection, set_id: int, order: int, task: dict[str, object]) -
     return task_id
 
 
+def _entry_picture(entry: dict[str, object], set_asset_ids: set[int]) -> int | None:
+    try:
+        image_id = int(entry["image_id"]) if entry.get("image_id") is not None else None
+    except (TypeError, ValueError) as exc:
+        raise HomeworkSetError("invalid_request") from exc
+    if image_id is not None and image_id not in set_asset_ids:
+        raise HomeworkSetError("image_not_found", 404)
+    return image_id
+
+
+def _apply_word_pictures(pictures: list[tuple[int, int, bool]]) -> int:
+    """Copy chosen crops into the dictionary as word pictures; returns how many words got one."""
+    from .dictionary_editor import store_word_image
+
+    applied = 0
+    for word_id, image_id, replace in pictures:
+        with get_connection() as connection:
+            if not replace and _word_has_picture(connection, word_id):
+                continue
+            path = _asset_path(connection, image_id)
+        if path is None:
+            continue
+        store_word_image(word_id, path.read_bytes())
+        applied += 1
+    return applied
+
+
 def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[str, object]:
     """Store the draft's tasks: create or reuse words, attach photos, optionally assign homework."""
     family_id = _family_id(user_id)
@@ -511,6 +692,7 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
         if row["status"] != STATUS_DRAFT:
             raise HomeworkSetError("draft_not_available", 409)
         photo_ids = _set_photo_ids(connection, set_id)
+        set_asset_ids = set(_set_photo_ids(connection, set_id, role=None))
     title = _clean(payload.get("title")) or str(row["title"] or "")
     tasks = _payload_tasks(payload, photo_ids)
     if not tasks:
@@ -531,12 +713,17 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
     # Words are created before the set rows are written, since that uses its own connections.
     topic_cache: dict[str, int] = {}
     word_ids: list[int] = []
+    pictures: list[tuple[int, int, bool]] = []
     created = 0
     for task in tasks:
         task_word_ids = []
         for entry in task["items"]:
             word_id, is_new = _ensure_word(user_id, family_id, _clean(entry.get("en")), _clean(entry.get("ru")), _clean(entry.get("topic")), topic_cache)
             created += int(is_new)
+            picture = _entry_picture(entry, set_asset_ids)
+            if picture is not None:
+                # A known word keeps its picture unless the parent chose a new one for it.
+                pictures.append((word_id, picture, is_new or bool(entry.get("image_user"))))
             if word_id not in word_ids:  # a word drilled once per homework, in its first task
                 word_ids.append(word_id)
                 task_word_ids.append(word_id)
@@ -560,6 +747,11 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
         )
 
     # Only words and paper work can be finished; a homework of notes alone would never end.
+    pictured = _apply_word_pictures(pictures)
+    # Word pictures are copies now; only photos attached to a task are still needed.
+    with get_connection() as connection:
+        _drop_set_assets(connection, set_id, keep=_attached_photo_ids(connection, set_id))
+
     assignment_id = None
     if assign_to is not None and (word_ids or any(task["kind"] == TASK_PAPER for task in tasks)):
         assignment_id = create_homework_assignment(
@@ -571,6 +763,7 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
         "title": title,
         "task_count": len(tasks),
         "word_count": len(word_ids),
+        "pictured_words": pictured,
         "created_words": created,
         "assignment_id": assignment_id,
         "assigned_to": assign_to if assignment_id else None,

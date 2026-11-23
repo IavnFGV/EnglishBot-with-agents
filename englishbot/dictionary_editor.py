@@ -44,6 +44,8 @@ LABEL_KEYS = (
     "new_homework", "tasks", "add_task", "task_title", "task_instructions", "task_enabled", "delete_task",
     "attach_photo", "upload_photo", "gallery", "gallery_hint", "photo_unused", "photo_in_task", "detach_photo",
     "no_photos", "move_up", "move_down",
+    "word_picture", "picture_done", "picture_other_page", "picture_upload", "picture_remove", "picture_hint",
+    "picture_too_small", "picture_kept",
 )
 
 
@@ -295,7 +297,7 @@ def normalize_image(content: bytes, max_side: int = MAX_IMAGE_SIDE) -> bytes:
     return output.getvalue()
 
 
-def _store_word_image(word_id: int, content: bytes) -> None:
+def store_word_image(word_id: int, content: bytes) -> None:
     local_path = store_teacher_content_image(word_id, normalize_image(content), extension=".jpg")
     replace_learning_item_assets_for_role(
         word_id,
@@ -308,7 +310,7 @@ def set_word_image(user_id: int, word_id: int, content: bytes) -> dict[str, obje
     family_id = _family_id(user_id)
     with get_connection() as connection:
         _require_word(connection, family_id, word_id)
-    _store_word_image(word_id, content)
+    store_word_image(word_id, content)
     with get_connection() as connection:
         return _serialize_word(connection, word_id)
 
@@ -324,7 +326,7 @@ def set_word_image_from_url(user_id: int, word_id: int, url: object) -> dict[str
         content = download_remote_asset_content(ASSET_TYPE_IMAGE, source_url)
     except (OSError, ValueError) as exc:
         raise _error("image_download_failed") from exc
-    _store_word_image(word_id, content)
+    store_word_image(word_id, content)
     with get_connection() as connection:
         return _serialize_word(connection, word_id)
 
@@ -581,10 +583,15 @@ def _route_import(method: str, set_id: int, rest: list[str], user_id: int, body:
 
 def _route_set_photos(method: str, set_id: int, rest: list[str], user_id: int, body: bytes):
     """Photos of a homework set (draft or saved): upload into its gallery, or read one."""
-    from .homework_sets import add_set_photo, set_photo_path
+    from .homework_sets import add_set_photo, add_word_picture, crop_set_photo, set_photo_path
 
     if rest == ["photos"] and method == "POST":
         return add_set_photo(user_id, set_id, body)
+    if rest == ["word-picture"] and method == "POST":
+        return add_word_picture(user_id, set_id, body)
+    if rest == ["crop"] and method == "POST":
+        payload = _json(body)
+        return crop_set_photo(user_id, set_id, payload.get("photo"), payload.get("box"))
     if len(rest) == 2 and rest[0] == "photos" and method == "GET":
         path = set_photo_path(user_id, set_id, _int_part(rest[1]))
         return path.read_bytes(), "image/jpeg"

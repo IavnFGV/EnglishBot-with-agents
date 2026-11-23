@@ -23,6 +23,8 @@ from englishbot.families import add_family_member, create_family
 from englishbot.homework_sets import (
     HomeworkSetError,
     add_set_photo,
+    add_word_picture,
+    crop_set_photo,
     add_source,
     begin_processing,
     create_empty_draft,
@@ -713,3 +715,207 @@ def test_sets_saved_before_tasks_get_one_words_task(family: int) -> None:
     saved = get_set(MOM, set_id)
     assert [task["kind"] for task in saved["tasks"]] == ["words"]
     assert {word["task_id"] for word in saved["words"]} == {saved["tasks"][0]["id"]}
+
+
+# Word pictures cut from the tutor's pages
+
+
+def page_bytes() -> bytes:
+    output = io.BytesIO()
+    page = Image.new("RGB", (800, 600), "white")
+    page.paste(Image.new("RGB", (300, 300), "red"), (100, 100))  # the "drawing" of the first word
+    page.save(output, format="PNG")
+    return output.getvalue()
+
+
+def test_normalize_words_keeps_valid_picture_boxes() -> None:
+    payload = {"words": [
+        {"en": "tuna", "ru": "тунец", "picture": 1, "box": [100, 50, 400, 500]},
+        {"en": "eel", "ru": "угорь", "picture": "2", "box": [0, 0, 1200, 900]},
+        {"en": "shark", "ru": "акула", "picture": 0, "box": [1, 2, 300, 400]},
+        {"en": "fin", "ru": "плавник", "picture": 1, "box": [10, 10, 15, 15]},
+        {"en": "owl", "ru": "сова", "picture": 1, "box": "nope"},
+    ]}
+    words = normalize_words(payload)
+    assert words[0]["picture"] == 1 and words[0]["box"] == [100.0, 50.0, 400.0, 500.0]
+    assert words[1]["picture"] == 2 and words[1]["box"] == [0.0, 0.0, 1000.0, 900.0]  # clamped
+    assert all("box" not in word for word in words[2:])
+
+
+def test_pictures_are_numbered_for_the_model(family: int, monkeypatch) -> None:
+    sent = {}
+
+    def fake_post(body, api_key):
+        sent.update(body=body)
+        return {"choices": [{"message": {"content": '{"words": []}'}}]}
+
+    monkeypatch.setattr(ai_extraction, "_post", fake_post)
+    extract_items("words", [ExtractionSource(image=page_bytes()), ExtractionSource(image=page_bytes())])
+    texts = [part["text"] for part in sent["body"]["messages"][1]["content"] if part["type"] == "text"]
+    assert "Picture 1:" in texts and "Picture 2:" in texts
+
+
+def test_extraction_cuts_word_pictures_from_the_pages(family: int) -> None:
+    topic = create_topic(MOM, "Fish")
+    known = create_word(MOM, topic["id"], "tuna", {"ru": "тунец"})
+    with_picture = create_word(MOM, topic["id"], "eel", {"ru": "угорь"})
+    from englishbot.dictionary_editor import set_word_image
+    set_word_image(MOM, with_picture["id"], page_bytes())
+
+    row = add_source(MOM, text="Fish")
+    set_id = int(row["id"])
+    begin_processing(MOM, set_id, "words")
+    pages = store_source_photos(set_id, [page_bytes()])
+    store_extraction(set_id, ExtractionResult(model="m", items=[
+        {"en": "shark", "ru": "акула", "topic": "Fish", "picture": 1, "box": [167, 125, 667, 500]},
+        {"en": "tuna", "ru": "тунец", "topic": "Fish", "picture": 1, "box": [167, 125, 667, 500]},
+        {"en": "eel", "ru": "угорь", "topic": "Fish", "picture": 1, "box": [167, 125, 667, 500]},
+        {"en": "fin", "ru": "плавник", "topic": "Fish", "picture": 1, "box": [0, 0, 30, 30]},  # too small
+        {"en": "plaice", "ru": "камбала", "topic": "Fish", "picture": 5, "box": [0, 0, 500, 500]},  # no such page
+    ]), pages)
+    items = {item["en"]: item for item in get_draft(MOM, set_id)["tasks"][0]["items"]}
+
+    assert items["shark"]["crop"] == {"photo": pages[0], "box": [167, 125, 667, 500]}
+    with Image.open(set_photo_path(MOM, set_id, items["shark"]["image_id"])) as crop:
+        # Trimmed inside the red block, so no white page (and no caption) is left.
+        assert crop.size[0] < 300 and crop.getpixel((2, 2))[0] > 200 and crop.getpixel((2, 2))[1] < 60
+    assert "image_id" not in items["fin"] and "image_id" not in items["plaice"]
+    assert (items["tuna"]["current_image"], items["eel"]["current_image"]) == (False, True)
+    assert get_draft(MOM, set_id)["photos"] == pages  # crops stay out of the gallery
+    del known
+
+
+def test_save_turns_crops_into_word_pictures_but_keeps_existing_ones(family: int) -> None:
+    from englishbot.assets import PRIMARY_IMAGE_ROLE, get_learning_item_asset
+    from englishbot.dictionary_editor import set_word_image
+
+    topic = create_topic(MOM, "Fish")
+    eel = create_word(MOM, topic["id"], "eel", {"ru": "угорь"})
+    set_word_image(MOM, eel["id"], page_bytes())
+    before = get_learning_item_asset(eel["id"], role=PRIMARY_IMAGE_ROLE)["asset_id"]
+    tuna = create_word(MOM, topic["id"], "tuna", {"ru": "тунец"})
+    set_word_image(MOM, tuna["id"], page_bytes())
+
+    set_id = make_draft([])
+    page = store_source_photos(set_id, [page_bytes()])[0]
+    crop = crop_set_photo(MOM, set_id, page, [100, 100, 900, 900])["id"]
+    upload = add_word_picture(MOM, set_id, png_bytes("green"))["id"]
+    result = save_draft(MOM, set_id, {"tasks": [{"kind": "words", "items": [
+        {"en": "shark", "ru": "акула", "topic": "Fish", "image_id": crop},
+        {"en": "eel", "existing_id": eel["id"], "image_id": crop},  # model crop: the old picture stays
+        {"en": "tuna", "existing_id": tuna["id"], "image_id": upload, "image_user": True},  # chosen by hand: replaced
+    ]}]})
+    assert result["pictured_words"] == 2
+    words = {word["text"]: word["id"] for word in get_set(MOM, set_id)["words"]}
+    assert get_learning_item_asset(words["shark"], role=PRIMARY_IMAGE_ROLE) is not None
+    assert get_learning_item_asset(eel["id"], role=PRIMARY_IMAGE_ROLE)["asset_id"] == before
+    assert get_learning_item_asset(tuna["id"], role=PRIMARY_IMAGE_ROLE)["asset_id"] != before
+
+
+def test_manual_crop_checks_the_page_size_and_owner(family: int) -> None:
+    other = make_draft([])
+    foreign = store_source_photos(other, [page_bytes()])[0]
+    set_id = make_draft([])
+    page = store_source_photos(set_id, [page_bytes()])[0]
+    assert error_code(lambda: crop_set_photo(MOM, set_id, foreign, [0, 0, 500, 500])) == "image_not_found"
+    assert error_code(lambda: crop_set_photo(MOM, set_id, page, [0, 0, 50, 50])) == "crop_too_small"
+    assert error_code(lambda: crop_set_photo(MOM, set_id, page, "x")) == "invalid_request"
+    assert error_code(lambda: crop_set_photo(STRANGER, set_id, page, [0, 0, 500, 500])) == "set_not_found"
+    assert error_code(lambda: save_draft(MOM, set_id, {"tasks": [{"kind": "words", "items": [
+        {"en": "owl", "ru": "сова", "topic": "Birds", "image_id": foreign}]}]})) == "image_not_found"
+
+
+def test_http_crop_and_word_picture(family: int, monkeypatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    set_id = make_draft([])
+    page = store_source_photos(set_id, [page_bytes()])[0]
+    body = json.dumps({"photo": page, "box": [100, 100, 600, 600]}).encode()
+    status, result = request(f"/mini-app/api/editor/imports/{set_id}/crop", method="POST", body=body)
+    assert status == 200 and result["id"]
+    status, result = request(f"/mini-app/api/editor/imports/{set_id}/word-picture", method="POST", body=png_bytes())
+    assert status == 200 and result["id"]
+
+
+def test_forwarded_page_gives_the_draft_word_a_picture(family: int, monkeypatch) -> None:
+    monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "https://example.org/mini-app")
+
+    class PageBot(FakeBot):
+        async def download(self, file_id: str):
+            return io.BytesIO(page_bytes())
+
+    def fake_extract(kind, sources):
+        return ExtractionResult(model="m", items=[{"en": "shark", "ru": "акула", "topic": "Fish", "picture": 1, "box": [167, 125, 667, 500]}])
+
+    monkeypatch.setattr(homework_import_handlers, "extract_items", fake_extract)
+    bot = PageBot()
+
+    async def scenario():
+        message = FakeMessage(bot, photo=[SimpleNamespace(file_id="page")])
+        await homework_import_handlers.collect_homework_forward(message)
+        data = message.answers[-1][1].inline_keyboard[0][0].callback_data
+        await homework_import_handlers.handle_homework_import_callback(FakeCallback(data, message))
+        await asyncio.gather(*homework_import_handlers._background_tasks)
+        return int(data.rsplit(":", 1)[1])
+
+    set_id = asyncio.run(scenario())
+    item = get_draft(MOM, set_id)["tasks"][0]["items"][0]
+    assert item["image_id"] and item["crop"]["photo"] == get_draft(MOM, set_id)["photos"][0]
+
+
+# No leftovers on disk
+
+
+def homework_files(tmp_root: Path) -> set[str]:
+    folder = tmp_root / "assets" / "images" / "homework"
+    return {path.name for path in folder.glob("*")} if folder.exists() else set()
+
+
+def test_save_keeps_only_task_photos_and_cancel_deletes_everything(family: int) -> None:
+    root = db.DB_PATH.parent.parent
+    set_id = make_draft([])
+    attached, loose = store_source_photos(set_id, [page_bytes(), page_bytes()])
+    crop = crop_set_photo(MOM, set_id, attached, [100, 100, 900, 900])["id"]
+    unused_crop = crop_set_photo(MOM, set_id, loose, [100, 100, 900, 900])["id"]
+    assert len(homework_files(root)) == 4
+    save_draft(MOM, set_id, {"tasks": [
+        {"kind": "words", "items": [{"en": "shark", "ru": "акула", "topic": "Fish", "image_id": crop}]},
+        {"kind": "paper", "title": "Crossword", "photos": [attached]},
+    ]})
+    assert len(homework_files(root)) == 1  # the attached page; the word picture was copied to the dictionary
+    assert set_photo_path(MOM, set_id, attached).is_file()
+    assert error_code(lambda: set_photo_path(MOM, set_id, unused_crop)) == "image_not_found"
+
+    other = make_draft([])
+    store_source_photos(other, [page_bytes()])
+    assert len(homework_files(root)) == 2
+    from englishbot.homework_sets import cancel_set
+    cancel_set(MOM, other)
+    assert len(homework_files(root)) == 1
+
+
+def test_abandoned_drafts_are_cancelled_with_their_photos(family: int) -> None:
+    from englishbot.homework_sets import cleanup_abandoned_sets
+
+    root = db.DB_PATH.parent.parent
+    old = make_draft([])
+    store_source_photos(old, [page_bytes()])
+    fresh = make_draft([])
+    store_source_photos(fresh, [page_bytes()])
+    with db.get_connection() as connection:
+        connection.execute("UPDATE homework_sets SET updated_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (old,))
+    assert cleanup_abandoned_sets() == 1
+    assert len(homework_files(root)) == 1
+    assert error_code(lambda: get_draft(MOM, old)) == "draft_not_available"
+    assert get_draft(MOM, fresh)["photos"]
+
+
+def test_replacing_a_word_picture_deletes_the_old_file(family: int) -> None:
+    from englishbot.dictionary_editor import set_word_image
+
+    root = db.DB_PATH.parent.parent
+    topic = create_topic(MOM, "Fish")
+    word = create_word(MOM, topic["id"], "eel", {"ru": "угорь"})
+    folder = root / "assets" / "images" / "teacher-content"
+    set_word_image(MOM, word["id"], page_bytes())
+    set_word_image(MOM, word["id"], png_bytes("blue"))
+    assert len(list(folder.glob("*"))) == 1

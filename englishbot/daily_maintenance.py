@@ -90,6 +90,11 @@ def run_daily_maintenance_once(now: datetime | None = None) -> bool:
     removed = trim_interaction_log()
     if removed:
         logger.info("Trimmed %d oldest interaction log rows to stay under %d bytes", removed, INTERACTION_LOG_LIMIT_BYTES)
+    from .homework_sets import cleanup_abandoned_sets
+
+    abandoned = cleanup_abandoned_sets()
+    if abandoned:
+        logger.info("Cancelled %d abandoned homework drafts and deleted their photos", abandoned)
     return True
 
 

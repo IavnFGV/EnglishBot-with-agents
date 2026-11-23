@@ -69,6 +69,9 @@ def _ensure_homework_task_schema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    # 'source': a page in the gallery; 'crop': a word picture cut from a page or uploaded for one word.
+    if "role" not in get_table_columns(connection, "homework_set_photos"):
+        connection.execute("ALTER TABLE homework_set_photos ADD COLUMN role TEXT NOT NULL DEFAULT 'source'")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS homework_set_task_assets (

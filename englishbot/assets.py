@@ -888,6 +888,7 @@ def _delete_orphaned_assets(connection, asset_ids: list[int]) -> None:
         ).fetchone()
         if linked is not None:
             continue
+        local_path = connection.execute("SELECT local_path FROM assets WHERE id = ?", (asset_id,)).fetchone()
         connection.execute(
             """
             DELETE FROM assets
@@ -895,6 +896,33 @@ def _delete_orphaned_assets(connection, asset_ids: list[int]) -> None:
             """,
             (asset_id,),
         )
+        if local_path is not None:
+            delete_unreferenced_files(connection, [local_path[0]])
+
+
+# Folders whose files belong to exactly the asset rows that point at them; other folders
+# (imports, placeholders, synthesized audio) are managed elsewhere and never touched here.
+OWNED_FILE_DIRS = (TEACHER_CONTENT_IMAGE_DIR, HOMEWORK_PHOTO_DIR)
+
+
+def delete_unreferenced_files(connection, local_paths: list[str | None]) -> int:
+    """Remove files from owned folders once no asset row points at them; returns how many were removed."""
+    removed = 0
+    for local_path in local_paths:
+        if not local_path:
+            continue
+        relative = Path(str(local_path))
+        if relative.is_absolute() or ".." in relative.parts:
+            continue
+        if not any(relative.is_relative_to(folder) for folder in OWNED_FILE_DIRS):
+            continue
+        if connection.execute("SELECT 1 FROM assets WHERE local_path = ? LIMIT 1", (str(local_path),)).fetchone():
+            continue
+        path = resolve_runtime_asset_path(relative)
+        if path.is_file():
+            path.unlink()
+            removed += 1
+    return removed
 
 
 def _validate_image_content(content: bytes, *, source_url: str) -> None:

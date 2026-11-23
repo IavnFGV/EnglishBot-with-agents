@@ -90,3 +90,17 @@ img.photo { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px
 img.photo.zoomed { position: fixed; inset: 0; z-index: 10; width: 100vw; height: 100vh; aspect-ratio: auto; object-fit: contain; border-radius: 0; background: rgba(0, 0, 0, .9); cursor: zoom-out; }
 button.photo-pick { padding: 0; min-height: 0; background: none; }
 .picker { padding: 10px; border-radius: 12px; background: var(--bg); }
+button.word-thumb { flex: none; width: 56px; height: 56px; min-height: 0; padding: 0; border-radius: 10px; background: var(--bg); color: var(--hint); overflow: hidden; border: 1px dashed color-mix(in srgb, var(--hint) 60%, transparent); align-self: center; }
+button.word-thumb img.photo { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; cursor: pointer; }
+.word-thumb-empty { font-size: .95rem; }
+body.no-scroll { overflow: hidden; }
+.cropper { position: fixed; inset: 0; z-index: 20; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 16px 16px max(28px, env(safe-area-inset-bottom)); background: var(--bg); }
+.crop-stage { position: relative; align-self: center; max-width: 100%; touch-action: none; user-select: none; }
+img.crop-image { display: block; max-width: 100%; max-height: 62vh; pointer-events: none; }
+.crop-frame { position: absolute; box-sizing: border-box; border: 2px solid var(--accent); box-shadow: 0 0 0 9999px rgba(0, 0, 0, .45); touch-action: none; cursor: move; }
+.crop-handle { position: absolute; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); border: 3px solid #fff; }
+.crop-handle.nw { top: -14px; left: -14px; }
+.crop-handle.ne { top: -14px; right: -14px; }
+.crop-handle.sw { bottom: -14px; left: -14px; }
+.crop-handle.se { bottom: -14px; right: -14px; }
+.crop-stage { overflow: hidden; }

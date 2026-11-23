@@ -149,13 +149,15 @@ async def _process(message: Message, user_id: int, set_id: int, kind: str, sourc
     try:
         prepared = await _download_sources(message.bot, sources)
         images = [source.image for source in prepared if source.image]
-        await asyncio.to_thread(store_source_photos, set_id, images)
+        photo_ids = await asyncio.to_thread(store_source_photos, set_id, images)
+        # The model numbers pictures in sending order; a skipped unreadable photo breaks that mapping.
+        picture_ids = photo_ids if len(photo_ids) == len(images) else None
         if kind == KIND_MANUAL:
             await asyncio.to_thread(store_manual_draft, set_id)
             await message.edit_text(translate_for_user(user_id, "homework_import.manual_done"), reply_markup=_draft_keyboard(user_id, set_id))
             return
         result = await asyncio.to_thread(extract_items, kind, prepared)
-        counts = await asyncio.to_thread(store_extraction, set_id, result)
+        counts = await asyncio.to_thread(store_extraction, set_id, result, picture_ids)
     except AIExtractionUnavailable as exc:
         mark_failed(set_id, str(exc))
         await message.edit_text(
