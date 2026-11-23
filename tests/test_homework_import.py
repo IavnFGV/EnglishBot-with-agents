@@ -437,3 +437,24 @@ def test_http_sets_rename_and_assign_notifies(family: int, monkeypatch) -> None:
     status, assigned = request(f"/mini-app/api/editor/sets/{set_id}/assign", method="POST", body=json.dumps({"assign_to": KID, "mode": "easy"}).encode())
     assert status == 200 and assigned["word_count"] == 2
     assert bot.sent[0]["chat_id"] == KID and "Birds 1" in bot.sent[0]["text"]
+
+
+def test_drafts_are_listed_until_saved_or_deleted(family: int, monkeypatch) -> None:
+    from englishbot.dictionary_editor import route_editor_request
+
+    def editor(method: str, path: list[str], user_id: int = MOM):
+        return route_editor_request(method, path, user_id, b"{}")
+
+    kept = make_draft([{"en": "owl", "ru": "сова", "topic": "Birds"}])
+    listing = editor("GET", ["sets"])
+    assert [(draft["id"], draft["item_count"]) for draft in listing["drafts"]] == [(kept, 1)]
+    assert editor("GET", ["sets"], STRANGER)["drafts"] == []
+
+    assert editor("POST", ["imports", str(kept), "cancel"]) == {"deleted": True}
+    assert editor("GET", ["sets"])["drafts"] == []
+
+    saved = saved_set(assign_to=None)
+    assert editor("GET", ["sets"])["drafts"] == []
+    with pytest.raises(MiniAppError) as caught:
+        editor("POST", ["imports", str(saved), "cancel"])
+    assert caught.value.code == "draft_not_available"

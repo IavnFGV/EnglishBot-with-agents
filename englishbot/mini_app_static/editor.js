@@ -383,7 +383,17 @@ async function showSets() {
     el('span', { class: 'texts' },
       el('span', { class: 'title' }, set.title),
       el('span', { class: 'sub' }, `${formatDate(set.saved_at)} · ${t('word_count', { count: set.item_count })}`)))));
-  screen(el('h1', {}, t('sets')), data.sets.length ? list : el('p', { class: 'muted' }, t('no_sets')));
+  const drafts = (data.drafts || []).map((draft) => el('button', { class: 'item', onclick: () => showDraft(draft.id, showSets) },
+    el('span', { class: 'texts' },
+      el('span', { class: 'title' }, `📝 ${draft.title}`),
+      el('span', { class: 'sub' }, `${formatDate(draft.updated_at)} · ${t('word_count', { count: draft.item_count })}`))));
+  screen(
+    el('h1', {}, t('sets')),
+    drafts.length ? el('strong', {}, t('drafts')) : null,
+    drafts.length ? el('div', { class: 'list' }, ...drafts) : null,
+    drafts.length && data.sets.length ? el('strong', {}, t('saved_sets')) : null,
+    data.sets.length ? list : (drafts.length ? null : el('p', { class: 'muted' }, t('no_sets'))),
+  );
 }
 
 async function showSet(setId, message = '') {
@@ -433,8 +443,8 @@ async function showSet(setId, message = '') {
 
 // Homework draft produced from forwarded tutor messages
 
-async function showDraft(setId) {
-  setBack(null);
+async function showDraft(setId, backTo = null) {
+  setBack(backTo);
   let data;
   try { data = await getJson(`/imports/${setId}`); } catch (error) {
     try { labels = (await getJson('/topics')).labels || labels; } catch { /* keep keys */ }
@@ -536,6 +546,11 @@ async function showDraft(setId) {
     el('label', {}, t('mode'), mode),
     saveButton,
     status,
+    el('div', { class: 'spacer' }),
+    el('button', { class: 'danger', onclick: () => confirmThen(t('delete_draft_confirm'), async () => {
+      await postJson(`/imports/${setId}/cancel`);
+      showSets();
+    }) }, t('delete_draft')),
   );
 }
 

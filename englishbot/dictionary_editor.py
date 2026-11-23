@@ -39,7 +39,7 @@ LABEL_KEYS = (
     "models", "models_queue", "models_available", "models_hint", "models_empty_queue",
     "models_not_configured", "models_catalog_error", "model_add", "model_remove", "model_test",
     "model_testing", "model_test_ok", "model_test_failed", "model_stats", "model_no_stats",
-    "model_not_free", "model_avg_seconds",
+    "model_not_free", "model_avg_seconds", "drafts", "delete_draft", "delete_draft_confirm", "saved_sets",
 )
 
 
@@ -460,11 +460,11 @@ def _route_models(method: str, rest: list[str], user_id: int, body: bytes):
 
 
 def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
-    from .homework_sets import HomeworkSetError, assign_set, get_set, list_sets, rename_set
+    from .homework_sets import HomeworkSetError, assign_set, get_set, list_drafts, list_sets, rename_set
 
     try:
         if method == "GET" and rest == []:
-            return {"sets": list_sets(user_id), "labels": editor_labels(user_id)}
+            return {"sets": list_sets(user_id), "drafts": list_drafts(user_id), "labels": editor_labels(user_id)}
         if rest:
             set_id = _int_part(rest[0])
             if method == "GET" and rest[1:] == []:
@@ -482,7 +482,7 @@ def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
 
 
 def _route_import(method: str, set_id: int, rest: list[str], user_id: int, body: bytes):
-    from .homework_sets import HomeworkSetError, get_draft, save_draft
+    from .homework_sets import HomeworkSetError, STATUS_DRAFT, cancel_set, get_draft, save_draft
 
     try:
         if method == "GET" and rest == []:
@@ -495,6 +495,10 @@ def _route_import(method: str, set_id: int, rest: list[str], user_id: int, body:
                 # status_server delivers this through the bot after the response is built.
                 result["_notify"] = [{"chat_id": result["assigned_to"], "title": result["title"]}]
             return result
+        if method == "POST" and rest == ["cancel"]:
+            get_draft(user_id, set_id)  # only drafts can be deleted from the editor
+            cancel_set(user_id, set_id)
+            return {"deleted": True}
     except HomeworkSetError as exc:
         raise _error(exc.code, exc.status) from exc
     raise _error("not_found", 404)

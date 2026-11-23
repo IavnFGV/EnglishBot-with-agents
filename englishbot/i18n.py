@@ -449,6 +449,10 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "editor.ui.model_no_stats": "not used yet",
         "editor.ui.model_not_free": "no longer free",
         "editor.ui.model_avg_seconds": "~{seconds} s",
+        "editor.ui.drafts": "Drafts (not saved)",
+        "editor.ui.saved_sets": "Saved",
+        "editor.ui.delete_draft": "Delete draft",
+        "editor.ui.delete_draft_confirm": "Delete this draft? Its words will not be added.",
     },
     "ru": {
         "command.start": "Открыть главное меню",
@@ -887,6 +891,10 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "editor.ui.model_no_stats": "ещё не использовалась",
         "editor.ui.model_not_free": "больше не бесплатная",
         "editor.ui.model_avg_seconds": "~{seconds} с",
+        "editor.ui.drafts": "Черновики (не сохранены)",
+        "editor.ui.saved_sets": "Сохранённые",
+        "editor.ui.delete_draft": "Удалить черновик",
+        "editor.ui.delete_draft_confirm": "Удалить черновик? Слова в словарь не попадут.",
     },
     "uk": {
         "command.start": "Відкрити головне меню",

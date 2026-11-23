@@ -474,3 +474,22 @@ def assign_set(user_id: int, set_id: int, assign_to: object, mode: object) -> di
         title=title, training_mode=training_mode, homework_set_id=set_id,
     )
     return {"assignment_id": assignment_id, "assigned_to": recipient, "title": title, "word_count": len(word_ids)}
+
+
+def list_drafts(user_id: int) -> list[dict[str, object]]:
+    """Unsaved drafts of the family, so one can be reopened without the bot message."""
+    family_id = _family_id(user_id)
+    with get_connection() as connection:
+        rows = connection.execute(
+            "SELECT id, title, draft_json, updated_at FROM homework_sets WHERE family_id = ? AND status = ? ORDER BY updated_at DESC, id DESC",
+            (family_id, STATUS_DRAFT),
+        ).fetchall()
+    return [
+        {
+            "id": int(row["id"]),
+            "title": str(row["title"] or ""),
+            "updated_at": str(row["updated_at"] or ""),
+            "item_count": len(json.loads(row["draft_json"] or "{}").get("items", [])),
+        }
+        for row in rows
+    ]
