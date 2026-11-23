@@ -36,6 +36,10 @@ LABEL_KEYS = (
     "new_topic_option", "draft_empty", "draft_unavailable", "draft_words",
     "sets", "no_sets", "set_words", "set_assignments", "assign_again", "assign",
     "assigned_ok", "assignment_active", "assignment_completed", "never_assigned",
+    "models", "models_queue", "models_available", "models_hint", "models_empty_queue",
+    "models_not_configured", "models_catalog_error", "model_add", "model_remove", "model_test",
+    "model_testing", "model_test_ok", "model_test_failed", "model_stats", "model_no_stats",
+    "model_not_free", "model_avg_seconds",
 )
 
 
@@ -80,7 +84,8 @@ def _require_word(connection, family_id: int, word_id: int):
 
 
 def editor_labels(user_id: int) -> dict[str, str]:
-    return {key: translate_for_user(user_id, f"editor.ui.{key}", count="{count}") for key in LABEL_KEYS}
+    placeholders = {name: "{" + name + "}" for name in ("count", "found", "expected", "seconds", "error", "ok", "fail")}
+    return {key: translate_for_user(user_id, f"editor.ui.{key}", **placeholders) for key in LABEL_KEYS}
 
 
 def list_topics(user_id: int) -> dict[str, object]:
@@ -109,7 +114,14 @@ def list_topics(user_id: int) -> dict[str, object]:
             {"code": code, "label": LANGUAGE_LABELS[code]} for code in TRANSLATION_LANGUAGE_CODES
         ],
         "labels": editor_labels(user_id),
+        "is_owner": _is_owner(user_id),
     }
+
+
+def _is_owner(user_id: int) -> bool:
+    from .config import get_owner_telegram_user_id
+
+    return get_owner_telegram_user_id() == user_id
 
 
 def create_topic(user_id: int, title: object) -> dict[str, object]:
@@ -387,10 +399,63 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
             return set_word_image_from_url(user_id, word_id, _json(body).get("url"))
         if method == "POST" and rest == ["image", "delete"]:
             return clear_word_image(user_id, word_id)
+    if parts and parts[0] == "models":
+        return _route_models(method, parts[1:], user_id, body)
     if parts and parts[0] == "sets":
         return _route_sets(method, parts[1:], user_id, body)
     if len(parts) >= 2 and parts[0] == "imports":
         return _route_import(method, _int_part(parts[1]), parts[2:], user_id, body)
+    raise _error("not_found", 404)
+
+
+def _models_state() -> dict[str, object]:
+    from .ai_models import get_free_vision_models_cached, get_model_queue, get_model_stats
+    from .config import get_openrouter_api_key
+
+    stats = get_model_stats()
+    queue = get_model_queue()
+    catalog_error = None
+    try:
+        catalog = get_free_vision_models_cached()
+    except (OSError, ValueError) as exc:
+        catalog, catalog_error = [], str(exc)
+    names = {str(model["id"]): str(model["name"]) for model in catalog}
+    return {
+        "configured": get_openrouter_api_key() is not None,
+        "catalog_error": catalog_error,
+        "queue": [
+            {"id": model, "name": names.get(model, model), "free_now": model in names or catalog_error is not None, "stats": stats.get(model)}
+            for model in queue
+        ],
+        "available": [
+            {"id": model_id, "name": name, "stats": stats.get(model_id)}
+            for model_id, name in names.items() if model_id not in queue
+        ],
+    }
+
+
+def _route_models(method: str, rest: list[str], user_id: int, body: bytes):
+    from .ai_models import run_model_check, set_model_queue
+    from .config import get_owner_telegram_user_id
+
+    if get_owner_telegram_user_id() != user_id:
+        raise _error("access_denied", 403)
+    if method == "GET" and rest == []:
+        return _models_state()
+    if method == "POST" and rest == []:
+        queue = _json(body).get("queue")
+        if not isinstance(queue, list):
+            raise _error("invalid_request")
+        try:
+            set_model_queue([str(model) for model in queue])
+        except ValueError as exc:
+            raise _error("invalid_model") from exc
+        return _models_state()
+    if method == "POST" and rest == ["test"]:
+        try:
+            return run_model_check(str(_json(body).get("model") or ""))
+        except ValueError as exc:
+            raise _error("invalid_model") from exc
     raise _error("not_found", 404)
 
 

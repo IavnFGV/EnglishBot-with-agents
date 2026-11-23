@@ -1196,6 +1196,28 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_model_stats (
+                model TEXT PRIMARY KEY,
+                successes INTEGER NOT NULL DEFAULT 0,
+                failures INTEGER NOT NULL DEFAULT 0,
+                total_success_seconds REAL NOT NULL DEFAULT 0,
+                last_success_at TEXT,
+                last_failure_at TEXT,
+                last_error TEXT
+            )
+            """
+        )
         if "homework_set_id" not in get_table_columns(connection, "homework_assignments"):
             connection.execute("ALTER TABLE homework_assignments ADD COLUMN homework_set_id INTEGER")
         connection.execute("DROP TABLE IF EXISTS assignment_items")

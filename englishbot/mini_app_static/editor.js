@@ -102,6 +102,7 @@ async function showTopics() {
     el('h1', {}, t('title')),
     el('button', { onclick: () => askTopicTitle('', async (title) => showWords((await postJson('/topics', { title })).id)) }, t('new_topic')),
     el('button', { class: 'secondary', onclick: showSets }, t('sets')),
+    data.is_owner ? el('button', { class: 'secondary', onclick: () => showModels() }, t('models')) : null,
     data.topics.length ? list : el('p', { class: 'muted' }, t('no_topics')),
   );
 }
@@ -297,6 +298,73 @@ async function shrinkImage(file) {
   } catch {
     return file;
   }
+}
+
+// Free AI model queue (owner only)
+
+const modelChecks = new Map();
+
+function modelStatsText(stats) {
+  if (!stats || (!stats.successes && !stats.failures)) return t('model_no_stats');
+  const base = t('model_stats', { ok: stats.successes, fail: stats.failures });
+  return stats.avg_seconds ? `${base} · ${t('model_avg_seconds', { seconds: stats.avg_seconds })}` : base;
+}
+
+async function showModels(state = null) {
+  setBack(showTopics);
+  if (!state) {
+    try { state = await getJson('/models'); } catch (error) { fail(error); return; }
+  }
+  const queue = state.queue.map((model) => model.id);
+  const saveQueue = async (next) => {
+    try { showModels(await postJson('/models', { queue: next })); } catch (error) { fail(error); }
+  };
+  const move = (index, delta) => {
+    const next = [...queue];
+    const [model] = next.splice(index, 1);
+    next.splice(index + delta, 0, model);
+    saveQueue(next);
+  };
+  const checkLine = (modelId) => {
+    const line = el('span', { class: 'sub' });
+    const result = modelChecks.get(modelId);
+    if (result === 'running') line.textContent = t('model_testing');
+    else if (result?.ok) line.textContent = t('model_test_ok', { found: result.found, expected: result.expected, seconds: result.seconds });
+    else if (result) line.textContent = t('model_test_failed', { error: result.error });
+    return line;
+  };
+  const runCheck = async (modelId) => {
+    modelChecks.set(modelId, 'running');
+    showModels(state);
+    try { modelChecks.set(modelId, await postJson('/models/test', { model: modelId })); } catch (error) { modelChecks.set(modelId, { ok: false, error: error.message }); }
+    showModels(); // reload so the stats include this check
+  };
+  const card = (model, buttons) => el('div', { class: 'model-card' },
+    el('span', { class: 'title' }, model.name),
+    el('span', { class: 'sub mono' }, model.id),
+    el('span', { class: 'sub' }, model.free_now === false ? `⚠️ ${t('model_not_free')}` : modelStatsText(model.stats)),
+    checkLine(model.id),
+    el('div', { class: 'model-actions' }, ...buttons));
+  const queueCards = state.queue.map((model, index) => card(model, [
+    el('button', { class: 'secondary', disabled: index === 0, onclick: () => move(index, -1) }, '↑'),
+    el('button', { class: 'secondary', disabled: index === state.queue.length - 1, onclick: () => move(index, 1) }, '↓'),
+    el('button', { class: 'secondary', onclick: () => runCheck(model.id) }, t('model_test')),
+    el('button', { class: 'secondary', onclick: () => saveQueue(queue.filter((id) => id !== model.id)) }, t('model_remove')),
+  ]));
+  const availableCards = state.available.map((model) => card(model, [
+    el('button', { onclick: () => saveQueue([...queue, model.id]) }, t('model_add')),
+    el('button', { class: 'secondary', onclick: () => runCheck(model.id) }, t('model_test')),
+  ]));
+  screen(
+    el('h1', {}, t('models')),
+    el('p', { class: 'muted' }, t('models_hint')),
+    state.configured ? null : el('p', { class: 'status error' }, t('models_not_configured')),
+    state.catalog_error ? el('p', { class: 'status error' }, t('models_catalog_error')) : null,
+    el('strong', {}, t('models_queue')),
+    queueCards.length ? el('div', { class: 'list' }, ...queueCards) : el('p', { class: 'status error' }, t('models_empty_queue')),
+    availableCards.length ? el('strong', {}, t('models_available')) : null,
+    availableCards.length ? el('div', { class: 'list' }, ...availableCards) : null,
+  );
 }
 
 // Saved homework sets: rename and assign again

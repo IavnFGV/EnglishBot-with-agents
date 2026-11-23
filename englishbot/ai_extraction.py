@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -11,7 +12,8 @@ from io import BytesIO
 
 from PIL import Image, ImageOps
 
-from .config import get_ai_models, get_openrouter_api_key
+from .ai_models import get_model_queue, record_model_result
+from .config import get_openrouter_api_key
 
 
 logger = logging.getLogger(__name__)
@@ -53,7 +55,7 @@ class ExtractionResult:
 
 
 def is_ai_extraction_configured() -> bool:
-    return get_openrouter_api_key() is not None and bool(get_ai_models())
+    return get_openrouter_api_key() is not None and bool(get_model_queue())
 
 
 def _prepare_image(content: bytes) -> str:
@@ -124,33 +126,43 @@ def _post(body: dict[str, object], api_key: str) -> dict[str, object]:
         return json.load(response)
 
 
-def extract_items(kind: str, sources: list[ExtractionSource]) -> ExtractionResult:
-    """Run one extraction; OpenRouter falls back through the configured model list."""
+def _try_model(model: str, messages: list[dict[str, object]], api_key: str) -> dict[str, object]:
+    started = time.monotonic()
+    try:
+        response = _post({"model": model, "messages": messages, "temperature": 0}, api_key)
+        payload = parse_json_object(response["choices"][0]["message"]["content"])
+    except urllib.error.HTTPError as exc:
+        error = f"HTTP {exc.code}"
+    except (OSError, KeyError, IndexError, TypeError, ValueError) as exc:
+        error = f"{type(exc).__name__}: {exc}"
+    else:
+        record_model_result(model, ok=True, seconds=time.monotonic() - started)
+        return payload
+    record_model_result(model, ok=False, seconds=time.monotonic() - started, error=error)
+    logger.warning("AI model failed: model=%s error=%s", model, error)
+    raise AIExtractionUnavailable(error)
+
+
+def extract_items(kind: str, sources: list[ExtractionSource], *, models: list[str] | None = None) -> ExtractionResult:
+    """Try each queued model in order and record per-model success or failure."""
     if kind not in SUPPORTED_KINDS:
         raise ValueError(f"unsupported extraction kind: {kind}")
     api_key = get_openrouter_api_key()
-    models = get_ai_models()
-    if api_key is None or not models:
+    queue = models if models is not None else get_model_queue()
+    if api_key is None or not queue:
         raise AIExtractionUnavailable("AI extraction is not configured")
-    body = {
-        "models": models,
-        "messages": [
-            {"role": "system", "content": WORDS_PROMPT},
-            {"role": "user", "content": _build_user_content(sources)},
-        ],
-        "temperature": 0,
-    }
-    try:
-        response = _post(body, api_key)
-        raw = response["choices"][0]["message"]["content"]
-        payload = parse_json_object(raw)
-    except urllib.error.HTTPError as exc:
-        logger.warning("AI extraction HTTP error: status=%s models=%s", exc.code, models)
-        raise AIExtractionUnavailable(f"HTTP {exc.code}") from exc
-    except (OSError, KeyError, IndexError, TypeError, ValueError) as exc:
-        logger.warning("AI extraction failed: %s models=%s", exc, models)
-        raise AIExtractionUnavailable(str(exc)) from exc
-    model = str(response.get("model") or models[0])
-    items = normalize_words(payload)
-    logger.info("AI extraction done: kind=%s model=%s items=%d sources=%d", kind, model, len(items), len(sources))
-    return ExtractionResult(model=model, items=items)
+    messages = [
+        {"role": "system", "content": WORDS_PROMPT},
+        {"role": "user", "content": _build_user_content(sources)},
+    ]
+    errors = []
+    for model in queue:
+        try:
+            payload = _try_model(model, messages, api_key)
+        except AIExtractionUnavailable as exc:
+            errors.append(f"{model}: {exc}")
+            continue
+        items = normalize_words(payload)
+        logger.info("AI extraction done: kind=%s model=%s items=%d sources=%d", kind, model, len(items), len(sources))
+        return ExtractionResult(model=model, items=items)
+    raise AIExtractionUnavailable("; ".join(errors))

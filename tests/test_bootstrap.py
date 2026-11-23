@@ -14,7 +14,7 @@ class FakeBot:
     pass
 
 
-async def fake_maintenance_loop() -> None:
+async def fake_maintenance_loop(bot=None) -> None:
     return None
 
 

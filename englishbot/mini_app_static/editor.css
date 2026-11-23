@@ -58,3 +58,11 @@ select { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid va
 label.draft-row { flex-direction: row; font-weight: 400; cursor: pointer; }
 .draft-row .draft-check { padding-top: 10px; }
 .item.excluded { opacity: .45; }
+.model-card { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-bottom: 1px solid color-mix(in srgb, var(--hint) 25%, transparent); }
+.model-card:last-child { border-bottom: 0; }
+.model-card .title { font-weight: 600; overflow-wrap: anywhere; }
+.model-card .sub { color: var(--hint); font-size: .9rem; overflow-wrap: anywhere; }
+.model-card .mono { font-family: ui-monospace, monospace; font-size: .8rem; }
+.model-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.model-actions button { min-height: 40px; padding: 6px 12px; }
+.model-actions button.secondary { background: var(--bg); border: 1px solid color-mix(in srgb, var(--hint) 45%, transparent); }

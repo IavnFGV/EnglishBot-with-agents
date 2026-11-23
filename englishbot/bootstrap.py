@@ -46,7 +46,7 @@ async def run() -> None:
     bot = build_bot()
     set_mini_app_bot(bot)
     bulk_edit_monitor_task = asyncio.create_task(run_bulk_edit_monitor(bot))
-    maintenance_task = asyncio.create_task(run_daily_maintenance_loop())
+    maintenance_task = asyncio.create_task(run_daily_maintenance_loop(bot))
     try:
         await configure_bot_commands(bot)
         logger.info("Starting EnglishBot with long polling")

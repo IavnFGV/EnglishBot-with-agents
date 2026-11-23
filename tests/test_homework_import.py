@@ -83,7 +83,7 @@ def test_normalize_words_dedupes_and_skips_invalid_entries() -> None:
     assert normalize_words({"words": "nope"}) == []
 
 
-def test_extract_items_sends_model_fallback_list_and_images(family: int, monkeypatch) -> None:
+def test_extract_items_sends_first_queued_model_and_images(family: int, monkeypatch) -> None:
     sent = {}
 
     def fake_post(body, api_key):
@@ -99,7 +99,7 @@ def test_extract_items_sends_model_fallback_list_and_images(family: int, monkeyp
     assert result.model == "particle-ai/particle-1:free"
     assert result.items == [{"en": "cat", "ru": "кошка", "topic": "Animals"}]
     assert sent["api_key"] == "test-key"
-    assert sent["body"]["models"] == list(ai_extraction.get_ai_models())
+    assert sent["body"]["model"] == "particle-ai/particle-1:free"
     image_parts = [part for part in sent["body"]["messages"][1]["content"] if part["type"] == "image_url"]
     assert image_parts[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
 

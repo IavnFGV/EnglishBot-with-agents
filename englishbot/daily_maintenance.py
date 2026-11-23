@@ -81,19 +81,53 @@ def trim_interaction_log(
     return int(cursor.rowcount)
 
 
-def run_daily_maintenance_once(now: datetime | None = None) -> None:
+def run_daily_maintenance_once(now: datetime | None = None) -> bool:
+    """Run once-per-day work; return True when today's run happened just now."""
     backup_path = create_daily_backup_if_missing(now)
-    if backup_path is not None:
-        logger.info("Daily SQLite backup created: %s", backup_path)
-        removed = trim_interaction_log()
-        if removed:
-            logger.info("Trimmed %d oldest interaction log rows to stay under %d bytes", removed, INTERACTION_LOG_LIMIT_BYTES)
+    if backup_path is None:
+        return False
+    logger.info("Daily SQLite backup created: %s", backup_path)
+    removed = trim_interaction_log()
+    if removed:
+        logger.info("Trimmed %d oldest interaction log rows to stay under %d bytes", removed, INTERACTION_LOG_LIMIT_BYTES)
+    return True
 
 
-async def run_daily_maintenance_loop(*, interval_seconds: int = CHECK_INTERVAL_SECONDS) -> None:
+async def sync_ai_models(bot) -> dict[str, list[str]] | None:
+    """Drop queued models that stopped being free and tell the owner about changes."""
+    from .ai_models import fetch_free_vision_models, sync_model_queue
+    from .config import get_openrouter_api_key, get_owner_telegram_user_id
+    from .i18n import translate_for_user
+
+    if get_openrouter_api_key() is None:
+        return None
+    available = await asyncio.to_thread(fetch_free_vision_models)
+    report = await asyncio.to_thread(sync_model_queue, [str(model["id"]) for model in available])
+    owner = get_owner_telegram_user_id()
+    if bot is None or owner is None or not (report["removed"] or report["new"]):
+        return report
+    lines = []
+    if report["removed"]:
+        lines.append(translate_for_user(owner, "ai_models.sync.removed", models=", ".join(report["removed"])))
+    if report["new"]:
+        lines.append(translate_for_user(owner, "ai_models.sync.new", models=", ".join(report["new"])))
+    if report["queue"]:
+        lines.append(translate_for_user(owner, "ai_models.sync.queue", models=", ".join(report["queue"])))
+    else:
+        lines.append(translate_for_user(owner, "ai_models.sync.empty"))
+    lines.append(translate_for_user(owner, "ai_models.sync.hint"))
+    try:
+        await bot.send_message(chat_id=owner, text="\n".join(lines))
+    except Exception:
+        logger.exception("Could not send the AI model sync report")
+    return report
+
+
+async def run_daily_maintenance_loop(bot=None, *, interval_seconds: int = CHECK_INTERVAL_SECONDS) -> None:
     while True:
         try:
-            await asyncio.to_thread(run_daily_maintenance_once)
+            if await asyncio.to_thread(run_daily_maintenance_once):
+                await sync_ai_models(bot)
         except Exception:
             logger.exception("Daily maintenance failed")
         await asyncio.sleep(interval_seconds)
