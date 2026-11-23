@@ -14,7 +14,7 @@ Concise source of truth for what the repository does today. History lives in `CH
 - Deploy: GitHub Actions on `main` runs tests, then deploys over SSH (host fingerprint verified) to a Dockge stack; see `docs/deploy.md`. Dependabot PRs that pass tests auto-merge.
 
 ## Commands
-Defined in `englishbot/command_registry.py`: `/start`, `/help`, `/version`, `/learn`, `/homework`, `/me`, `/settings`, `/cancel`, `/create_assignment`, `/seed_demo` and `/add_family` (owner only), `/topics`, `/teacher_content`, `/bulk_edit`, `/bulk_edit_with_archived`.
+Defined in `englishbot/command_registry.py`. The Telegram menu shows five, with descriptions per interface language: `/learn`, `/homework`, `/topics`, `/teacher_content`, `/settings`. These also work when typed: `/start`, `/help`, `/version`, `/me`, `/cancel`, `/create_assignment` (old words-only assignment dialog), `/seed_demo` and `/add_family` (owner only).
 
 ## Family and access
 - Family-first model: `families`, `family_members`, family-owned `learning_items` and `topics`, personal `user_progress`, and family homework.
@@ -49,7 +49,6 @@ Defined in `englishbot/command_registry.py`: `/start`, `/help`, `/version`, `/le
 ## Content authoring
 - `/teacher_content` opens the dictionary web editor (`dictionary_editor.py`, `mini_app_static/editor.*`, API `/mini-app/api/editor/`) when the Mini App URL is set. The older Telegram dialog editor is a secondary button and the fallback.
 - The web editor edits topics, words, translations, and pictures (gallery or link). Pictures are normalized server-side to upright JPEG up to 1024px. Deletes archive rows.
-- `/bulk_edit` (`bulk_edit.py`, `workbook_export.py`, `workbook_import.py`) still provides `.xlsx` export/import: one global gated session, validation first, backup first, then a short atomic apply; missing rows archive content. It is slated for removal now that the web editor exists.
 
 ## Media
 - `assets` plus `learning_item_assets` hold media metadata; local files are the runtime truth, and `source_url` is only traceability.
@@ -76,7 +75,7 @@ Defined in `englishbot/command_registry.py`: `/start`, `/help`, `/version`, `/le
 - Some older Telegram list screens still use plain inline button lists.
 
 ## Next work
-- Remove the Excel bulk edit, and later the Telegram dialog editor once the web editor is adopted.
+- Remove the Telegram dialog editor and `/create_assignment` once the web editor fully replaces them.
 - Homework import beyond words: phrases and question-answer pairs, then irregular verbs, then a task checklist; analysis and proposed model in `docs/homework-task-types.md`.
 
 ## Tests

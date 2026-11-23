@@ -101,19 +101,6 @@ TEACHER_CONTENT_COMMAND = CommandDefinition(
     scope="teacher",
     register_after_startup=True,
 )
-BULK_EDIT_COMMAND = CommandDefinition(
-    name="bulk_edit",
-    description_key="command.bulk_edit",
-    scope="teacher",
-    register_after_startup=True,
-)
-BULK_EDIT_WITH_ARCHIVED_COMMAND = CommandDefinition(
-    name="bulk_edit_with_archived",
-    description_key="command.bulk_edit_with_archived",
-    scope="teacher",
-    register_after_startup=True,
-)
-
 ALL_COMMANDS = (
     START_COMMAND,
     HELP_COMMAND,
@@ -128,41 +115,24 @@ ALL_COMMANDS = (
     ADD_FAMILY_COMMAND,
     TOPICS_COMMAND,
     TEACHER_CONTENT_COMMAND,
-    BULK_EDIT_COMMAND,
-    BULK_EDIT_WITH_ARCHIVED_COMMAND,
+)
+
+# The Telegram menu stays short; the other commands still work when typed.
+MENU_COMMANDS = (
+    LEARN_COMMAND,
+    HOMEWORK_COMMAND,
+    TOPICS_COMMAND,
+    TEACHER_CONTENT_COMMAND,
+    SETTINGS_COMMAND,
 )
 
 
-def get_registered_commands(*, include_owner_commands: bool = False) -> tuple[CommandDefinition, ...]:
-    commands = (
-        START_COMMAND,
-        HELP_COMMAND,
-        VERSION_COMMAND,
-        LEARN_COMMAND,
-        HOMEWORK_COMMAND,
-        ME_COMMAND,
-        SETTINGS_COMMAND,
-        CANCEL_COMMAND,
-        CREATE_ASSIGNMENT_COMMAND,
-        TOPICS_COMMAND,
-        TEACHER_CONTENT_COMMAND,
-        BULK_EDIT_COMMAND,
-        BULK_EDIT_WITH_ARCHIVED_COMMAND,
-    )
-    if include_owner_commands:
-        commands = commands + (SEED_DEMO_COMMAND,)
-    return commands
+def get_registered_commands() -> tuple[CommandDefinition, ...]:
+    return MENU_COMMANDS
 
 
-def build_bot_commands(
-    language_code: str = DEFAULT_LANGUAGE_CODE,
-    *,
-    include_owner_commands: bool = False,
-) -> list[BotCommand]:
-    return [
-        command.to_bot_command(language_code)
-        for command in get_registered_commands(include_owner_commands=include_owner_commands)
-    ]
+def build_bot_commands(language_code: str = DEFAULT_LANGUAGE_CODE) -> list[BotCommand]:
+    return [command.to_bot_command(language_code) for command in get_registered_commands()]
 
 
 BOT_COMMANDS = build_bot_commands()

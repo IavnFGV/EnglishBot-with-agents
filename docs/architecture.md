@@ -9,7 +9,7 @@
   3. load build info
   4. initialize and migrate SQLite
   5. start the internal status server
-  6. build the bot, register commands, start background tasks (bulk-edit monitor, daily maintenance), and start long polling
+  6. build the bot, register commands, start the daily maintenance task, and start long polling
 
 ## Main modules
 - Runtime wiring: `bootstrap.py`, `runtime.py`, `bot.py`, `command_registry.py`
@@ -17,7 +17,7 @@
 - User/i18n: `user_profiles.py`, `i18n.py`, `settings_handlers.py`
 - Family-first domain slice: `families.py`
 - Learning domain: `vocabulary.py`, `topics.py`, `assets.py`, `exercises.py`, `training.py`
-- Family-first workflows: `topic_access.py`, `homework.py`, `learner_homework.py`, `teacher_assignments.py`, `teacher_content.py`, `bulk_edit.py`, `workbook_export.py`, `workbook_import.py`
+- Family-first workflows: `topic_access.py`, `homework.py`, `learner_homework.py`, `teacher_assignments.py`, `teacher_content.py`
 - Homework import and web editor: `homework_sets.py`, `homework_import_handlers.py`, `ai_extraction.py`, `ai_models.py`, `dictionary_editor.py`
 - Telegram orchestration: `*_handlers.py`
 - Multi-step Telegram UI: `learner_training_dialog.py`, `homework_dialog.py`, `teacher_assignment_dialog.py`, `teacher_content_dialog.py`
@@ -38,7 +38,6 @@
 ## Major flows
 - Family authoring: `/teacher_content` opens the dictionary web editor (`/mini-app/editor`) when the Mini App URL is set; the older aiogram-dialog editor remains as a fallback.
 - Homework import: forwarded tutor messages collect a homework set, an optional OpenRouter model drafts words, a person reviews and saves the draft in the web editor, and the set can be assigned as homework.
-- Family bulk editing: `/bulk_edit` exports one family workbook, opens one global gated bulk-edit session, and applies the returned `.xlsx` back into SQLite through a validation-first, backup-first, two-phase import (`prepare` outside the DB write transaction, then short atomic `apply`).
 - Assignment creation: `/create_assignment` persists family homework assignments for family members.
 - Topic access: `/topics` resolves family-owned shared topics directly from `topics.family_id` plus `topic_items`.
 - Learner training: `/learn`, homework, and topic launches all create or resume training sessions with a persisted chosen mode via `training.py`; the active `/learn` and homework quiz surfaces now render through a shared learner `aiogram-dialog` shell with reusable inline TTS controls.
@@ -56,8 +55,7 @@
 - The repository uses SQLite through stdlib `sqlite3`.
 - Sessions, homework, topic access, and content all persist in SQLite.
 - Telegram media `file_id`s persist in a separate cache table keyed by `asset_id` plus media kind, so transport reuse stays outside the main learning and asset truth model, including persisted synthesized TTS variants.
-- Bulk edit sessions also persist in SQLite so the bot can enforce one active workbook session globally and recover gating state after restart.
-- Workbook files and Telegram message state are integration surfaces, not primary storage; family workbook apply is backup-first, remote assets are prepared outside the DB write transaction into local staged files, the DB apply remains atomic and short, and missing workbook rows archive family content instead of hard-deleting it.
+- Telegram message state and forwarded files are integration surfaces, not primary storage; deleting content archives it instead of hard-deleting it.
 
 ## Testing strategy
 - The project uses focused `pytest` files by module or flow.

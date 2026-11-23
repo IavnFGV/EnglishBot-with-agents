@@ -27,7 +27,6 @@ from englishbot.teacher_content_dialog import (
     go_to_prompt_return,
     hide_show_all,
     next_item,
-    _open_bulk_edit,
     on_prompt_input,
     on_topic_selected,
     open_create_topic,
@@ -443,22 +442,16 @@ def test_topics_window_empty_and_single_page_states_stay_compact(tmp_path: Path)
     assert single_view["topic_items"][0]["label"] == "1. Topic 01 (0)"
 
 
-def test_topics_screen_exposes_bulk_edit_entrypoint(tmp_path: Path, monkeypatch) -> None:
+def test_topics_screen_has_no_bulk_edit_entrypoint(tmp_path: Path) -> None:
     setup_db(tmp_path)
     user = make_user(118, "Family")
     family_id, _ = seed_topic(user)
     manager = FakeDialogManager(user)
     manager.dialog_data["family_id"] = family_id
-    bot_user = User(id=999999, is_bot=True, first_name="EnglishBot", username="englishbot")
-    topic_message = FakeMessage(bot_user, bot=FakeBot(), message_id=manager.last_message_id)
-    topic_message.chat = SimpleNamespace(id=user.id)
 
     topics_view = asyncio.run(get_topics_window_data(manager))
-    asyncio.run(_open_bulk_edit(SimpleNamespace(message=topic_message, from_user=user), None, manager))
 
-    assert topics_view["bulk_edit_label"] == "📄 Bulk edit"
-    assert len(topic_message.document_calls) == 1
-    assert topic_message.answers[-1].startswith("Edit the workbook locally")
+    assert "bulk_edit_label" not in topics_view
 
 
 def test_prev_next_item_navigation_updates_family_selection_in_place(tmp_path: Path) -> None:

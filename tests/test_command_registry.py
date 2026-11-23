@@ -7,8 +7,6 @@ from englishbot.command_registry import (
     ALL_COMMANDS,
     ADD_FAMILY_COMMAND,
     BOT_COMMANDS,
-    BULK_EDIT_COMMAND,
-    BULK_EDIT_WITH_ARCHIVED_COMMAND,
     CANCEL_COMMAND,
     CREATE_ASSIGNMENT_COMMAND,
     HELP_COMMAND,
@@ -42,38 +40,27 @@ def test_command_registry_contains_all_canonical_commands() -> None:
         "add_family",
         "topics",
         "teacher_content",
-        "bulk_edit",
-        "bulk_edit_with_archived",
     ]
     assert len({command.name for command in ALL_COMMANDS}) == len(ALL_COMMANDS)
 
 
-def test_bot_command_collection_stays_consistent_with_registry() -> None:
+def test_menu_is_short_and_matches_bot_commands() -> None:
     registered = get_registered_commands()
-    owner_registered = get_registered_commands(include_owner_commands=True)
 
     assert registered == (
-        START_COMMAND,
-        HELP_COMMAND,
-        VERSION_COMMAND,
         LEARN_COMMAND,
         HOMEWORK_COMMAND,
-        ME_COMMAND,
-        SETTINGS_COMMAND,
-        CANCEL_COMMAND,
-        CREATE_ASSIGNMENT_COMMAND,
         TOPICS_COMMAND,
         TEACHER_CONTENT_COMMAND,
-        BULK_EDIT_COMMAND,
-        BULK_EDIT_WITH_ARCHIVED_COMMAND,
+        SETTINGS_COMMAND,
     )
-    assert owner_registered == registered + (SEED_DEMO_COMMAND,)
     assert BOT_COMMANDS == build_bot_commands()
     assert [command.command for command in BOT_COMMANDS] == [command.name for command in registered]
+    assert build_bot_commands("ru")[0].description == translate("command.learn", "ru")
 
 
 def test_bot_commands_use_centralized_i18n_descriptions() -> None:
-    assert BOT_COMMANDS[0].description == translate("command.start", "en")
+    assert START_COMMAND.to_bot_command("en").description == translate("command.start", "en")
     assert CREATE_ASSIGNMENT_COMMAND.to_bot_command("en").description == translate(
         "command.create_assignment",
         "en",
@@ -92,14 +79,6 @@ def test_bot_commands_use_centralized_i18n_descriptions() -> None:
     )
     assert TEACHER_CONTENT_COMMAND.to_bot_command("en").description == translate(
         "command.teacher_content",
-        "en",
-    )
-    assert BULK_EDIT_COMMAND.to_bot_command("en").description == translate(
-        "command.bulk_edit",
-        "en",
-    )
-    assert BULK_EDIT_WITH_ARCHIVED_COMMAND.to_bot_command("en").description == translate(
-        "command.bulk_edit_with_archived",
         "en",
     )
     assert VERSION_COMMAND.to_bot_command("en").description == translate(

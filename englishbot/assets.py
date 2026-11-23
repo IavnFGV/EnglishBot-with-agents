@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 from io import BytesIO
 import re
-import shutil
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -16,7 +15,6 @@ from . import db
 TEACHER_CONTENT_IMAGE_DIR = Path("assets/images/teacher-content")
 HOMEWORK_PHOTO_DIR = Path("assets/images/homework")
 NO_IMAGE_PLACEHOLDER_PATH = Path("assets/images/no-image.png")
-WORKBOOK_IMPORT_STAGING_DIR = Path("assets/import-staging")
 ASSET_TYPE_IMAGE = "image"
 ASSET_TYPE_AUDIO = "audio"
 ASSET_TYPE_VOICE = "voice"
@@ -39,12 +37,6 @@ REMOTE_ASSET_SUBDIR_BY_TYPE = {
     ASSET_TYPE_VIDEO: Path("assets/video/remote"),
 }
 
-IMPORTED_ASSET_SUBDIR_BY_TYPE = {
-    ASSET_TYPE_IMAGE: Path("assets/images/imported"),
-    ASSET_TYPE_AUDIO: Path("assets/audio/imported"),
-    ASSET_TYPE_VOICE: Path("assets/voice/imported"),
-    ASSET_TYPE_VIDEO: Path("assets/video/imported"),
-}
 SYNTHESIZED_VOICE_SUBDIR = Path("assets/voice/synthesized")
 TELEGRAM_MEDIA_KIND_PHOTO = "photo"
 TELEGRAM_MEDIA_KIND_AUDIO = "audio"
@@ -815,49 +807,6 @@ def is_valid_local_image_path(image_path: str | Path) -> bool:
     except (OSError, SyntaxError, UnidentifiedImageError):
         return False
     return True
-
-
-def store_workbook_import_asset(
-    asset_type: str,
-    content: bytes,
-    *,
-    source_url: str,
-) -> str:
-    if asset_type not in SUPPORTED_ASSET_TYPES:
-        raise ValueError("unsupported asset_type")
-    if not content:
-        raise ValueError("asset content is required")
-
-    suffix = _resolve_asset_extension(
-        asset_type,
-        source_url=source_url,
-        content=content,
-    )
-    asset_dir = _get_runtime_root() / WORKBOOK_IMPORT_STAGING_DIR / asset_type
-    asset_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"staged-{uuid4().hex}{suffix}"
-    output_path = asset_dir / filename
-    output_path.write_bytes(content)
-    return str((WORKBOOK_IMPORT_STAGING_DIR / asset_type / filename).as_posix())
-
-
-def finalize_workbook_import_asset(
-    asset_id: int,
-    asset_type: str,
-    staged_local_path: str,
-) -> str:
-    if asset_type not in SUPPORTED_ASSET_TYPES:
-        raise ValueError("unsupported asset_type")
-    staged_path = resolve_runtime_asset_path(staged_local_path)
-    suffix = staged_path.suffix.lower() or _default_extension_for_asset_type(asset_type)
-    relative_dir = IMPORTED_ASSET_SUBDIR_BY_TYPE[asset_type]
-    final_relative_path = relative_dir / f"asset-{int(asset_id)}{suffix}"
-    final_path = _get_runtime_root() / final_relative_path
-    final_path.parent.mkdir(parents=True, exist_ok=True)
-    if staged_path.resolve() != final_path.resolve():
-        final_path.unlink(missing_ok=True)
-        shutil.move(str(staged_path), str(final_path))
-    return str(final_relative_path.as_posix())
 
 
 def resolve_runtime_asset_path(asset_path: str | Path) -> Path:

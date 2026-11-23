@@ -3,7 +3,6 @@ import os
 import contextlib
 import asyncio
 from .bot import configure_bot_commands, dispatcher
-from .bulk_edit import run_bulk_edit_monitor
 from .build_info import format_startup_banner, load_build_info
 from .config import load_environment
 from .daily_maintenance import run_daily_maintenance_loop
@@ -45,7 +44,6 @@ async def run() -> None:
     )
     bot = build_bot()
     set_mini_app_bot(bot)
-    bulk_edit_monitor_task = asyncio.create_task(run_bulk_edit_monitor(bot))
     maintenance_task = asyncio.create_task(run_daily_maintenance_loop(bot))
     try:
         await configure_bot_commands(bot)
@@ -53,9 +51,8 @@ async def run() -> None:
         await dispatcher.start_polling(bot)
     finally:
         set_mini_app_bot(None)
-        for task in (bulk_edit_monitor_task, maintenance_task):
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        maintenance_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await maintenance_task
         status_server.close()
         await status_server.wait_closed()

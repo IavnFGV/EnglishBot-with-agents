@@ -34,13 +34,13 @@ Use `CHANGELOG.md` or git history only when the task needs historical context.
 - Bot token source: `.env` via `TELEGRAM_BOT_TOKEN`
 
 ## Architecture boundaries
-- Business logic belongs in focused modules under `englishbot/` such as `training.py`, `homework.py`, `topics.py`, `topic_access.py`, `teacher_content.py`, `workbook_import.py`, and `workbook_export.py`.
+- Business logic belongs in focused modules under `englishbot/` such as `training.py`, `homework.py`, `topics.py`, `topic_access.py`, `teacher_content.py`, `homework_sets.py`, and `dictionary_editor.py`.
 - Telegram/UI orchestration belongs in `*_handlers.py` and `*_dialog.py`.
 - `englishbot/bot.py` wires handlers, dialogs, and command registration.
 - `englishbot/bootstrap.py` owns startup order.
 - `englishbot/db.py` owns SQLite bootstrap, migrations, and shared persistence helpers.
 - Do not reintroduce product logic into Telegram handlers.
-- Do not treat JSON, workbook files, or Telegram message state as runtime source of truth over SQLite.
+- Do not treat JSON files or Telegram message state as runtime source of truth over SQLite.
 
 ## Coding rules
 - This is a Telegram-first learning product, not an AI playground.
@@ -78,7 +78,7 @@ Use `CHANGELOG.md` or git history only when the task needs historical context.
 - `logs/`
 - `.pytest_cache/`, `.venv/`
 - `.git/`
-- local data and backup folders: `data/`, `backups/`, `server-copy/`, `bulk-edit/`, `ChatExport_*/`
+- local data and backup folders: `data/`, `backups/`, `server-copy/`, `ChatExport_*/`
 - `assets/images/teacher-content/` and other binary assets unless the task is about media handling
 
 ## Hard navigation constraints

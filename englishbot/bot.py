@@ -21,7 +21,7 @@ from .config import get_owner_telegram_user_id
 from .db import count_text_interactions, get_user, save_user
 from .families import ensure_user_family, get_user_family
 from .homework_dialog import homework_dialog
-from .i18n import translate_for_user
+from .i18n import DEFAULT_LANGUAGE_CODE, SUPPORTED_LANGUAGE_CODES, translate_for_user
 from .learner_training_dialog import learner_training_dialog
 from .runtime import dispatcher, router
 from .teacher_assignment_dialog import teacher_assignment_dialog
@@ -29,7 +29,6 @@ from .teacher_content_dialog import teacher_content_dialog
 from .telegram_media_storage import telegram_media_id_storage
 from .user_profiles import get_user_role
 from . import cancel_handlers  # noqa: F401
-from . import bulk_edit_handlers  # noqa: F401
 from . import homework_handlers  # noqa: F401
 from . import homework_import_handlers  # noqa: F401  # before training: forwarded text must not reach answer handlers
 from . import owner_handlers  # noqa: F401
@@ -53,16 +52,19 @@ setup_dialogs(dispatcher, media_id_storage=telegram_media_id_storage)
 
 
 async def configure_bot_commands(bot) -> None:
+    """One short menu for everyone, with descriptions in each interface language Telegram reports."""
+    await bot.set_my_commands(build_bot_commands(), scope=BotCommandScopeDefault())
+    for language_code in SUPPORTED_LANGUAGE_CODES:
+        if language_code != DEFAULT_LANGUAGE_CODE:
+            await bot.set_my_commands(
+                build_bot_commands(language_code),
+                scope=BotCommandScopeDefault(),
+                language_code=language_code,
+            )
     owner_user_id = get_owner_telegram_user_id()
-    await bot.set_my_commands(
-        build_bot_commands(),
-        scope=BotCommandScopeDefault(),
-    )
     if owner_user_id is not None:
-        await bot.set_my_commands(
-            build_bot_commands(include_owner_commands=True),
-            scope=BotCommandScopeChat(chat_id=owner_user_id),
-        )
+        # The owner used to get a longer personal menu; drop it so the shared one applies.
+        await bot.delete_my_commands(scope=BotCommandScopeChat(chat_id=owner_user_id))
 
 
 def _is_owner_user(user_id: int) -> bool:

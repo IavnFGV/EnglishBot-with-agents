@@ -45,8 +45,13 @@ class FakeBot:
     def __init__(self) -> None:
         self.commands_calls: list[dict[str, object]] = []
 
-    async def set_my_commands(self, commands, scope=None) -> None:
-        self.commands_calls.append({"commands": commands, "scope": scope})
+        self.deleted_scopes: list[object] = []
+
+    async def set_my_commands(self, commands, scope=None, language_code=None) -> None:
+        self.commands_calls.append({"commands": commands, "scope": scope, "language_code": language_code})
+
+    async def delete_my_commands(self, scope=None, language_code=None) -> None:
+        self.deleted_scopes.append(scope)
 
 
 def make_user(user_id: int, first_name: str) -> User:
@@ -92,7 +97,6 @@ def test_start_handler_bootstraps_family_for_new_user_when_owner_is_not_configur
         "/seed_demo - fill test content\n"
         "/homework - open your homework\n"
         "/teacher_content - add words and topics\n"
-        "/create_assignment - assign homework\n"
         "/topics - open family topics\n"
         "/learn - start training"
     ]
@@ -115,7 +119,6 @@ def test_start_handler_reuses_existing_family(tmp_path: Path, monkeypatch) -> No
         "/seed_demo - fill test content\n"
         "/homework - open your homework\n"
         "/teacher_content - add words and topics\n"
-        "/create_assignment - assign homework\n"
         "/topics - open family topics\n"
         "/learn - start training"
     ]
@@ -157,7 +160,6 @@ def test_start_command_via_dispatcher_bootstraps_family_in_runtime(
         "/seed_demo - fill test content\n"
         "/homework - open your homework\n"
         "/teacher_content - add words and topics\n"
-        "/create_assignment - assign homework\n"
         "/topics - open family topics\n"
         "/learn - start training"
     ]
@@ -202,8 +204,6 @@ def test_help_handler_shows_family_first_command_list(tmp_path: Path) -> None:
         "/settings - open settings\n"
         "/cancel - stop the current flow\n"
         "/teacher_content - edit family content\n"
-        "/bulk_edit - export and reimport family workbook\n"
-        "/create_assignment - assign homework inside the family\n"
         "/seed_demo - fill family with test content"
     ]
 
@@ -229,8 +229,6 @@ def test_help_handler_shows_seed_demo_to_owner_only(tmp_path: Path, monkeypatch)
         "/settings - open settings\n"
         "/cancel - stop the current flow\n"
         "/teacher_content - edit family content\n"
-        "/bulk_edit - export and reimport family workbook\n"
-        "/create_assignment - assign homework inside the family\n"
         "/seed_demo - fill family with test content"
     ]
 
@@ -394,31 +392,27 @@ def test_seed_demo_command_is_idempotent_for_existing_demo_content(tmp_path: Pat
     )
 
 
-def test_configure_bot_commands_registers_expected_commands() -> None:
+def test_configure_bot_commands_registers_a_short_menu_per_language() -> None:
     bot = FakeBot()
 
     asyncio.run(configure_bot_commands(bot))
 
-    assert bot.commands_calls == [
-        {
-            "commands": BOT_COMMANDS,
-            "scope": BotCommandScopeDefault(),
-        }
-    ]
+    assert bot.commands_calls[0] == {"commands": BOT_COMMANDS, "scope": BotCommandScopeDefault(), "language_code": None}
+    assert [call["language_code"] for call in bot.commands_calls[1:]] == ["ru", "uk", "bg"]
+    russian = bot.commands_calls[1]["commands"]
+    assert [command.command for command in russian] == ["learn", "homework", "topics", "teacher_content", "settings"]
+    assert russian[3].description == "Редактор: словарь и домашка"
+    assert bot.deleted_scopes == []
 
 
-def test_configure_bot_commands_registers_seed_demo_only_for_owner_scope(monkeypatch) -> None:
+def test_configure_bot_commands_drops_the_old_owner_menu(monkeypatch) -> None:
     bot = FakeBot()
     monkeypatch.setenv("ENGLISHBOT_OWNER_TELEGRAM_USER_ID", "913")
 
     asyncio.run(configure_bot_commands(bot))
 
-    assert bot.commands_calls[0] == {
-        "commands": BOT_COMMANDS,
-        "scope": BotCommandScopeDefault(),
-    }
-    assert bot.commands_calls[1]["scope"] == BotCommandScopeChat(chat_id=913)
-    assert [command.command for command in bot.commands_calls[1]["commands"]][-1] == "seed_demo"
+    assert bot.deleted_scopes == [BotCommandScopeChat(chat_id=913)]
+    assert all(call["scope"] == BotCommandScopeDefault() for call in bot.commands_calls)
     assert [command.command for command in bot.commands_calls[0]["commands"]] == [
         command.name for command in get_registered_commands()
     ]

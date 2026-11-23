@@ -18,12 +18,11 @@ It was also a rewrite experiment. A large part of the restructuring was done wit
 - Family-shared learning content and assignments
 - Dictionary editing in a Telegram Mini App web editor (with an older in-chat editor as fallback)
 - Turning forwarded tutor homework into a reviewed word list and homework, with an optional free OpenRouter model drafting it
-- Offline workbook export/import for bulk content editing (slated for removal)
 - Optional pronunciation playback through an external TTS service
 
 ## Architecture
 
-At a high level, this is still one application process. Telegram is the UI surface, `aiogram` handles bot transport, domain logic stays inside focused Python modules, and SQLite stores runtime state. Bulk editing is intentionally handled through workbook import/export rather than a separate admin app.
+At a high level, this is still one application process. Telegram is the UI surface, `aiogram` handles bot transport, domain logic stays inside focused Python modules, and SQLite stores runtime state. Content is edited in a small web editor opened inside Telegram rather than a separate admin app.
 
 The split from the first version is mostly about boundaries:
 
@@ -39,7 +38,6 @@ flowchart TD
     B --> AS[Local assets]
     B -. optional .-> TTS[External TTS service]
     B -. optional .-> OR[OpenRouter free models]
-    B --> XLSX[Workbook export/import]
     INFRA[infra-vps / VPS infrastructure] --> B
 ```
 
@@ -61,7 +59,6 @@ In practice, the most useful part of the setup was the `complexity guard`. It he
 - `aiogram`
 - `aiogram-dialog`
 - SQLite via the Python standard library
-- `openpyxl`
 - `Pillow`
 - Docker Compose
 - GitHub Actions
