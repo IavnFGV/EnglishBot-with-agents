@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from aiogram.enums import ContentType
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery
 from aiogram_dialog import Dialog, DialogManager, ShowMode, Window
-from aiogram_dialog.widgets.kbd import Button, Row, ScrollingGroup, Select
+from aiogram_dialog.api.entities.media import MediaAttachment
+from aiogram_dialog.widgets.kbd import Button, Column, Row, ScrollingGroup, Select
+from aiogram_dialog.widgets.media import DynamicMedia
 from aiogram_dialog.widgets.text import Format
 
 from .homework import (
     AssignmentNotFoundError,
     EmptyAssignmentError,
+    list_assignment_tasks,
+    set_assignment_task_done,
     start_assignment_training_session,
 )
 from .i18n import translate_for_user
@@ -22,11 +27,14 @@ from .learner_training_dialog import start_training_dialog
 
 
 LIST_PAGE_SIZE = 5
+CAPTION_LIMIT = 1000  # Telegram allows 1024 characters under a photo
+BUTTON_TITLE_LIMIT = 40
 
 
 class HomeworkDialogSG(StatesGroup):
     assignments = State()
     overview = State()
+    task = State()
 
 
 async def _on_assignment_selected(
@@ -137,12 +145,7 @@ async def get_assignments_window_data(
                     "homework.dialog.line.entry",
                     index=page_start + index + 1,
                     title=_resolve_assignment_title(user_id, assignment),
-                    progress=translate_for_user(
-                        user_id,
-                        "homework.dialog.progress.compact",
-                        completed_items=assignment["completed_items"],
-                        total_items=assignment["total_items"],
-                    ),
+                    progress=_compact_progress(user_id, assignment),
                     action_label=translate_for_user(
                         user_id,
                         f"homework.dialog.action.{assignment['action_key']}",
@@ -200,19 +203,151 @@ async def get_overview_window_data(
             stage_label=translate_for_user(user_id, f"training.stage.{current_stage}"),
         )
 
+    screen_text = translate_for_user(
+        user_id,
+        "homework.dialog.screen.overview",
+        title=_resolve_assignment_title(user_id, assignment),
+        item_count=assignment["item_count"],
+        progress=progress,
+        action_label=translate_for_user(user_id, f"homework.dialog.action.{action_key}"),
+        resume_details=resume_details,
+    )
+    task_lines = [_task_line(user_id, assignment, task) for task in assignment["tasks"]]
+    if task_lines:
+        screen_text += "\n\n" + "\n".join(task_lines)
     return {
-        "screen_text": translate_for_user(
-            user_id,
-            "homework.dialog.screen.overview",
-            title=_resolve_assignment_title(user_id, assignment),
-            item_count=assignment["item_count"],
-            progress=progress,
-            action_label=translate_for_user(user_id, f"homework.dialog.action.{action_key}"),
-            resume_details=resume_details,
-        ),
+        "screen_text": screen_text,
+        "can_train": int(assignment["item_count"]) > 0 and not assignment["words_done"],
+        "task_buttons": [
+            {"id": str(task["id"]), "label": _task_button_label(user_id, task)}
+            for task in assignment["tasks"]
+            if task["kind"] != "words"
+        ],
         "action_label": translate_for_user(user_id, f"homework.dialog.action.{action_key}"),
         "back_label": translate_for_user(user_id, "homework.dialog.action.back"),
         "cancel_label": translate_for_user(user_id, "homework.dialog.action.cancel"),
+    }
+
+
+def _compact_progress(user_id: int, assignment: dict[str, object]) -> str:
+    progress = translate_for_user(
+        user_id,
+        "homework.dialog.progress.compact",
+        completed_items=assignment["completed_items"],
+        total_items=assignment["total_items"],
+    )
+    if assignment.get("paper_total"):
+        progress += " • " + translate_for_user(
+            user_id, "homework.task.paper_progress", done=assignment["paper_done"], total=assignment["paper_total"]
+        )
+    return progress
+
+
+def _task_title(user_id: int, task: dict[str, object]) -> str:
+    return str(task["title"]) or translate_for_user(user_id, f"homework.task.untitled.{task['kind']}")
+
+
+def _task_line(user_id: int, assignment: dict[str, object], task: dict[str, object]) -> str:
+    if task["kind"] == "words":
+        if assignment["words_done"]:
+            return translate_for_user(user_id, "homework.task.words_done_line")
+        return translate_for_user(
+            user_id, "homework.task.words_line", done=assignment["completed_items"], total=assignment["total_items"]
+        )
+    if task["kind"] == "paper":
+        return translate_for_user(user_id, "homework.task.paper_line", mark="✅" if task["done"] else "⬜", title=_task_title(user_id, task))
+    return translate_for_user(user_id, "homework.task.note_line", title=_task_title(user_id, task))
+
+
+def _task_button_label(user_id: int, task: dict[str, object]) -> str:
+    title = _task_title(user_id, task)
+    if len(title) > BUTTON_TITLE_LIMIT:
+        title = title[: BUTTON_TITLE_LIMIT - 1] + "…"
+    if task["kind"] == "paper":
+        return translate_for_user(user_id, "homework.task.paper_line", mark="✅" if task["done"] else "⬜", title=title)
+    return translate_for_user(user_id, "homework.task.note_line", title=title)
+
+
+def _selected_task(dialog_manager: DialogManager) -> dict[str, object]:
+    user_id = _get_user_id(dialog_manager)
+    task_id = int(dialog_manager.dialog_data.get("task_id", 0))
+    for task in list_assignment_tasks(user_id, _get_selected_assignment_id(dialog_manager)):
+        if task["id"] == task_id:
+            return task
+    raise AssignmentNotFoundError
+
+
+async def _on_task_selected(
+    callback: CallbackQuery,
+    widget: Select,
+    dialog_manager: DialogManager,
+    task_id: str,
+) -> None:
+    dialog_manager.dialog_data["task_id"] = int(task_id)
+    dialog_manager.dialog_data["photo_index"] = 0
+    await dialog_manager.switch_to(HomeworkDialogSG.task)
+
+
+async def _shift_photo(dialog_manager: DialogManager, delta: int) -> None:
+    dialog_manager.dialog_data["photo_index"] = int(dialog_manager.dialog_data.get("photo_index", 0)) + delta
+    await dialog_manager.update({})
+
+
+async def _prev_photo(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:
+    await _shift_photo(dialog_manager, -1)
+
+
+async def _next_photo(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:
+    await _shift_photo(dialog_manager, 1)
+
+
+async def _toggle_task_done(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:
+    if callback.from_user is None:
+        return
+    user_id = callback.from_user.id
+    try:
+        task = _selected_task(dialog_manager)
+        finished = set_assignment_task_done(user_id, _get_selected_assignment_id(dialog_manager), int(task["id"]), not task["done"])
+    except AssignmentNotFoundError:
+        await callback.answer(translate_for_user(user_id, "homework.assignment_not_found"))
+        await dialog_manager.switch_to(HomeworkDialogSG.assignments)
+        return
+    if finished:
+        await callback.answer(translate_for_user(user_id, "homework.task.all_done"), show_alert=True)
+        await dialog_manager.switch_to(HomeworkDialogSG.assignments)
+        return
+    await callback.answer()
+    await dialog_manager.switch_to(HomeworkDialogSG.overview)
+
+
+async def _back_to_overview(callback: CallbackQuery, button: Button, dialog_manager: DialogManager) -> None:
+    await dialog_manager.switch_to(HomeworkDialogSG.overview)
+
+
+async def get_task_window_data(
+    dialog_manager: DialogManager,
+    **_: object,
+) -> dict[str, object]:
+    user_id = _get_user_id(dialog_manager)
+    task = _selected_task(dialog_manager)
+    photos = list(task["photos"])
+    index = int(dialog_manager.dialog_data.get("photo_index", 0)) % len(photos) if photos else 0
+    dialog_manager.dialog_data["photo_index"] = index
+    text = _task_button_label(user_id, task) if task["kind"] == "paper" else translate_for_user(user_id, "homework.task.note_line", title=_task_title(user_id, task))
+    if task["instructions"]:
+        text += "\n\n" + str(task["instructions"])
+    if len(photos) > 1:
+        text += "\n\n" + translate_for_user(user_id, "homework.task.photo_counter", index=index + 1, total=len(photos))
+    if photos and len(text) > CAPTION_LIMIT:
+        text = text[: CAPTION_LIMIT - 1] + "…"
+    return {
+        "screen_text": text,
+        "has_media": bool(photos),
+        "task_media": MediaAttachment(ContentType.PHOTO, path=photos[index]) if photos else None,
+        "has_many_photos": len(photos) > 1,
+        "is_paper": task["kind"] == "paper",
+        "toggle_label": translate_for_user(user_id, "homework.task.mark_undone" if task["done"] else "homework.task.mark_done"),
+        "back_label": translate_for_user(user_id, "homework.dialog.action.back"),
     }
 
 
@@ -290,7 +425,16 @@ homework_dialog = Dialog(
     Window(
         Format("{screen_text}"),
         Row(
-            Button(Format("{action_label}"), id="overview_start", on_click=_launch_assignment),
+            Button(Format("{action_label}"), id="overview_start", on_click=_launch_assignment, when="can_train"),
+        ),
+        Column(
+            Select(
+                Format("{item[label]}"),
+                id="task_select",
+                item_id_getter=lambda item: item["id"],
+                items="task_buttons",
+                on_click=_on_task_selected,
+            ),
         ),
         Row(
             Button(Format("{back_label}"), id="overview_back", on_click=_go_back_to_assignments),
@@ -298,6 +442,23 @@ homework_dialog = Dialog(
         ),
         state=HomeworkDialogSG.overview,
         getter=get_overview_window_data,
+    ),
+    Window(
+        DynamicMedia("task_media", when="has_media"),
+        Format("{screen_text}"),
+        Row(
+            Button(Format("◀️"), id="task_photo_prev", on_click=_prev_photo),
+            Button(Format("▶️"), id="task_photo_next", on_click=_next_photo),
+            when="has_many_photos",
+        ),
+        Row(
+            Button(Format("{toggle_label}"), id="task_toggle_done", on_click=_toggle_task_done, when="is_paper"),
+        ),
+        Row(
+            Button(Format("{back_label}"), id="task_back", on_click=_back_to_overview),
+        ),
+        state=HomeworkDialogSG.task,
+        getter=get_task_window_data,
     ),
 )
 

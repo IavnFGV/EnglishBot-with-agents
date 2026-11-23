@@ -81,6 +81,22 @@ def _ensure_homework_task_schema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    # Paper tasks the learner ticked off, per assignment.
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS homework_assignment_task_done (
+            homework_assignment_id INTEGER NOT NULL,
+            task_id INTEGER NOT NULL,
+            done_at TEXT NOT NULL,
+            PRIMARY KEY (homework_assignment_id, task_id),
+            FOREIGN KEY (homework_assignment_id) REFERENCES homework_assignments (id),
+            FOREIGN KEY (task_id) REFERENCES homework_set_tasks (id)
+        )
+        """
+    )
+    # Homework with paper tasks stays active after its words are drilled until they are ticked off.
+    if "words_completed_at" not in get_table_columns(connection, "homework_assignments"):
+        connection.execute("ALTER TABLE homework_assignments ADD COLUMN words_completed_at TEXT")
     if "task_id" not in get_table_columns(connection, "homework_set_items"):
         connection.execute("ALTER TABLE homework_set_items ADD COLUMN task_id INTEGER")
     # Sets saved before tasks existed get one words task holding all their items.

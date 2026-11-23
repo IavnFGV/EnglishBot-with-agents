@@ -39,7 +39,8 @@ Defined in `englishbot/command_registry.py`: `/start`, `/help`, `/version`, `/le
   - The draft is reviewed in the web editor (`/mini-app/editor?import=<id>`). Saving files new words under topics, reuses known words without duplicates, and can assign homework; the child is notified.
   - The draft can also pick existing dictionary words from any topic.
   - Saved sets can be renamed (assignments follow), re-assigned, edited (later assignments only), archived, and restored. Unsaved drafts are listed and can be deleted.
-  - A set is an ordered list of tasks (`homework_set_tasks`: `words`, `paper`, `note`) with photos (`homework_set_photos` gallery, `homework_set_task_assets` links). Drafts can be filled by hand without AI. Learners still see only the words; showing paper tasks and notes in `/homework` is next.
+  - A set is an ordered list of tasks (`homework_set_tasks`: `words`, `paper`, `note`) with photos (`homework_set_photos` gallery, `homework_set_task_assets` links). Drafts can be filled by hand without AI.
+  - Learners see the tasks in `/homework`: paper tasks with photos are ticked off by the learner (`homework_assignment_task_done`); homework completes when its words are drilled (`homework_assignments.words_completed_at`) and every paper task is ticked.
   - Item types other than words (phrases, irregular verbs) are future work.
 - The editor's "Homework" screen lists all family homework with progress and cancels unfinished ones.
 - AI model queue (`ai_models.py`, tables `app_settings`, `ai_model_stats`): only `:free` OpenRouter ids are accepted. The owner-only "Models" screen manages the queue and runs test checks. Models are tried in order. A daily sync drops models that are no longer free and notifies the owner.

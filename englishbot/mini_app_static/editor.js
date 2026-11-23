@@ -519,13 +519,15 @@ async function showHomework() {
     showHomework();
   });
   const activeCards = data.active.map((assignment) => {
-    const percent = assignment.total ? Math.round((assignment.done / assignment.total) * 100) : 0;
+    const parts = assignment.total + assignment.paper_total;
+    const percent = parts ? Math.round(((assignment.done + assignment.paper_done) / parts) * 100) : 0;
+    const paper = assignment.paper_total ? ` · 📄 ${assignment.paper_done}/${assignment.paper_total}` : '';
     return el('div', { class: 'homework-card' },
       el('div', { class: 'row' },
         el('span', { class: 'title grow' }, assignment.title),
         el('span', { class: 'sub' }, assignment.to)),
       el('div', { class: 'progress' }, el('span', { style: `width:${percent}%` })),
-      el('span', { class: 'sub' }, `${t('words_done', { done: assignment.done, total: assignment.total })} · ${assignment.mode} · ${t('assigned_on', { date: formatDate(assignment.created_at) })}`),
+      el('span', { class: 'sub' }, `${t('words_done', { done: assignment.done, total: assignment.total })}${paper} · ${assignment.mode} · ${t('assigned_on', { date: formatDate(assignment.created_at) })}`),
       el('div', { class: 'model-actions' },
         el('button', { class: 'secondary', onclick: () => cancel(assignment) }, t('cancel_homework')),
         assignment.set_id ? el('button', { class: 'secondary', onclick: () => showSet(assignment.set_id, '', showHomework) }, t('open_set')) : null));

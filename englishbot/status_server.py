@@ -142,6 +142,12 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
             text = translate_for_user(user_id, "training.round_summary", feedback="", title=title,
                                       completed=summary["completed"], total=summary["total"],
                                       deferred=summary["deferred"], assisted=summary["assisted"])
+            if assignment_id is not None:
+                from .homework import pending_paper_task_count
+
+                pending = pending_paper_task_count(int(assignment_id))
+                if pending:
+                    text += "\n\n" + translate_for_user(user_id, "homework.task.paper_left", count=pending)
             try:
                 await bot.send_message(user_id, text)
             except Exception:

@@ -559,8 +559,9 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
             (STATUS_SAVED, title, timestamp, timestamp, set_id),
         )
 
+    # Only words and paper work can be finished; a homework of notes alone would never end.
     assignment_id = None
-    if assign_to is not None and word_ids:
+    if assign_to is not None and (word_ids or any(task["kind"] == TASK_PAPER for task in tasks)):
         assignment_id = create_homework_assignment(
             family_id, user_id, assign_to, word_ids,
             title=title, training_mode=mode, homework_set_id=set_id,
@@ -759,7 +760,10 @@ def assign_set(user_id: int, set_id: int, assign_to: object, mode: object) -> di
                 (set_id,),
             ).fetchall()
         ]
-    if not word_ids:
+        has_paper = connection.execute(
+            "SELECT 1 FROM homework_set_tasks WHERE homework_set_id = ? AND task_kind = ?", (set_id, TASK_PAPER)
+        ).fetchone() is not None
+    if not word_ids and not has_paper:
         raise HomeworkSetError("set_empty")
     title = str(row["title"] or "")
     assignment_id = create_homework_assignment(
@@ -876,7 +880,12 @@ def list_assignments(user_id: int) -> dict[str, list[dict[str, object]]]:
                    (SELECT COUNT(*) FROM training_session_items
                     WHERE session_id = (SELECT MAX(id) FROM training_sessions
                                         WHERE family_homework_assignment_id = homework_assignments.id)
-                      AND is_completed = 1) AS done
+                      AND is_completed = 1) AS done,
+                   homework_assignments.words_completed_at,
+                   (SELECT COUNT(*) FROM homework_set_tasks
+                    WHERE homework_set_id = homework_assignments.homework_set_id AND task_kind = 'paper') AS paper_total,
+                   (SELECT COUNT(*) FROM homework_assignment_task_done
+                    WHERE homework_assignment_id = homework_assignments.id) AS paper_done
             FROM homework_assignments
             WHERE family_id = ?
             ORDER BY homework_assignments.id DESC
@@ -885,7 +894,8 @@ def list_assignments(user_id: int) -> dict[str, list[dict[str, object]]]:
         ).fetchall()
     def serialize(row) -> dict[str, object]:
         total = int(row["total"])
-        done = total if row["status"] == "completed" else min(int(row["done"] or 0), total)
+        words_finished = row["status"] == "completed" or row["words_completed_at"] is not None
+        done = total if words_finished else min(int(row["done"] or 0), total)
         return {
             "id": int(row["id"]),
             "title": str(row["title"] or translate_for_user(user_id, "homework.default_title")),
@@ -897,6 +907,8 @@ def list_assignments(user_id: int) -> dict[str, list[dict[str, object]]]:
             "set_id": int(row["homework_set_id"]) if row["homework_set_id"] is not None else None,
             "done": done,
             "total": total,
+            "paper_done": int(row["paper_done"]),
+            "paper_total": int(row["paper_total"]),
         }
     items = [serialize(row) for row in rows]
     return {

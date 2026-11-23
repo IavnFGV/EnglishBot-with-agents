@@ -3,6 +3,7 @@ from .homework import (
     AssignmentNotFoundError,
     get_assignment_progress_snapshot,
     list_active_assignments,
+    list_assignment_tasks,
 )
 from .training import (
     find_latest_incomplete_family_homework_training_session,
@@ -38,6 +39,19 @@ def _build_assignment_snapshot(
     student_user_id: int,
     assignment: dict[str, object],
 ) -> dict[str, object]:
+    snapshot = _build_words_snapshot(student_user_id, assignment)
+    tasks = list_assignment_tasks(student_user_id, int(assignment["id"]))
+    snapshot["tasks"] = tasks
+    snapshot["words_done"] = assignment["words_completed_at"] is not None
+    snapshot["paper_total"] = sum(1 for task in tasks if task["kind"] == "paper")
+    snapshot["paper_done"] = sum(1 for task in tasks if task["kind"] == "paper" and task["done"])
+    return snapshot
+
+
+def _build_words_snapshot(
+    student_user_id: int,
+    assignment: dict[str, object],
+) -> dict[str, object]:
     assignment_id = int(assignment["id"])
     assignment_key = f"{assignment['assignment_source']}:{assignment_id}"
     item_count = int(assignment["item_count"])
@@ -48,13 +62,14 @@ def _build_assignment_snapshot(
         assignment_id,
     )
     if incomplete_session is None:
+        words_done = assignment["words_completed_at"] is not None
         return {
             "assignment_id": assignment_id,
             "assignment_key": assignment_key,
             "title": assignment["title"],
             "assignment_mode": assignment["assignment_mode"],
             "item_count": item_count,
-            "completed_items": 0,
+            "completed_items": item_count if words_done else 0,
             "total_items": item_count,
             "current_item_position": 0,
             "current_stage": None,

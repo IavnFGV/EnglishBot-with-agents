@@ -28,6 +28,7 @@ from .db import save_user
 from .homework import (
     get_assignment_progress_snapshot,
     get_assignment,
+    pending_paper_task_count,
 )
 from .i18n import translate_for_user
 from .mini_app import question_token
@@ -527,13 +528,18 @@ def render_session_summary_text(
 ) -> str:
     assignment_ref = get_session_homework_ref(session)
     outcome = get_session_outcome(int(session["id"]))
-    return translate_for_user(
+    text = translate_for_user(
         telegram_user_id, "training.round_summary",
         feedback=feedback,
         title=_resolve_assignment_title(telegram_user_id, assignment_ref) if assignment_ref is not None else translate_for_user(telegram_user_id, "training.title"),
         completed=outcome["completed"], total=total_questions,
         deferred=outcome["deferred"], assisted=outcome["assisted"],
     )
+    # Words done, but the homework also has paper work: remind where to tick it off.
+    pending = pending_paper_task_count(assignment_ref) if assignment_ref is not None else 0
+    if pending:
+        text += "\n\n" + translate_for_user(telegram_user_id, "homework.task.paper_left", count=pending)
+    return text
 
 
 def render_question_text(

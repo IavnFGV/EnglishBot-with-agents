@@ -57,6 +57,7 @@ def list_active_assignments(student_user_id: int) -> list[sqlite3.Row]:
                 homework_assignments.created_at,
                 homework_assignments.updated_at,
                 homework_assignments.completed_at,
+                homework_assignments.words_completed_at,
                 COUNT(homework_assignment_items.id) AS item_count
             FROM homework_assignments
             LEFT JOIN homework_assignment_items
@@ -111,7 +112,8 @@ def get_assignment(assignment_ref: int | str) -> sqlite3.Row | None:
                 status,
                 created_at,
                 updated_at,
-                completed_at
+                completed_at,
+                words_completed_at
             FROM homework_assignments
             WHERE id = ?
             """,
@@ -157,7 +159,8 @@ def start_assignment_training_session(
         raise AssignmentNotFoundError
 
     learning_item_ids = get_assignment_learning_item_ids(assignment_key)
-    if not learning_item_ids:
+    # Words already drilled while paper tasks are pending: there is nothing to train again.
+    if not learning_item_ids or assignment["words_completed_at"] is not None:
         raise EmptyAssignmentError
 
     active_session = find_latest_incomplete_family_homework_training_session(
@@ -190,21 +193,146 @@ def start_assignment_training_session(
 
 
 def mark_assignment_completed(assignment_ref: int | str) -> None:
+    """Called when the homework words are all drilled; paper tasks may still keep it open."""
     _, assignment_id = parse_assignment_ref(assignment_ref)
     with get_connection() as connection:
         connection.execute(
-            """
-            UPDATE homework_assignments
-            SET status = ?, updated_at = ?, completed_at = ?
-            WHERE id = ?
-            """,
-            (
-                COMPLETED_STATUS,
-                utc_now(),
-                utc_now(),
-                assignment_id,
-            ),
+            "UPDATE homework_assignments SET words_completed_at = COALESCE(words_completed_at, ?) WHERE id = ?",
+            (utc_now(), assignment_id),
         )
+        _complete_if_finished(connection, assignment_id)
+
+
+# Tasks of homework assigned from a homework set: words, paper work, notes
+
+
+TASK_WORDS = "words"
+TASK_PAPER = "paper"
+
+
+def _complete_if_finished(connection, assignment_id: int) -> bool:
+    """Complete active homework once its words are drilled (or it has none) and every paper task is ticked."""
+    assignment = connection.execute(
+        """
+        SELECT status, homework_set_id, words_completed_at,
+               (SELECT COUNT(*) FROM homework_assignment_items WHERE homework_assignment_id = homework_assignments.id) AS item_count
+        FROM homework_assignments WHERE id = ?
+        """,
+        (assignment_id,),
+    ).fetchone()
+    if assignment is None or assignment["status"] != ACTIVE_STATUS:
+        return False
+    if int(assignment["item_count"]) and assignment["words_completed_at"] is None:
+        return False
+    if assignment["homework_set_id"] is not None:
+        pending = connection.execute(
+            """
+            SELECT COUNT(*) FROM homework_set_tasks
+            WHERE homework_set_id = ? AND task_kind = ?
+              AND id NOT IN (SELECT task_id FROM homework_assignment_task_done WHERE homework_assignment_id = ?)
+            """,
+            (int(assignment["homework_set_id"]), TASK_PAPER, assignment_id),
+        ).fetchone()[0]
+        if pending:
+            return False
+    timestamp = utc_now()
+    connection.execute(
+        "UPDATE homework_assignments SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?",
+        (COMPLETED_STATUS, timestamp, timestamp, assignment_id),
+    )
+    return True
+
+
+def _own_active_assignment(connection, student_user_id: int, assignment_id: int):
+    assignment = connection.execute(
+        "SELECT * FROM homework_assignments WHERE id = ? AND assigned_to_user_id = ? AND status = ?",
+        (assignment_id, student_user_id, ACTIVE_STATUS),
+    ).fetchone()
+    if assignment is None:
+        raise AssignmentNotFoundError
+    return assignment
+
+
+def list_assignment_tasks(student_user_id: int, assignment_id: int) -> list[dict[str, object]]:
+    """Tasks of the learner's active homework with photo paths and done marks; empty for word-only homework."""
+    from .assets import resolve_runtime_asset_path
+
+    with get_connection() as connection:
+        assignment = _own_active_assignment(connection, student_user_id, assignment_id)
+        if assignment["homework_set_id"] is None:
+            return []
+        done = {
+            int(row["task_id"])
+            for row in connection.execute(
+                "SELECT task_id FROM homework_assignment_task_done WHERE homework_assignment_id = ?", (assignment_id,)
+            ).fetchall()
+        }
+        tasks = []
+        for task in connection.execute(
+            "SELECT * FROM homework_set_tasks WHERE homework_set_id = ? ORDER BY task_order, id",
+            (int(assignment["homework_set_id"]),),
+        ).fetchall():
+            photos = [
+                str(resolve_runtime_asset_path(str(row["local_path"])))
+                for row in connection.execute(
+                    """
+                    SELECT assets.local_path FROM homework_set_task_assets
+                    JOIN assets ON assets.id = homework_set_task_assets.asset_id
+                    WHERE homework_set_task_assets.task_id = ? AND assets.local_path IS NOT NULL
+                    ORDER BY homework_set_task_assets.sort_order
+                    """,
+                    (int(task["id"]),),
+                ).fetchall()
+            ]
+            tasks.append({
+                "id": int(task["id"]),
+                "kind": str(task["task_kind"]),
+                "title": str(task["title"] or ""),
+                "instructions": str(task["instructions"] or ""),
+                "photos": photos,
+                "done": int(task["id"]) in done,
+            })
+    return tasks
+
+
+def pending_paper_task_count(assignment_ref: int | str) -> int:
+    """Paper tasks still unticked on active homework; zero for finished or word-only homework."""
+    _, assignment_id = parse_assignment_ref(assignment_ref)
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT COUNT(*) FROM homework_assignments
+            JOIN homework_set_tasks ON homework_set_tasks.homework_set_id = homework_assignments.homework_set_id
+            WHERE homework_assignments.id = ? AND homework_assignments.status = ? AND homework_set_tasks.task_kind = ?
+              AND homework_set_tasks.id NOT IN (
+                SELECT task_id FROM homework_assignment_task_done WHERE homework_assignment_id = homework_assignments.id)
+            """,
+            (assignment_id, ACTIVE_STATUS, TASK_PAPER),
+        ).fetchone()
+    return int(row[0])
+
+
+def set_assignment_task_done(student_user_id: int, assignment_id: int, task_id: int, done: bool) -> bool:
+    """Tick a paper task on or off; returns True when this finished the whole homework."""
+    with get_connection() as connection:
+        assignment = _own_active_assignment(connection, student_user_id, assignment_id)
+        task = connection.execute(
+            "SELECT 1 FROM homework_set_tasks WHERE id = ? AND homework_set_id = ? AND task_kind = ?",
+            (task_id, assignment["homework_set_id"], TASK_PAPER),
+        ).fetchone()
+        if task is None:
+            raise AssignmentNotFoundError
+        if done:
+            connection.execute(
+                "INSERT OR IGNORE INTO homework_assignment_task_done (homework_assignment_id, task_id, done_at) VALUES (?, ?, ?)",
+                (assignment_id, task_id, utc_now()),
+            )
+            return _complete_if_finished(connection, assignment_id)
+        connection.execute(
+            "DELETE FROM homework_assignment_task_done WHERE homework_assignment_id = ? AND task_id = ?",
+            (assignment_id, task_id),
+        )
+        return False
 
 
 def get_active_assignment_training_session(
