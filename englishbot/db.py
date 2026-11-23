@@ -40,6 +40,67 @@ def _is_url_like_asset_ref(value: str) -> bool:
     return normalized.startswith("http://") or normalized.startswith("https://")
 
 
+def _ensure_homework_task_schema(connection: sqlite3.Connection) -> None:
+    """A homework set holds ordered tasks (words to drill, paper work, notes) with attached photos."""
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS homework_set_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            homework_set_id INTEGER NOT NULL,
+            task_order INTEGER NOT NULL,
+            task_kind TEXT NOT NULL,
+            title TEXT,
+            instructions TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (homework_set_id) REFERENCES homework_sets (id)
+        )
+        """
+    )
+    # Every photo that arrived with the set or was uploaded to it; tasks pick from these.
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS homework_set_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            homework_set_id INTEGER NOT NULL,
+            asset_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (homework_set_id) REFERENCES homework_sets (id),
+            FOREIGN KEY (asset_id) REFERENCES assets (id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS homework_set_task_assets (
+            task_id INTEGER NOT NULL,
+            asset_id INTEGER NOT NULL,
+            sort_order INTEGER NOT NULL,
+            PRIMARY KEY (task_id, asset_id),
+            FOREIGN KEY (task_id) REFERENCES homework_set_tasks (id),
+            FOREIGN KEY (asset_id) REFERENCES assets (id)
+        )
+        """
+    )
+    if "task_id" not in get_table_columns(connection, "homework_set_items"):
+        connection.execute("ALTER TABLE homework_set_items ADD COLUMN task_id INTEGER")
+    # Sets saved before tasks existed get one words task holding all their items.
+    orphan_sets = connection.execute(
+        "SELECT DISTINCT homework_set_id FROM homework_set_items WHERE task_id IS NULL"
+    ).fetchall()
+    for row in orphan_sets:
+        cursor = connection.execute(
+            """
+            INSERT INTO homework_set_tasks (homework_set_id, task_order, task_kind, title, instructions, created_at)
+            VALUES (?, 0, 'words', NULL, NULL, ?)
+            """,
+            (int(row[0]), utc_now()),
+        )
+        connection.execute(
+            "UPDATE homework_set_items SET task_id = ? WHERE homework_set_id = ? AND task_id IS NULL",
+            (int(cursor.lastrowid), int(row[0])),
+        )
+
+
 def _ensure_assets_schema(
     connection: sqlite3.Connection,
     *,
@@ -1220,6 +1281,7 @@ def init_db() -> None:
         )
         if "homework_set_id" not in get_table_columns(connection, "homework_assignments"):
             connection.execute("ALTER TABLE homework_assignments ADD COLUMN homework_set_id INTEGER")
+        _ensure_homework_task_schema(connection)
         connection.execute("DROP TABLE IF EXISTS assignment_items")
         connection.execute("DROP TABLE IF EXISTS assignments")
         connection.execute("DROP TABLE IF EXISTS messages")

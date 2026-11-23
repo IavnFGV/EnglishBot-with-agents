@@ -170,7 +170,7 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
     raise MiniAppError("session_not_found", 404)
 
 
-EDITOR_JSON_BODY_LIMIT: Final[int] = 32 * 1024
+EDITOR_JSON_BODY_LIMIT: Final[int] = 128 * 1024  # a draft carries the tutor text of every task
 EDITOR_IMAGE_BODY_LIMIT: Final[int] = 15 * 1024 * 1024
 
 
@@ -200,7 +200,7 @@ async def _editor_api_response(method: str, parts: list[str], headers: dict[str,
     user_id = validate_init_data(headers.get("x-telegram-init-data", ""), load_config())
     body = b""
     if method == "POST":
-        limit = EDITOR_IMAGE_BODY_LIMIT if parts[-1:] == ["image"] else EDITOR_JSON_BODY_LIMIT
+        limit = EDITOR_IMAGE_BODY_LIMIT if parts[-1:] in (["image"], ["photos"]) else EDITOR_JSON_BODY_LIMIT
         try:
             length = int(headers.get("content-length", "0"))
         except ValueError as exc:

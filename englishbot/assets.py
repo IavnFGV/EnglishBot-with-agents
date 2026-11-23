@@ -14,6 +14,7 @@ from PIL import Image, UnidentifiedImageError
 from . import db
 
 TEACHER_CONTENT_IMAGE_DIR = Path("assets/images/teacher-content")
+HOMEWORK_PHOTO_DIR = Path("assets/images/homework")
 NO_IMAGE_PLACEHOLDER_PATH = Path("assets/images/no-image.png")
 WORKBOOK_IMPORT_STAGING_DIR = Path("assets/import-staging")
 ASSET_TYPE_IMAGE = "image"
@@ -725,6 +726,17 @@ def store_teacher_content_image(
     output_path = asset_dir / filename
     output_path.write_bytes(content)
     return str((TEACHER_CONTENT_IMAGE_DIR / filename).as_posix())
+
+
+def store_homework_photo(homework_set_id: int, content: bytes) -> str:
+    """Write a normalized JPEG for a homework set and return its runtime-relative path."""
+    if not content:
+        raise ValueError("image content is required")
+    asset_dir = _get_runtime_root() / HOMEWORK_PHOTO_DIR
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"set-{int(homework_set_id)}-{uuid4().hex}.jpg"
+    (asset_dir / filename).write_bytes(content)
+    return str((HOMEWORK_PHOTO_DIR / filename).as_posix())
 
 
 def store_teacher_content_image_from_url(

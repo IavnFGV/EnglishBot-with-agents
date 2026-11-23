@@ -22,11 +22,16 @@ from englishbot.dictionary_editor import create_topic, create_word
 from englishbot.families import add_family_member, create_family
 from englishbot.homework_sets import (
     HomeworkSetError,
+    add_set_photo,
     add_source,
     begin_processing,
+    create_empty_draft,
     get_draft,
+    get_set,
     save_draft,
+    set_photo_path,
     store_extraction,
+    store_source_photos,
 )
 from englishbot.mini_app import MiniAppError, sign_test_init_data
 from englishbot.status_server import _mini_app_response
@@ -148,7 +153,7 @@ def test_draft_marks_known_words_and_reuses_existing_topic_title(family: int) ->
     ])
     draft = get_draft(MOM, set_id)
 
-    assert [(item["en"], bool(item["existing_id"]), item["topic"]) for item in draft["items"]] == [
+    assert [(item["en"], bool(item["existing_id"]), item["topic"]) for item in draft["tasks"][0]["items"]] == [
         ("Dragon", True, "Fairy Tales"),
         ("wizard", False, "Fairy Tales"),
     ]
@@ -263,14 +268,17 @@ class FakeCallback:
         return None
 
 
-def test_forward_filter_requires_forward_family_and_configured_ai(family: int, monkeypatch) -> None:
+def test_forward_filter_requires_forward_family_and_the_editor(family: int, monkeypatch) -> None:
+    monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "https://example.org/mini-app")
     bot = FakeBot()
     assert homework_import_handlers.is_homework_forward(FakeMessage(bot, text="cat"))
     assert not homework_import_handlers.is_homework_forward(FakeMessage(bot, text="cat", forwarded=False))
     stranger = FakeMessage(bot, text="cat")
     stranger.from_user = SimpleNamespace(id=999)
     assert not homework_import_handlers.is_homework_forward(stranger)
-    monkeypatch.delenv("ENGLISHBOT_OPENROUTER_API_KEY")
+    monkeypatch.delenv("ENGLISHBOT_OPENROUTER_API_KEY")  # without AI the draft can still be filled by hand
+    assert homework_import_handlers.is_homework_forward(FakeMessage(bot, text="cat"))
+    monkeypatch.delenv("ENGLISHBOT_MINI_APP_URL")
     assert not homework_import_handlers.is_homework_forward(FakeMessage(bot, text="cat"))
 
 
@@ -354,9 +362,9 @@ def test_http_draft_load_save_and_notify_child(family: int, monkeypatch) -> None
     set_id = make_draft([{"en": "owl", "ru": "сова", "topic": "Birds"}])
 
     status, draft = request(f"/mini-app/api/editor/imports/{set_id}")
-    assert status == 200 and draft["items"][0]["en"] == "owl" and draft["labels"]["save_draft"]
+    assert status == 200 and draft["tasks"][0]["items"][0]["en"] == "owl" and draft["labels"]["save_draft"]
 
-    payload = {"title": "ДЗ", "mode": "easy", "assign_to": KID, "items": draft["items"]}
+    payload = {"title": "ДЗ", "mode": "easy", "assign_to": KID, "tasks": draft["tasks"]}
     status, result = request(f"/mini-app/api/editor/imports/{set_id}/save", method="POST", body=json.dumps(payload).encode())
     assert status == 200 and result["assigned_to"] == KID and "_notify" not in result
     assert bot.sent[0]["chat_id"] == KID and "ДЗ" in bot.sent[0]["text"]
@@ -577,3 +585,131 @@ def test_word_picked_from_another_topic_joins_homework_without_moving_topics(fam
             (result["assignment_id"],),
         )]
         assert homework_words == ["shark", "boat"]
+
+
+# Tasks and photos
+
+
+def png_bytes(color: str = "white") -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (40, 30), color).save(output, format="PNG")
+    return output.getvalue()
+
+
+def test_draft_starts_with_words_and_the_tutor_text_as_a_note(family: int) -> None:
+    set_id = make_draft([{"en": "owl", "ru": "сова", "topic": "Birds"}])
+    tasks = get_draft(MOM, set_id)["tasks"]
+    assert [task["kind"] for task in tasks] == ["words", "note"]
+    assert tasks[1]["instructions"] == "Fairy Tales: Dragon - дракон"
+    assert tasks[1]["enabled"] is True
+
+
+def test_source_photos_are_stored_once_and_bad_images_skipped(family: int) -> None:
+    set_id = make_draft([])
+    first = store_source_photos(set_id, [png_bytes(), b"not an image", png_bytes("red")])
+    assert len(first) == 2
+    assert store_source_photos(set_id, [png_bytes()]) == first  # a retry does not duplicate them
+    assert set_photo_path(MOM, set_id, first[0]).read_bytes()[:2] == b"\xff\xd8"  # stored as JPEG
+    assert get_draft(MOM, set_id)["photos"] == first
+    assert error_code(lambda: set_photo_path(STRANGER, set_id, first[0])) == "set_not_found"
+    assert error_code(lambda: set_photo_path(MOM, set_id, 99999)) == "image_not_found"
+
+
+def test_save_keeps_task_order_photos_and_word_links(family: int) -> None:
+    set_id = make_draft([])
+    photo_a, photo_b = store_source_photos(set_id, [png_bytes(), png_bytes("red")])
+    uploaded = add_set_photo(MOM, set_id, png_bytes("blue"))["id"]
+    result = save_draft(MOM, set_id, {"title": "ДЗ", "assign_to": KID, "tasks": [
+        {"kind": "paper", "title": "Crossword", "instructions": "Fill it in\non paper", "photos": [photo_a, uploaded]},
+        {"kind": "words", "items": [{"en": "owl", "ru": "сова", "topic": "Birds"}], "photos": [photo_b]},
+        {"kind": "note", "title": "Skipped", "instructions": "x", "enabled": False},
+        {"kind": "words", "items": [{"en": "owl", "ru": "сова", "topic": "Birds"}, {"en": "crow", "ru": "ворона", "topic": "Birds"}]},
+        {"kind": "paper", "title": "", "instructions": "", "photos": []},  # empty: dropped
+    ]})
+    assert (result["task_count"], result["word_count"], result["assignment_id"] is not None) == (3, 2, True)
+
+    saved = get_set(MOM, set_id)
+    assert [(task["kind"], task["title"], task["photos"]) for task in saved["tasks"]] == [
+        ("paper", "Crossword", [photo_a, uploaded]),
+        ("words", "", [photo_b]),
+        ("words", "", []),
+    ]
+    assert saved["tasks"][0]["instructions"] == "Fill it in\non paper"
+    words_by_task = {word["text"]: word["task_id"] for word in saved["words"]}
+    assert words_by_task == {"owl": saved["tasks"][1]["id"], "crow": saved["tasks"][2]["id"]}  # owl only once
+
+
+def test_save_rejects_foreign_photos_unknown_kinds_and_empty_drafts(family: int) -> None:
+    other = make_draft([])
+    foreign = store_source_photos(other, [png_bytes()])[0]
+    set_id = create_empty_draft(MOM)["id"]
+    assert error_code(lambda: save_draft(MOM, set_id, {"tasks": [{"kind": "paper", "title": "x", "photos": [foreign]}]})) == "image_not_found"
+    assert error_code(lambda: save_draft(MOM, set_id, {"tasks": [{"kind": "poem", "title": "x"}]})) == "invalid_task_kind"
+    assert error_code(lambda: save_draft(MOM, set_id, {"tasks": [{"kind": "words", "items": []}]})) == "draft_empty"
+    assert error_code(lambda: add_set_photo(MOM, set_id, b"junk")) == "invalid_image"
+
+
+def test_empty_draft_from_the_editor_has_one_words_task(family: int) -> None:
+    set_id = create_empty_draft(MOM)["id"]
+    draft = get_draft(MOM, set_id)
+    assert [task["kind"] for task in draft["tasks"]] == ["words"] and draft["photos"] == []
+    assert {kind["code"] for kind in draft["task_kinds"]} == {"words", "paper", "note"}
+
+
+def test_manual_draft_skips_ai_and_keeps_text_and_photos(family: int, monkeypatch) -> None:
+    monkeypatch.setenv("ENGLISHBOT_MINI_APP_URL", "https://example.org/mini-app")
+    monkeypatch.delenv("ENGLISHBOT_OPENROUTER_API_KEY")
+
+    def no_ai(kind, sources):
+        raise AssertionError("AI must not be called")
+
+    monkeypatch.setattr(homework_import_handlers, "extract_items", no_ai)
+    bot = FakeBot()
+
+    async def scenario():
+        await homework_import_handlers.collect_homework_forward(FakeMessage(bot, text="Crossword: weather"))
+        message = FakeMessage(bot, photo=[SimpleNamespace(file_id="big")])
+        await homework_import_handlers.collect_homework_forward(message)
+        buttons = [row[0].callback_data for row in message.answers[-1][1].inline_keyboard]
+        assert buttons[0].startswith("hwimport:manual:")  # no AI button without a key
+        await homework_import_handlers.handle_homework_import_callback(FakeCallback(buttons[0], message))
+        await asyncio.gather(*homework_import_handlers._background_tasks)
+        return message, int(buttons[0].rsplit(":", 1)[1])
+
+    message, set_id = asyncio.run(scenario())
+    draft = get_draft(MOM, set_id)
+    assert [task["kind"] for task in draft["tasks"]] == ["words", "note"]
+    assert draft["tasks"][1]["instructions"] == "Crossword: weather"
+    assert len(draft["photos"]) == 1
+    text, keyboard = message.edits[-1]
+    assert "draft is ready" in text and keyboard.inline_keyboard[0][0].web_app is not None
+
+
+def test_http_new_homework_upload_and_read_photo(family: int, monkeypatch) -> None:
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    status, created = request("/mini-app/api/editor/imports", method="POST")
+    assert status == 200
+    set_id = created["id"]
+    status, photo = request(f"/mini-app/api/editor/imports/{set_id}/photos", method="POST", body=png_bytes())
+    assert status == 200
+
+    async def read_photo() -> bytes:
+        reader = asyncio.StreamReader()
+        reader.feed_eof()
+        headers = {"content-length": "0", "x-telegram-init-data": sign_test_init_data(MOM, TOKEN)}
+        return await _mini_app_response("GET", f"/mini-app/api/editor/sets/{set_id}/photos/{photo['id']}", headers, reader, object())
+
+    response = asyncio.run(read_photo())
+    head, content = response.split(b"\r\n\r\n", 1)
+    assert b"200" in head.split(b"\r\n")[0] and b"image/jpeg" in head and content[:2] == b"\xff\xd8"
+
+
+def test_sets_saved_before_tasks_get_one_words_task(family: int) -> None:
+    set_id = saved_set(assign_to=None)
+    with db.get_connection() as connection:
+        connection.execute("UPDATE homework_set_items SET task_id = NULL WHERE homework_set_id = ?", (set_id,))
+        connection.execute("DELETE FROM homework_set_tasks WHERE homework_set_id = ?", (set_id,))
+    db.init_db()
+    saved = get_set(MOM, set_id)
+    assert [task["kind"] for task in saved["tasks"]] == ["words"]
+    assert {word["task_id"] for word in saved["words"]} == {saved["tasks"][0]["id"]}

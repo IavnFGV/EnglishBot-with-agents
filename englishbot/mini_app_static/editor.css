@@ -74,3 +74,19 @@ button.icon { flex: none; min-height: 40px; width: 40px; padding: 0; background:
 .homework-card .sub { color: var(--hint); font-size: .9rem; }
 .progress { height: 10px; border-radius: 99px; background: color-mix(in srgb, var(--hint) 25%, transparent); overflow: hidden; }
 .progress span { display: block; height: 100%; background: var(--accent); }
+textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--hint); border-radius: 12px; font: inherit; font-weight: 400; color: var(--text); background: var(--bg); resize: vertical; }
+.task-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: var(--panel); }
+.task-card.excluded > :not(.row):not(.inline-check) { opacity: .45; }
+.task-card .list { background: var(--bg); }
+label.inline-check { flex-direction: row; align-items: center; gap: 10px; font-weight: 400; }
+label.inline-check input { width: 22px; height: 22px; }
+.instructions { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.photo-strip, .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.photo-tile { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.photo-tile .sub { color: var(--hint); font-size: .8rem; overflow-wrap: anywhere; }
+.photo-tile .sub.warn { color: var(--danger); }
+.photo-tile button.link { min-height: 32px; font-size: .85rem; }
+img.photo { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: color-mix(in srgb, var(--hint) 20%, transparent); cursor: zoom-in; }
+img.photo.zoomed { position: fixed; inset: 0; z-index: 10; width: 100vw; height: 100vh; aspect-ratio: auto; object-fit: contain; border-radius: 0; background: rgba(0, 0, 0, .9); cursor: zoom-out; }
+button.photo-pick { padding: 0; min-height: 0; background: none; }
+.picker { padding: 10px; border-radius: 12px; background: var(--bg); }

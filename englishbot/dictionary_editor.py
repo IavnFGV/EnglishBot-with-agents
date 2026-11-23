@@ -41,6 +41,9 @@ LABEL_KEYS = (
     "model_testing", "model_test_ok", "model_test_failed", "model_stats", "model_no_stats",
     "model_not_free", "model_avg_seconds", "drafts", "delete_draft", "delete_draft_confirm", "saved_sets", "archive_set", "archive_set_confirm", "restore_set", "archive", "archived_note", "sets_in_progress", "show_more", "search_sets",
     "remove_from_set", "add_to_set", "search_dictionary", "create_word", "set_edit_note", "homework_list", "homework_now", "homework_finished", "cancel_homework", "cancel_homework_confirm", "homework_none", "homework_cancelled", "words_done", "assigned_on", "open_set",
+    "new_homework", "tasks", "add_task", "task_title", "task_instructions", "task_enabled", "delete_task",
+    "attach_photo", "upload_photo", "gallery", "gallery_hint", "photo_unused", "photo_in_task", "detach_photo",
+    "no_photos", "move_up", "move_down",
 )
 
 
@@ -85,7 +88,7 @@ def _require_word(connection, family_id: int, word_id: int):
 
 
 def editor_labels(user_id: int) -> dict[str, str]:
-    placeholders = {name: "{" + name + "}" for name in ("count", "found", "expected", "seconds", "error", "ok", "fail", "done", "total", "date")}
+    placeholders = {name: "{" + name + "}" for name in ("count", "found", "expected", "seconds", "error", "ok", "fail", "done", "total", "date", "tasks")}
     return {key: translate_for_user(user_id, f"editor.ui.{key}", **placeholders) for key in LABEL_KEYS}
 
 
@@ -270,14 +273,14 @@ def delete_word(user_id: int, word_id: int) -> dict[str, object]:
     return {"deleted": True}
 
 
-def normalize_image(content: bytes) -> bytes:
+def normalize_image(content: bytes, max_side: int = MAX_IMAGE_SIDE) -> bytes:
     """Re-encode any supported image as an upright RGB JPEG that Telegram accepts."""
     if not content:
         raise _error("invalid_image")
     try:
         with Image.open(BytesIO(content)) as source:
             image = ImageOps.exif_transpose(source)
-            image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
+            image.thumbnail((max_side, max_side))
             if image.mode in ("RGBA", "LA", "P"):
                 image = image.convert("RGBA")
                 background = Image.new("RGB", image.size, "white")
@@ -408,6 +411,10 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
         return _route_models(method, parts[1:], user_id, body)
     if parts and parts[0] == "sets":
         return _route_sets(method, parts[1:], user_id, body)
+    if parts == ["imports"] and method == "POST":
+        from .homework_sets import create_empty_draft
+
+        return create_empty_draft(user_id)
     if len(parts) >= 2 and parts[0] == "imports":
         return _route_import(method, _int_part(parts[1]), parts[2:], user_id, body)
     raise _error("not_found", 404)
@@ -521,6 +528,9 @@ def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
             return {"sets": list_sets(user_id, archived=True)}
         if rest:
             set_id = _int_part(rest[0])
+            photo = _route_set_photos(method, set_id, rest[1:], user_id, body)
+            if photo is not None:
+                return photo
             if method == "GET" and rest[1:] == []:
                 return get_set(user_id, set_id)
             if method == "POST" and rest[1:] == []:
@@ -547,6 +557,9 @@ def _route_import(method: str, set_id: int, rest: list[str], user_id: int, body:
     from .homework_sets import HomeworkSetError, STATUS_DRAFT, cancel_set, get_draft, save_draft
 
     try:
+        photo = _route_set_photos(method, set_id, rest, user_id, body)
+        if photo is not None:
+            return photo
         if method == "GET" and rest == []:
             draft = get_draft(user_id, set_id)
             draft["labels"] = editor_labels(user_id)
@@ -564,3 +577,15 @@ def _route_import(method: str, set_id: int, rest: list[str], user_id: int, body:
     except HomeworkSetError as exc:
         raise _error(exc.code, exc.status) from exc
     raise _error("not_found", 404)
+
+
+def _route_set_photos(method: str, set_id: int, rest: list[str], user_id: int, body: bytes):
+    """Photos of a homework set (draft or saved): upload into its gallery, or read one."""
+    from .homework_sets import add_set_photo, set_photo_path
+
+    if rest == ["photos"] and method == "POST":
+        return add_set_photo(user_id, set_id, body)
+    if len(rest) == 2 and rest[0] == "photos" and method == "GET":
+        path = set_photo_path(user_id, set_id, _int_part(rest[1]))
+        return path.read_bytes(), "image/jpeg"
+    return None

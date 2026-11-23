@@ -1,14 +1,20 @@
 """Homework sets: tutor homework collected from forwarded messages, drafted by AI, saved as items."""
 
 import json
+import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .ai_extraction import KIND_WORDS, SUPPORTED_KINDS, ExtractionResult
+from .assets import ASSET_TYPE_IMAGE, get_asset, resolve_runtime_asset_path, store_homework_photo
 from .db import get_connection, utc_now
 from .families import create_homework_assignment, get_user_family, list_family_members
 from .i18n import translate_for_user
 from .teacher_content import create_teacher_topic, create_teacher_topic_item
 from .training import TRAINING_MODES
+
+
+logger = logging.getLogger(__name__)
 
 
 STATUS_COLLECTING = "collecting"
@@ -21,6 +27,16 @@ STATUS_ARCHIVED = "archived"
 ASSIGNMENT_CANCELLED = "cancelled"
 MAX_SOURCES = 30
 MAX_TEXT_LENGTH = 200
+MAX_INSTRUCTIONS_LENGTH = 4000
+MAX_PHOTO_SIDE = 1600  # worksheets must stay readable, so larger than dictionary pictures
+KIND_MANUAL = "manual"  # no AI: the draft starts from the forwarded text and photos only
+
+# Task kinds of a homework set. Words are drilled in training; paper work is ticked off;
+# notes (rules, theory, the tutor's text) are only shown.
+TASK_WORDS = "words"
+TASK_PAPER = "paper"
+TASK_NOTE = "note"
+TASK_KINDS = (TASK_WORDS, TASK_PAPER, TASK_NOTE)
 
 
 class HomeworkSetError(Exception):
@@ -123,7 +139,7 @@ def cancel_set(user_id: int, set_id: int) -> None:
 
 def begin_processing(user_id: int, set_id: int, kind: str) -> list[dict[str, str]]:
     """Lock the set for extraction and return its sources."""
-    if kind not in SUPPORTED_KINDS:
+    if kind not in (*SUPPORTED_KINDS, KIND_MANUAL):
         raise HomeworkSetError("unsupported_kind")
     with get_connection() as connection:
         row = _get_set(connection, user_id, set_id)
@@ -171,6 +187,109 @@ def _match_topic_title(title: str, topics: list[dict[str, object]]) -> str:
     return title
 
 
+# Photos of a set
+
+
+def _store_photo(connection, set_id: int, content: bytes) -> int:
+    from .dictionary_editor import normalize_image
+
+    local_path = store_homework_photo(set_id, normalize_image(content, MAX_PHOTO_SIDE))
+    # Same connection as the caller: a second connection would wait on this one's write lock.
+    asset_id = int(connection.execute(
+        "INSERT INTO assets (asset_type, source_url, local_path, created_at) VALUES (?, NULL, ?, ?)",
+        (ASSET_TYPE_IMAGE, local_path, utc_now()),
+    ).lastrowid)
+    connection.execute(
+        "INSERT INTO homework_set_photos (homework_set_id, asset_id, created_at) VALUES (?, ?, ?)",
+        (set_id, asset_id, utc_now()),
+    )
+    return asset_id
+
+
+def _set_photo_ids(connection, set_id: int) -> list[int]:
+    return [
+        int(row["asset_id"])
+        for row in connection.execute(
+            "SELECT asset_id FROM homework_set_photos WHERE homework_set_id = ? ORDER BY id", (set_id,)
+        ).fetchall()
+    ]
+
+
+def store_source_photos(set_id: int, images: list[bytes]) -> list[int]:
+    """Keep the forwarded photos once per set (a retry does not duplicate them); bad images are skipped."""
+    with get_connection() as connection:
+        if _set_photo_ids(connection, set_id):
+            return _set_photo_ids(connection, set_id)
+        for content in images:
+            try:
+                _store_photo(connection, set_id, content)
+            except Exception:  # one unreadable photo must not lose the rest
+                logger.warning("Skipped an unreadable homework photo: set=%s", set_id, exc_info=True)
+        return _set_photo_ids(connection, set_id)
+
+
+def add_set_photo(user_id: int, set_id: int, content: bytes) -> dict[str, object]:
+    """Upload a photo into the set's gallery from the editor."""
+    with get_connection() as connection:
+        row = _get_set(connection, user_id, set_id)
+        if row["status"] not in (STATUS_DRAFT, STATUS_SAVED, STATUS_ARCHIVED):
+            raise HomeworkSetError("set_not_active", 409)
+        try:
+            asset_id = _store_photo(connection, set_id, content)
+        except HomeworkSetError:
+            raise
+        except Exception as exc:
+            raise HomeworkSetError("invalid_image") from exc
+    return {"id": asset_id}
+
+
+def set_photo_path(user_id: int, set_id: int, asset_id: int) -> Path:
+    with get_connection() as connection:
+        _get_set(connection, user_id, set_id)
+        if asset_id not in _set_photo_ids(connection, set_id):
+            raise HomeworkSetError("image_not_found", 404)
+        asset = get_asset(asset_id, connection=connection)
+    path = resolve_runtime_asset_path(str(asset["local_path"])) if asset is not None and asset["local_path"] else None
+    if path is None or not path.is_file():
+        raise HomeworkSetError("image_not_found", 404)
+    return path
+
+
+# Draft content: an ordered list of tasks, each with its own words and photos
+
+
+def _new_task(kind: str, *, title: str = "", instructions: str = "", items: list | None = None, photos: list | None = None) -> dict[str, object]:
+    return {"kind": kind, "title": title, "instructions": instructions, "enabled": True, "items": items or [], "photos": photos or []}
+
+
+def _tutor_text(sources: list[dict[str, str]]) -> str:
+    return "\n\n".join(source["text"] for source in sources if source.get("text"))[:MAX_INSTRUCTIONS_LENGTH]
+
+
+def _default_title(row) -> str:
+    return translate_for_user(
+        int(row["created_by_user_id"]),
+        "homework_import.default_title",
+        date=datetime.now(timezone.utc).strftime("%d.%m.%Y"),
+    )
+
+
+def _write_draft(connection, row, draft: dict[str, object]) -> None:
+    connection.execute(
+        "UPDATE homework_sets SET status = ?, title = COALESCE(title, ?), draft_json = ?, updated_at = ? WHERE id = ?",
+        (STATUS_DRAFT, _default_title(row), json.dumps(draft, ensure_ascii=False), utc_now(), int(row["id"])),
+    )
+
+
+def _draft_tasks(row, items: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Words first, then the tutor's forwarded text as a note the parent can keep, edit, or switch off."""
+    tasks = [_new_task(TASK_WORDS, items=items)]
+    text = _tutor_text(json.loads(row["sources_json"] or "[]"))
+    if text:
+        tasks.append(_new_task(TASK_NOTE, title=translate_for_user(int(row["created_by_user_id"]), "homework_task.tutor_text"), instructions=text))
+    return tasks
+
+
 def store_extraction(set_id: int, result: ExtractionResult) -> dict[str, int]:
     """Turn model output into an editable draft, marking words the family already has."""
     with get_connection() as connection:
@@ -186,18 +305,45 @@ def store_extraction(set_id: int, result: ExtractionResult) -> dict[str, int]:
                 "topic": _match_topic_title(entry["topic"], topics) if entry["topic"] else "",
                 "existing_id": existing.get(entry["en"].lower()),
             })
-        draft = {"model": result.model, "items": items}
-        title = translate_for_user(
-            int(row["created_by_user_id"]),
-            "homework_import.default_title",
-            date=datetime.now(timezone.utc).strftime("%d.%m.%Y"),
-        )
-        connection.execute(
-            "UPDATE homework_sets SET status = ?, title = ?, draft_json = ?, updated_at = ? WHERE id = ?",
-            (STATUS_DRAFT, title, json.dumps(draft, ensure_ascii=False), utc_now(), set_id),
-        )
+        _write_draft(connection, row, {"model": result.model, "tasks": _draft_tasks(row, items)})
     known = sum(1 for item in items if item["existing_id"])
     return {"total": len(items), "new": len(items) - known, "existing": known}
+
+
+def store_manual_draft(set_id: int) -> None:
+    """A draft without AI: an empty words task plus the forwarded text; photos wait in the gallery."""
+    with get_connection() as connection:
+        row = connection.execute("SELECT * FROM homework_sets WHERE id = ?", (set_id,)).fetchone()
+        _write_draft(connection, row, {"model": None, "tasks": _draft_tasks(row, [])})
+
+
+def create_empty_draft(user_id: int) -> dict[str, object]:
+    """Start a homework draft from the editor, without forwarding anything."""
+    family_id = _family_id(user_id)
+    timestamp = utc_now()
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO homework_sets (family_id, created_by_user_id, status, sources_json, created_at, updated_at)
+            VALUES (?, ?, ?, '[]', ?, ?)
+            """,
+            (family_id, user_id, STATUS_PROCESSING, timestamp, timestamp),
+        )
+        set_id = int(cursor.lastrowid)
+        row = connection.execute("SELECT * FROM homework_sets WHERE id = ?", (set_id,)).fetchone()
+        _write_draft(connection, row, {"model": None, "tasks": [_new_task(TASK_WORDS)]})
+    return {"id": set_id}
+
+
+def _tasks_of_draft(draft: dict[str, object]) -> list[dict[str, object]]:
+    """Drafts stored before tasks existed held a flat word list."""
+    if isinstance(draft.get("tasks"), list):
+        return draft["tasks"]
+    return [_new_task(TASK_WORDS, items=list(draft.get("items") or []))]
+
+
+def _task_kinds(user_id: int) -> list[dict[str, str]]:
+    return [{"code": kind, "label": translate_for_user(user_id, f"homework_task.kind.{kind}")} for kind in TASK_KINDS]
 
 
 def _display_name(member) -> str:
@@ -230,6 +376,7 @@ def get_draft(user_id: int, set_id: int) -> dict[str, object]:
             raise HomeworkSetError("draft_not_available", 409)
         draft = json.loads(row["draft_json"] or "{}")
         topics = _active_topics(connection, family_id)
+        photos = _set_photo_ids(connection, set_id)
     members = [
         {"id": int(member["telegram_user_id"]), "name": _display_name(member)}
         for member in list_family_members(family_id)
@@ -237,7 +384,9 @@ def get_draft(user_id: int, set_id: int) -> dict[str, object]:
     members.sort(key=lambda member: member["id"] == user_id)
     return {
         "set": {"id": set_id, "title": str(row["title"] or ""), "kind": str(row["kind"] or KIND_WORDS)},
-        "items": draft.get("items", []),
+        "tasks": _tasks_of_draft(draft),
+        "photos": photos,
+        "task_kinds": _task_kinds(user_id),
         "topics": topics,
         "members": members,
         "defaults": _assignment_defaults(user_id, family_id),
@@ -294,17 +443,78 @@ def _ensure_word(user_id: int, family_id: int, english: str, russian: str, topic
     return word_id, True
 
 
+def _clean_instructions(value: object) -> str:
+    lines = [" ".join(line.split()) for line in str(value or "").replace("\r", "").split("\n")]
+    return "\n".join(lines).strip()[:MAX_INSTRUCTIONS_LENGTH]
+
+
+def _payload_tasks(payload: dict[str, object], photo_ids: list[int]) -> list[dict[str, object]]:
+    """Validate the enabled tasks of a save request; a flat `items` list means one words task."""
+    raw_tasks = payload.get("tasks")
+    if raw_tasks is None and isinstance(payload.get("items"), list):
+        raw_tasks = [{"kind": TASK_WORDS, "items": payload["items"]}]
+    if not isinstance(raw_tasks, list):
+        raise HomeworkSetError("invalid_request")
+    tasks = []
+    for raw in raw_tasks:
+        if not isinstance(raw, dict) or not raw.get("enabled", True):
+            continue
+        kind = str(raw.get("kind") or "")
+        if kind not in TASK_KINDS:
+            raise HomeworkSetError("invalid_task_kind")
+        items = raw.get("items") if kind == TASK_WORDS else []
+        photos = raw.get("photos") or []
+        if not isinstance(items, list) or not isinstance(photos, list):
+            raise HomeworkSetError("invalid_request")
+        attached = []
+        for photo in photos:
+            try:
+                asset_id = int(photo)
+            except (TypeError, ValueError) as exc:
+                raise HomeworkSetError("invalid_request") from exc
+            if asset_id not in photo_ids:
+                raise HomeworkSetError("image_not_found", 404)
+            if asset_id not in attached:
+                attached.append(asset_id)
+        tasks.append({
+            "kind": kind,
+            "title": _clean(raw.get("title")),
+            "instructions": _clean_instructions(raw.get("instructions")),
+            "items": [item for item in items if isinstance(item, dict) and item.get("include", True) and _clean(item.get("en"))],
+            "photos": attached,
+        })
+    # A task with nothing in it would only be an empty line for the learner.
+    return [task for task in tasks if task["items"] or task["photos"] or task["instructions"] or (task["kind"] != TASK_WORDS and task["title"])]
+
+
+def _insert_task(connection, set_id: int, order: int, task: dict[str, object]) -> int:
+    cursor = connection.execute(
+        """
+        INSERT INTO homework_set_tasks (homework_set_id, task_order, task_kind, title, instructions, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (set_id, order, task["kind"], task["title"] or None, task["instructions"] or None, utc_now()),
+    )
+    task_id = int(cursor.lastrowid)
+    connection.executemany(
+        "INSERT INTO homework_set_task_assets (task_id, asset_id, sort_order) VALUES (?, ?, ?)",
+        [(task_id, asset_id, position) for position, asset_id in enumerate(task["photos"])],
+    )
+    return task_id
+
+
 def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[str, object]:
-    """Create or reuse words, file them under topics, record set items, optionally assign homework."""
+    """Store the draft's tasks: create or reuse words, attach photos, optionally assign homework."""
     family_id = _family_id(user_id)
     with get_connection() as connection:
         row = _get_set(connection, user_id, set_id)
         if row["status"] != STATUS_DRAFT:
             raise HomeworkSetError("draft_not_available", 409)
+        photo_ids = _set_photo_ids(connection, set_id)
     title = _clean(payload.get("title")) or str(row["title"] or "")
-    raw_items = payload.get("items")
-    if not isinstance(raw_items, list):
-        raise HomeworkSetError("invalid_request")
+    tasks = _payload_tasks(payload, photo_ids)
+    if not tasks:
+        raise HomeworkSetError("draft_empty")
     mode = str(payload.get("mode") or "easy")
     if mode not in TRAINING_MODES:
         raise HomeworkSetError("invalid_mode")
@@ -318,26 +528,31 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
         if assign_to not in member_ids:
             raise HomeworkSetError("invalid_recipient")
 
+    # Words are created before the set rows are written, since that uses its own connections.
     topic_cache: dict[str, int] = {}
     word_ids: list[int] = []
     created = 0
-    for entry in raw_items:
-        if not isinstance(entry, dict) or not entry.get("include", True):
-            continue
-        english = _clean(entry.get("en"))
-        if not english:
-            continue
-        word_id, is_new = _ensure_word(user_id, family_id, english, _clean(entry.get("ru")), _clean(entry.get("topic")), topic_cache)
-        created += int(is_new)
-        if word_id not in word_ids:
-            word_ids.append(word_id)
+    for task in tasks:
+        task_word_ids = []
+        for entry in task["items"]:
+            word_id, is_new = _ensure_word(user_id, family_id, _clean(entry.get("en")), _clean(entry.get("ru")), _clean(entry.get("topic")), topic_cache)
+            created += int(is_new)
+            if word_id not in word_ids:  # a word drilled once per homework, in its first task
+                word_ids.append(word_id)
+                task_word_ids.append(word_id)
+        task["word_ids"] = task_word_ids
 
     with get_connection() as connection:
         connection.execute("DELETE FROM homework_set_items WHERE homework_set_id = ?", (set_id,))
-        connection.executemany(
-            "INSERT INTO homework_set_items (homework_set_id, item_kind, learning_item_id, item_order) VALUES (?, 'word', ?, ?)",
-            [(set_id, word_id, order) for order, word_id in enumerate(word_ids)],
-        )
+        order = 0
+        for task_order, task in enumerate(tasks):
+            task_id = _insert_task(connection, set_id, task_order, task)
+            for word_id in task["word_ids"]:
+                connection.execute(
+                    "INSERT INTO homework_set_items (homework_set_id, item_kind, learning_item_id, item_order, task_id) VALUES (?, 'word', ?, ?, ?)",
+                    (set_id, word_id, order, task_id),
+                )
+                order += 1
         timestamp = utc_now()
         connection.execute(
             "UPDATE homework_sets SET status = ?, title = ?, saved_at = ?, updated_at = ? WHERE id = ?",
@@ -353,6 +568,7 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
     return {
         "saved": True,
         "title": title,
+        "task_count": len(tasks),
         "word_count": len(word_ids),
         "created_words": created,
         "assignment_id": assignment_id,
@@ -400,13 +616,49 @@ def _member_names(family_id: int) -> dict[int, str]:
     return {int(member["telegram_user_id"]): _display_name(member) for member in list_family_members(family_id)}
 
 
+def _saved_tasks(connection, set_id: int) -> list[dict[str, object]]:
+    tasks = []
+    for task in connection.execute(
+        "SELECT * FROM homework_set_tasks WHERE homework_set_id = ? ORDER BY task_order, id", (set_id,)
+    ).fetchall():
+        photos = [
+            int(row["asset_id"])
+            for row in connection.execute(
+                "SELECT asset_id FROM homework_set_task_assets WHERE task_id = ? ORDER BY sort_order", (int(task["id"]),)
+            ).fetchall()
+        ]
+        tasks.append({
+            "id": int(task["id"]),
+            "kind": str(task["task_kind"]),
+            "title": str(task["title"] or ""),
+            "instructions": str(task["instructions"] or ""),
+            "photos": photos,
+        })
+    return tasks
+
+
+def _words_task_id(connection, set_id: int) -> int:
+    """The first words task of a saved set, created if the set has none (e.g. only paper work)."""
+    row = connection.execute(
+        "SELECT id FROM homework_set_tasks WHERE homework_set_id = ? AND task_kind = ? ORDER BY task_order, id LIMIT 1",
+        (set_id, TASK_WORDS),
+    ).fetchone()
+    if row is not None:
+        return int(row["id"])
+    next_order = connection.execute(
+        "SELECT COALESCE(MAX(task_order), -1) + 1 FROM homework_set_tasks WHERE homework_set_id = ?", (set_id,)
+    ).fetchone()[0]
+    return _insert_task(connection, set_id, int(next_order), {"kind": TASK_WORDS, "title": "", "instructions": "", "photos": []})
+
+
 def get_set(user_id: int, set_id: int) -> dict[str, object]:
     family_id = _family_id(user_id)
     with get_connection() as connection:
         row = _require_saved(connection, user_id, set_id)
+        tasks = _saved_tasks(connection, set_id)
         words = connection.execute(
             """
-            SELECT learning_items.id, learning_items.text, learning_items.is_archived,
+            SELECT learning_items.id, learning_items.text, learning_items.is_archived, homework_set_items.task_id,
                    (SELECT translation_text FROM learning_item_translations
                     WHERE learning_item_id = learning_items.id AND language_code = 'ru') AS ru
             FROM homework_set_items
@@ -436,8 +688,13 @@ def get_set(user_id: int, set_id: int) -> dict[str, object]:
             "archived": row["status"] == STATUS_ARCHIVED,
         },
         "topics": topics,
+        "tasks": tasks,
+        "task_kinds": _task_kinds(user_id),
         "words": [
-            {"id": int(word["id"]), "text": str(word["text"]), "ru": str(word["ru"] or ""), "archived": bool(word["is_archived"])}
+            {
+                "id": int(word["id"]), "text": str(word["text"]), "ru": str(word["ru"] or ""),
+                "archived": bool(word["is_archived"]), "task_id": int(word["task_id"]) if word["task_id"] is not None else None,
+            }
             for word in words
         ],
         "assignments": [
@@ -525,7 +782,11 @@ def list_drafts(user_id: int) -> list[dict[str, object]]:
             "id": int(row["id"]),
             "title": str(row["title"] or ""),
             "updated_at": str(row["updated_at"] or ""),
-            "item_count": len(json.loads(row["draft_json"] or "{}").get("items", [])),
+            "item_count": sum(
+                len(task.get("items") or [])
+                for task in _tasks_of_draft(json.loads(row["draft_json"] or "{}"))
+                if task.get("kind") == TASK_WORDS
+            ),
         }
         for row in rows
     ]
@@ -583,8 +844,8 @@ def add_set_word(user_id: int, set_id: int, payload: dict[str, object]) -> dict[
                 (set_id,),
             ).fetchone()[0]
             connection.execute(
-                "INSERT INTO homework_set_items (homework_set_id, item_kind, learning_item_id, item_order) VALUES (?, 'word', ?, ?)",
-                (set_id, word_id, int(next_order)),
+                "INSERT INTO homework_set_items (homework_set_id, item_kind, learning_item_id, item_order, task_id) VALUES (?, 'word', ?, ?, ?)",
+                (set_id, word_id, int(next_order), _words_task_id(connection, set_id)),
             )
     return get_set(user_id, set_id)
 

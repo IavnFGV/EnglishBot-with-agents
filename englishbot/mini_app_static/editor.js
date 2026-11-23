@@ -415,6 +415,7 @@ async function showSets() {
   renderOthers();
   screen(
     el('h1', {}, t('sets')),
+    el('button', { onclick: createHomework }, t('new_homework')),
     drafts.length ? el('strong', {}, t('drafts')) : null,
     drafts.length ? el('div', { class: 'list' }, ...drafts) : null,
     inProgress.length ? el('strong', {}, t('sets_in_progress')) : null,
@@ -552,6 +553,33 @@ async function showHomework() {
   );
 }
 
+// Photos of a homework set (draft or saved), loaded with the auth header
+
+const photoCache = new Map();
+
+function photoImg(setId, assetId, className = 'photo') {
+  const img = el('img', { class: className, alt: '', loading: 'lazy' });
+  const key = `${setId}/${assetId}`;
+  if (!photoCache.has(key)) {
+    photoCache.set(key, api(`/sets/${setId}/photos/${assetId}`)
+      .then((response) => response.blob())
+      .then((blob) => URL.createObjectURL(blob))
+      .catch(() => { photoCache.delete(key); return null; }));
+  }
+  photoCache.get(key).then((url) => { if (url) img.src = url; });
+  // Tap to see a worksheet at full width.
+  img.addEventListener('click', () => img.classList.toggle('zoomed'));
+  return img;
+}
+
+function kindLabel(kinds, code) {
+  return kinds.find((kind) => kind.code === code)?.label || code;
+}
+
+function taskHeading(kinds, task) {
+  return task.title ? `${kindLabel(kinds, task.kind)} · ${task.title}` : kindLabel(kinds, task.kind);
+}
+
 async function showSet(setId, message = '', backTo = showSets) {
   setBack(backTo);
   let data;
@@ -581,9 +609,19 @@ async function showSet(setId, message = '', backTo = showSets) {
         el('span', { class: 'sub' }, `${assignment.mode} · ${statusLabel(assignment.status)}`)))))
     : el('p', { class: 'muted' }, t('never_assigned'));
   const removeWord = (word) => postJson(`/sets/${setId}/words/${word.id}/delete`).then(() => showSet(setId, '', backTo)).catch(fail);
-  const words = el('div', { class: 'list' }, ...data.words.map((word) => el('div', { class: `item${word.archived ? ' excluded' : ''}` },
+  const wordList = (words) => el('div', { class: 'list' }, ...words.map((word) => el('div', { class: `item${word.archived ? ' excluded' : ''}` },
     el('span', { class: 'texts' }, el('span', { class: 'title' }, word.text), el('span', { class: 'sub' }, word.ru)),
     el('button', { class: 'icon', title: t('remove_from_set'), 'aria-label': t('remove_from_set'), onclick: () => removeWord(word) }, '✕'))));
+  const firstWordsTask = data.tasks.find((task) => task.kind === 'words');
+  const taskCards = data.tasks.map((task) => {
+    const words = data.words.filter((word) => word.task_id === task.id || (!word.task_id && task === firstWordsTask));
+    return el('div', { class: 'task-card' },
+      el('strong', {}, task.kind === 'words' ? `${taskHeading(data.task_kinds, task)}: ${words.length}` : taskHeading(data.task_kinds, task)),
+      task.kind === 'words' && words.length ? wordList(words) : null,
+      task.kind === 'words' ? el('button', { class: 'secondary', onclick: () => showAddWord(setId, data.topics, backTo) }, t('add_to_set')) : null,
+      task.instructions ? el('p', { class: 'instructions' }, task.instructions) : null,
+      task.photos.length ? el('div', { class: 'photo-strip' }, ...task.photos.map((id) => photoImg(setId, id))) : null);
+  });
   screen(
     heading,
     el('button', { class: 'secondary', onclick: rename }, t('rename')),
@@ -594,10 +632,10 @@ async function showSet(setId, message = '', backTo = showSets) {
     status,
     el('strong', {}, t('set_assignments')),
     assignments,
-    el('strong', {}, `${t('set_words')}: ${data.words.length}`),
+    el('strong', {}, t('tasks')),
     el('p', { class: 'muted' }, t('set_edit_note')),
-    data.words.length ? words : null,
-    el('button', { class: 'secondary', onclick: () => showAddWord(setId, data.topics, backTo) }, t('add_to_set')),
+    ...taskCards,
+    firstWordsTask ? null : el('button', { class: 'secondary', onclick: () => showAddWord(setId, data.topics, backTo) }, t('add_to_set')),
     el('div', { class: 'spacer' }),
     data.set.archived
       ? el('button', { class: 'secondary', onclick: () => postJson(`/sets/${setId}/restore`).then(() => showSet(setId, '', showSets)).catch(fail) }, t('restore_set'))
@@ -609,25 +647,16 @@ async function showSet(setId, message = '', backTo = showSets) {
   if (message) setStatus(message, 'ok');
 }
 
-// Homework draft produced from forwarded tutor messages
+async function createHomework() {
+  try { showDraft((await postJson('/imports')).id, showSets); } catch (error) { fail(error); }
+}
 
-async function showDraft(setId, backTo = null) {
-  setBack(backTo);
-  let data;
-  try { data = await getJson(`/imports/${setId}`); } catch (error) {
-    try { labels = (await getJson('/topics')).labels || labels; } catch { /* keep keys */ }
-    const text = error.message === 'draft_not_available' ? t('draft_unavailable') : errorText(error);
-    app.replaceChildren(el('p', { class: 'status error' }, text), el('button', { onclick: showTopics }, t('topics')));
-    return;
-  }
-  labels = data.labels || labels;
-  document.title = t('draft_title');
-  const topicList = el('datalist', { id: 'draft-topics' }, ...data.topics.map((topic) => el('option', { value: topic.title })));
-  const titleInput = el('input', { type: 'text', value: data.set.title, maxLength: 200 });
+// Homework draft: an ordered list of tasks (words, paper work, notes), each with its own photos
+
+function wordsEditor(items, defaultTopic) {
   const rows = el('div', { class: 'list draft-list' });
-  const rowState = [];
-
   const knownRows = el('div', { class: 'list draft-list' });
+  const rowState = [];
   const addRow = (item, { top = false } = {}) => {
     const known = Boolean(item.existing_id);
     const state = {
@@ -646,14 +675,16 @@ async function showDraft(setId, backTo = null) {
       : el('div', { class: 'draft-fields' }, state.en, state.ru, state.topic);
     const card = el('label', { class: 'draft-row' }, el('span', { class: 'draft-check' }, state.include), fields);
     state.include.addEventListener('change', () => card.classList.toggle('excluded', !state.include.checked));
+    card.classList.toggle('excluded', !state.include.checked);
     rowState.push(state);
     (known && !top ? knownRows : rows).append(card);
     rows.hidden = rows.childElementCount === 0;
+    knownRows.hidden = knownRows.childElementCount === 0;
     return state;
   };
-  data.items.forEach(addRow);
-  const knownCount = data.items.filter((item) => item.existing_id).length;
+  items.forEach((item) => addRow(item));
   rows.hidden = rows.childElementCount === 0;
+  knownRows.hidden = knownRows.childElementCount === 0;
 
   // Pick an existing word (from any topic) into this homework without duplicating it.
   const dictionarySearch = el('input', { type: 'search', placeholder: `🔍 ${t('search_dictionary')}`, autocapitalize: 'off' });
@@ -693,37 +724,179 @@ async function showDraft(setId, backTo = null) {
 
   const allTopic = el('input', { type: 'text', maxLength: 100, placeholder: t('draft_topic') });
   allTopic.setAttribute('list', 'draft-topics');
-  const firstTopic = data.items.find((item) => item.topic)?.topic || '';
-  allTopic.value = firstTopic;
+  allTopic.value = items.find((item) => item.topic)?.topic || defaultTopic || '';
   const applyTopic = () => rowState.forEach((state) => {
     if (state.item.manual) return; // picked from another topic: it only joins the homework
     state.topic.value = allTopic.value;
     const sub = state.item.existing_id && state.include.closest('.draft-row')?.querySelector('.sub');
     if (sub) sub.textContent = [state.item.ru, allTopic.value].filter(Boolean).join(' · ');
   });
+  const knownCount = () => rowState.filter((state) => state.item.existing_id && !state.item.manual).length;
+  const knownHeading = el('span', { class: 'sub' });
+  const refreshKnown = () => { knownHeading.textContent = knownCount() ? `${t('already_known')}: ${knownCount()}` : ''; };
+  refreshKnown();
 
+  const node = el('div', { class: 'section' },
+    el('label', {}, t('draft_topic'), el('div', { class: 'row' }, el('span', { class: 'grow' }, allTopic), el('button', { class: 'secondary', onclick: applyTopic }, '↓'))),
+    rows,
+    dictionarySearch,
+    dictionaryResults,
+    el('button', { class: 'secondary', onclick: () => { const state = addRow({ en: '', ru: '', topic: allTopic.value }, { top: true }); state.en.focus(); } }, t('create_word')),
+    knownHeading,
+    knownRows);
+  return {
+    node,
+    collect: () => rowState.map((state) => ({
+      en: state.en.value, ru: state.ru.value, topic: state.topic.value,
+      include: state.include.checked, existing_id: state.item.existing_id || null,
+    })),
+    // The first new word without a topic, so saving can point at it.
+    missingTopic: () => rowState.find((state) => state.include.checked && state.en.value.trim() && !state.item.existing_id && !state.topic.value.trim()),
+  };
+}
+
+async function showDraft(setId, backTo = null) {
+  setBack(backTo);
+  let data;
+  try { data = await getJson(`/imports/${setId}`); } catch (error) {
+    try { labels = (await getJson('/topics')).labels || labels; } catch { /* keep keys */ }
+    const text = error.message === 'draft_not_available' ? t('draft_unavailable') : errorText(error);
+    app.replaceChildren(el('p', { class: 'status error' }, text), el('button', { onclick: showTopics }, t('topics')));
+    return;
+  }
+  labels = data.labels || labels;
+  document.title = t('draft_title');
+  const photos = [...data.photos];
+  const views = [];
+  const tasksBox = el('div', { class: 'section' });
+  const gallery = el('div', { class: 'photo-grid' });
+  const status = el('p', { class: 'status' });
+  const setStatus = (text, kind = '') => { status.className = `status ${kind}`; status.textContent = text; };
+
+  const refreshPhotos = () => {
+    views.forEach((view) => view.renderPhotos());
+    gallery.replaceChildren(...photos.map((id) => {
+      const owners = views.filter((view) => view.task.photos.includes(id)).map((view) => view.label());
+      return el('div', { class: 'photo-tile' },
+        photoImg(setId, id),
+        el('span', { class: owners.length ? 'sub' : 'sub warn' }, owners.length ? t('photo_in_task', { tasks: owners.join(', ') }) : t('photo_unused')));
+    }));
+    if (!photos.length) gallery.replaceChildren(el('p', { class: 'muted' }, t('no_photos')));
+  };
+  const reorder = () => tasksBox.replaceChildren(...views.map((view) => view.node));
+  const move = (view, delta) => {
+    const index = views.indexOf(view);
+    const target = index + delta;
+    if (target < 0 || target >= views.length) return;
+    views.splice(index, 1);
+    views.splice(target, 0, view);
+    reorder();
+  };
+
+  const upload = async (file) => {
+    const blob = await shrinkImage(file);
+    const result = await (await api(`/imports/${setId}/photos`, { method: 'POST', body: blob, contentType: blob.type || 'application/octet-stream' })).json();
+    photos.push(result.id);
+    return result.id;
+  };
+
+  const buildTaskView = (task) => {
+    task.photos = [...(task.photos || [])];
+    const view = { task };
+    const enabled = el('input', { type: 'checkbox', checked: task.enabled !== false });
+    const title = el('input', { type: 'text', value: task.title || '', maxLength: 200, placeholder: t('task_title') });
+    const instructions = el('textarea', { value: task.instructions || '', maxLength: 4000, rows: 4, placeholder: t('task_instructions') });
+    const words = task.kind === 'words' ? wordsEditor(task.items || [], '') : null;
+    view.label = () => title.value.trim() || kindLabel(data.task_kinds, task.kind);
+    title.addEventListener('input', refreshPhotos);
+
+    const strip = el('div', { class: 'photo-strip' });
+    const picker = el('div', { class: 'section picker' });
+    picker.hidden = true;
+    const fileInput = el('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
+    fileInput.addEventListener('change', async () => {
+      setStatus(t('uploading'));
+      try {
+        for (const file of fileInput.files || []) task.photos.push(await upload(file));
+        setStatus('');
+      } catch (error) { setStatus(errorText(error), 'error'); }
+      fileInput.value = '';
+      picker.hidden = true;
+      refreshPhotos();
+    });
+    const renderPicker = () => picker.replaceChildren(
+      el('span', { class: 'sub' }, photos.length ? t('gallery_hint') : t('no_photos')),
+      el('div', { class: 'photo-grid' }, ...photos.filter((id) => !task.photos.includes(id)).map((id) => el('button', {
+        class: 'photo-pick', onclick: () => { task.photos.push(id); picker.hidden = true; refreshPhotos(); },
+      }, photoImg(setId, id, 'photo')))),
+      fileInput,
+      el('button', { class: 'secondary', onclick: () => fileInput.click() }, t('upload_photo')));
+    view.renderPhotos = () => strip.replaceChildren(...task.photos.map((id) => el('div', { class: 'photo-tile' },
+      photoImg(setId, id),
+      el('button', { class: 'link', onclick: () => { task.photos = task.photos.filter((other) => other !== id); refreshPhotos(); } }, t('detach_photo')))));
+
+    const card = el('div', { class: 'task-card' });
+    const syncEnabled = () => card.classList.toggle('excluded', !enabled.checked);
+    enabled.addEventListener('change', syncEnabled);
+    const instructionsBlock = task.kind === 'words'
+      ? el('details', { open: Boolean(task.instructions) }, el('summary', {}, t('task_instructions')), instructions)
+      : el('label', {}, t('task_instructions'), instructions);
+    card.append(
+      el('div', { class: 'row' },
+        el('strong', { class: 'grow' }, kindLabel(data.task_kinds, task.kind)),
+        el('button', { class: 'icon', title: t('move_up'), 'aria-label': t('move_up'), onclick: () => move(view, -1) }, '↑'),
+        el('button', { class: 'icon', title: t('move_down'), 'aria-label': t('move_down'), onclick: () => move(view, 1) }, '↓'),
+        el('button', { class: 'icon', title: t('delete_task'), 'aria-label': t('delete_task'), onclick: () => confirmThen(t('delete_task'), async () => {
+          views.splice(views.indexOf(view), 1);
+          reorder();
+          refreshPhotos();
+        }) }, '✕')),
+      el('label', { class: 'inline-check' }, enabled, t('task_enabled')),
+      title,
+      words ? words.node : null,
+      instructionsBlock,
+      strip,
+      el('button', { class: 'secondary', onclick: () => { renderPicker(); picker.hidden = !picker.hidden; } }, t('attach_photo')),
+      picker);
+    syncEnabled();
+    view.node = card;
+    view.collect = () => ({
+      kind: task.kind, title: title.value, instructions: instructions.value, enabled: enabled.checked,
+      items: words ? words.collect() : [], photos: task.photos,
+    });
+    view.missingTopic = () => (enabled.checked && words ? words.missingTopic() : null);
+    return view;
+  };
+
+  data.tasks.forEach((task) => views.push(buildTaskView(task)));
+  reorder();
+  refreshPhotos();
+
+  const kindSelect = el('select', {}, ...data.task_kinds.map((kind) => el('option', { value: kind.code }, kind.label)));
+  const addTask = () => {
+    const view = buildTaskView({ kind: kindSelect.value, title: '', instructions: '', enabled: true, items: [], photos: [] });
+    views.push(view);
+    reorder();
+    refreshPhotos();
+    view.node.scrollIntoView({ block: 'start' });
+  };
+
+  const titleInput = el('input', { type: 'text', value: data.set.title, maxLength: 200 });
   const recipient = el('select', {},
     ...data.members.map((member) => el('option', { value: String(member.id) }, member.name)),
     el('option', { value: '' }, t('dont_assign')));
   const mode = el('select', {}, ...data.modes.map((option) => el('option', { value: option.code }, option.label)));
   applyDefaults(data.defaults, recipient, mode);
-  const status = el('p', { class: 'status' });
   const saveButton = el('button', {}, t('save_draft'));
 
   saveButton.addEventListener('click', async () => {
-    const items = rowState.map((state) => ({
-      en: state.en.value, ru: state.ru.value, topic: state.topic.value,
-      include: state.include.checked, existing_id: state.item.existing_id || null,
-    }));
-    const chosen = items.filter((item) => item.include && item.en.trim());
-    if (!chosen.length) { status.className = 'status error'; status.textContent = t('draft_empty'); return; }
-    const missingTopic = rowState.find((state) => state.include.checked && state.en.value.trim() && !state.item.existing_id && !state.topic.value.trim());
-    if (missingTopic) { missingTopic.topic.focus(); return; }
+    const missing = views.map((view) => view.missingTopic()).find(Boolean);
+    if (missing) { missing.topic.focus(); return; }
     saveButton.disabled = true;
-    status.className = 'status'; status.textContent = t('uploading');
+    setStatus(t('uploading'));
     try {
       const result = await postJson(`/imports/${setId}/save`, {
-        title: titleInput.value, items, mode: mode.value,
+        title: titleInput.value, tasks: views.map((view) => view.collect()), mode: mode.value,
         assign_to: recipient.value ? Number(recipient.value) : null,
       });
       const message = result.assignment_id ? t('draft_saved_assigned') : t('draft_saved');
@@ -731,27 +904,24 @@ async function showDraft(setId, backTo = null) {
         el('h1', {}, result.title),
         el('p', { class: 'status ok' }, message.replace('{count}', result.word_count)),
         el('button', { onclick: () => (webApp?.close ? webApp.close() : showTopics()) }, t('back')),
-        el('button', { class: 'secondary', onclick: showTopics }, t('topics')),
+        el('button', { class: 'secondary', onclick: () => showSet(setId) }, t('open_set')),
       );
     } catch (error) {
       saveButton.disabled = false;
-      status.className = 'status error';
-      status.textContent = error.message === 'draft_not_available' ? t('draft_unavailable') : errorText(error);
+      const known = { draft_not_available: t('draft_unavailable'), draft_empty: t('draft_empty') };
+      setStatus(known[error.message] || errorText(error), 'error');
     }
   });
 
   screen(
-    topicList,
+    el('datalist', { id: 'draft-topics' }, ...data.topics.map((topic) => el('option', { value: topic.title }))),
     el('h1', {}, t('draft_title')),
     el('label', {}, t('draft_name'), titleInput),
-    el('label', {}, t('draft_topic'), el('div', { class: 'row' }, el('span', { class: 'grow' }, allTopic), el('button', { class: 'secondary', onclick: applyTopic }, '↓'))),
-    el('strong', {}, `${t('draft_words')}: ${data.items.length - knownCount}`),
-    rows,
-    dictionarySearch,
-    dictionaryResults,
-    el('button', { class: 'secondary', onclick: () => { const state = addRow({ en: '', ru: '', topic: allTopic.value }, { top: true }); state.en.focus(); } }, t('create_word')),
-    knownCount ? el('strong', {}, `${t('already_known')}: ${knownCount}`) : null,
-    knownCount ? knownRows : null,
+    el('strong', {}, t('tasks')),
+    tasksBox,
+    el('div', { class: 'row' }, el('span', { class: 'grow' }, kindSelect), el('button', { onclick: addTask }, t('add_task'))),
+    el('strong', {}, t('gallery')),
+    gallery,
     el('label', {}, t('assign_to'), recipient),
     el('label', {}, t('mode'), mode),
     saveButton,

@@ -12,6 +12,7 @@ from .ai_extraction import KIND_WORDS, AIExtractionUnavailable, ExtractionSource
 from .config import get_mini_app_url
 from .families import get_user_family
 from .homework_sets import (
+    KIND_MANUAL,
     HomeworkSetError,
     add_source,
     begin_processing,
@@ -19,6 +20,8 @@ from .homework_sets import (
     mark_failed,
     set_control_message,
     store_extraction,
+    store_manual_draft,
+    store_source_photos,
     summarize_sources,
 )
 from .i18n import translate_for_user
@@ -37,15 +40,18 @@ def build_draft_url(base_url: str, set_id: int) -> str:
 
 
 def _kind_keyboard(user_id: int, set_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=translate_for_user(user_id, "homework_import.kind.words"), callback_data=f"{CALLBACK_PREFIX}{KIND_WORDS}:{set_id}")],
-        [InlineKeyboardButton(text=translate_for_user(user_id, "homework_import.cancel"), callback_data=f"{CALLBACK_PREFIX}cancel:{set_id}")],
-    ])
+    rows = []
+    if is_ai_extraction_configured():
+        rows.append([InlineKeyboardButton(text=translate_for_user(user_id, "homework_import.kind.words"), callback_data=f"{CALLBACK_PREFIX}{KIND_WORDS}:{set_id}")])
+    rows.append([InlineKeyboardButton(text=translate_for_user(user_id, "homework_import.kind.manual"), callback_data=f"{CALLBACK_PREFIX}{KIND_MANUAL}:{set_id}")])
+    rows.append([InlineKeyboardButton(text=translate_for_user(user_id, "homework_import.cancel"), callback_data=f"{CALLBACK_PREFIX}cancel:{set_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _retry_keyboard(user_id: int, set_id: int, kind: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=translate_for_user(user_id, "homework_import.retry"), callback_data=f"{CALLBACK_PREFIX}{kind}:{set_id}")],
+        [InlineKeyboardButton(text=translate_for_user(user_id, "homework_import.kind.manual"), callback_data=f"{CALLBACK_PREFIX}{KIND_MANUAL}:{set_id}")],
         [InlineKeyboardButton(text=translate_for_user(user_id, "homework_import.cancel"), callback_data=f"{CALLBACK_PREFIX}cancel:{set_id}")],
     ])
 
@@ -66,7 +72,7 @@ def is_homework_forward(message: Message) -> bool:
         and message.from_user is not None
         and getattr(message.chat, "type", None) == "private"
         and bool(message.text or message.caption or message.photo)
-        and is_ai_extraction_configured()
+        and get_mini_app_url() is not None
         and get_user_family(message.from_user.id) is not None
     )
 
@@ -121,7 +127,8 @@ async def handle_homework_import_callback(callback: CallbackQuery) -> None:
     except HomeworkSetError:
         await callback.message.edit_text(translate_for_user(user_id, "homework_import.stale"))
         return
-    await callback.message.edit_text(translate_for_user(user_id, "homework_import.processing"))
+    processing_key = "homework_import.preparing" if action == KIND_MANUAL else "homework_import.processing"
+    await callback.message.edit_text(translate_for_user(user_id, processing_key))
     task = asyncio.create_task(_process(callback.message, user_id, set_id, action, sources))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
@@ -141,6 +148,12 @@ async def _download_sources(bot, sources: list[dict[str, str]]) -> list[Extracti
 async def _process(message: Message, user_id: int, set_id: int, kind: str, sources: list[dict[str, str]]) -> None:
     try:
         prepared = await _download_sources(message.bot, sources)
+        images = [source.image for source in prepared if source.image]
+        await asyncio.to_thread(store_source_photos, set_id, images)
+        if kind == KIND_MANUAL:
+            await asyncio.to_thread(store_manual_draft, set_id)
+            await message.edit_text(translate_for_user(user_id, "homework_import.manual_done"), reply_markup=_draft_keyboard(user_id, set_id))
+            return
         result = await asyncio.to_thread(extract_items, kind, prepared)
         counts = await asyncio.to_thread(store_extraction, set_id, result)
     except AIExtractionUnavailable as exc:
