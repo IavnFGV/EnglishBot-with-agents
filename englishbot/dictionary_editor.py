@@ -49,6 +49,7 @@ LABEL_KEYS = (
     "heroine_pictures", "heroine_draw", "heroine_idea", "heroine_idea_hint", "heroine_drawing",
     "heroine_requested", "heroine_use", "heroine_redraw", "heroine_skip", "heroine_none", "heroine_failed",
     "heroine_scene", "heroine_state_offline", "heroine_state_auth_required", "heroine_state_limited",
+    "heroine_count_drawing", "heroine_count_ready", "heroine_ready_open",
 )
 
 
@@ -130,11 +131,11 @@ def list_topics(user_id: int) -> dict[str, object]:
 
 def _heroine_summary(user_id: int) -> dict[str, object] | None:
     from .config import get_heroine_dir
-    from .heroine_pictures import count_open_pictures
+    from .heroine_pictures import picture_counts
 
     if get_heroine_dir() is None:
         return None
-    return {"open": count_open_pictures(user_id)}
+    return picture_counts(user_id)
 
 
 def _is_owner(user_id: int) -> bool:

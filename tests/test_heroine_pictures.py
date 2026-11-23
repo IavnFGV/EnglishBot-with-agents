@@ -171,8 +171,9 @@ def test_notifications_are_grouped_and_sent_once(root: Path) -> None:
 
 def test_editor_routes(root: Path) -> None:
     word_id = new_word()
-    assert route_editor_request("GET", ["topics"], PARENT, b"")["heroine"] == {"open": 0}
+    assert route_editor_request("GET", ["topics"], PARENT, b"")["heroine"] == {"drawing": 0, "open": 0}
     picture = route_editor_request("POST", ["words", str(word_id), "heroine"], PARENT, json.dumps({"scene": "орёл"}).encode())
+    assert route_editor_request("GET", ["topics"], PARENT, b"")["heroine"] == {"drawing": 1, "open": 0}
     listing = route_editor_request("GET", ["heroine"], CHILD, b"")
     assert listing["pictures"][0]["id"] == picture["id"] and "heroine_use" in listing["labels"]
     redrawn = route_editor_request("POST", ["heroine", str(picture["id"]), "redraw"], PARENT, b"{}")

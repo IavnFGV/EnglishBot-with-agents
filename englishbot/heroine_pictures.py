@@ -273,16 +273,28 @@ def list_pictures(user_id: int) -> dict[str, object]:
     return {"pictures": pictures, "worker": worker_state()}
 
 
-def count_open_pictures(user_id: int) -> int:
+def picture_counts(user_id: int) -> dict[str, int]:
+    """How many pictures are being drawn and how many wait for a parent's decision."""
     family = get_user_family(user_id)
+    counts = {"drawing": 0, "open": 0}
     if family is None or get_heroine_dir() is None:
-        return 0
+        return counts
     with get_connection() as connection:
-        row = connection.execute(
-            "SELECT COUNT(*) FROM heroine_pictures WHERE family_id = ? AND status IN (?, ?)",
-            (int(family["id"]), STATUS_READY, STATUS_FAILED),
-        ).fetchone()
-    return int(row[0])
+        rows = connection.execute(
+            """
+            SELECT heroine_pictures.status, COUNT(*) AS total FROM heroine_pictures
+            JOIN learning_items ON learning_items.id = heroine_pictures.learning_item_id
+            WHERE heroine_pictures.family_id = ? AND learning_items.is_archived = 0
+            GROUP BY heroine_pictures.status
+            """,
+            (int(family["id"]),),
+        ).fetchall()
+    for row in rows:
+        if row["status"] == STATUS_QUEUED:
+            counts["drawing"] += int(row["total"])
+        elif row["status"] in (STATUS_READY, STATUS_FAILED):
+            counts["open"] += int(row["total"])
+    return counts
 
 
 def _require_open(connection, family_id: int, picture_id: int):

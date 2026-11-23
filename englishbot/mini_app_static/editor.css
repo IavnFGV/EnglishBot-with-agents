@@ -65,6 +65,9 @@ details label { margin-top: 10px; }
 .status { min-height: 1.4em; font-weight: 600; }
 .status.ok { color: var(--ok); }
 .status.error { color: var(--danger); }
+.status.drawing { color: var(--accent); animation: drawing-pulse 1.6s ease-in-out infinite; }
+@keyframes drawing-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .status.drawing { animation: none; } }
 .section { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; }
 .spacer { height: 8px; }
 select { width: 100%; min-height: 48px; padding: 10px 12px; border: 2px solid var(--line); border-radius: 14px; font: inherit; color: var(--text); background: var(--surface); }

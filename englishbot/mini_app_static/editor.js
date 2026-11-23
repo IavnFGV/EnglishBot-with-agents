@@ -115,8 +115,7 @@ async function showTopics() {
     el('button', { onclick: () => askTopicTitle('', async (title) => showWords((await postJson('/topics', { title })).id)) }, t('new_topic')),
     el('button', { class: 'secondary', onclick: showHomework }, t('homework_list')),
     el('button', { class: 'secondary', onclick: showSets }, t('sets')),
-    data.heroine ? el('button', { class: 'secondary', onclick: showPictures },
-      data.heroine.open ? `${t('heroine_pictures')} (${data.heroine.open})` : t('heroine_pictures')) : null,
+    data.heroine ? el('button', { class: 'secondary', onclick: showPictures }, heroineButtonText(data.heroine)) : null,
     data.is_owner ? el('button', { class: 'secondary', onclick: () => showModels() }, t('models')) : null,
     data.topics.length ? list : el('p', { class: 'muted' }, t('no_topics')),
   );
@@ -294,7 +293,37 @@ function pictureSection(word, onChange, setStatus) {
 
 // Heroine pictures drawn by the optional artist container
 
+const HEROINE_POLL_MS = 8000;
+
+function heroineButtonText(counts) {
+  const parts = [];
+  if (counts.drawing) parts.push(`🖌 ${t('heroine_count_drawing', { count: counts.drawing })}`);
+  if (counts.open) parts.push(t('heroine_count_ready', { count: counts.open }));
+  return parts.length ? `${t('heroine_pictures')} · ${parts.join(' · ')}` : t('heroine_pictures');
+}
+
+// Shows whether the artist is drawing this word and re-checks until it is done.
+function heroineProgress(wordId) {
+  const line = el('div', {});
+  const check = async () => {
+    if (!line.isConnected && line.dataset.started) return;
+    line.dataset.started = '1';
+    let picture = null;
+    try { picture = (await getJson('/heroine')).pictures.find((item) => item.word_id === wordId) || null; } catch { return; }
+    if (picture?.status === 'queued') {
+      line.replaceChildren(el('p', { class: 'status drawing' }, `🖌 ${t('heroine_drawing')}`));
+      setTimeout(check, HEROINE_POLL_MS);
+    } else if (picture) {
+      line.replaceChildren(el('button', { class: 'link', onclick: showPictures }, picture.status === 'ready' ? t('heroine_ready_open') : t('heroine_failed', { error: picture.error || '' })));
+    } else {
+      line.replaceChildren();
+    }
+  };
+  return { line, check };
+}
+
 function heroineRequest(word, setStatus) {
+  const progress = heroineProgress(word.id);
   const idea = el('textarea', { rows: 2, maxLength: 500, placeholder: t('heroine_idea_hint') });
   const button = el('button', { class: 'secondary', onclick: async () => {
     button.disabled = true;
@@ -302,9 +331,12 @@ function heroineRequest(word, setStatus) {
       await postJson(`/words/${word.id}/heroine`, { scene: idea.value });
       idea.value = '';
       setStatus(t('heroine_requested'), 'ok');
+      progress.check();
     } catch (error) { setStatus(errorText(error), 'error'); } finally { button.disabled = false; }
   } }, t('heroine_draw'));
-  return el('details', {}, el('summary', {}, t('heroine_draw')), el('label', {}, t('heroine_idea'), idea), button);
+  setTimeout(progress.check, 0);
+  return el('div', { class: 'section' }, progress.line,
+    el('details', {}, el('summary', {}, t('heroine_draw')), el('label', {}, t('heroine_idea'), idea), button));
 }
 
 async function showPictures() {
@@ -343,8 +375,22 @@ async function showPictures() {
       status);
     return card;
   });
+  const title = el('h1', {}, t('heroine_pictures'));
+  // While something is being drawn, re-check quietly and redraw the screen only when a
+  // picture changes state, so a scene being edited is not lost.
+  const signature = (pictures) => pictures.map((picture) => `${picture.id}:${picture.status}`).join(',');
+  const watch = async () => {
+    if (!title.isConnected) return;
+    try {
+      const next = await getJson('/heroine');
+      if (!title.isConnected) return;
+      if (signature(next.pictures) !== signature(data.pictures) || next.worker !== data.worker) { showPictures(); return; }
+    } catch { /* keep the current screen */ }
+    setTimeout(watch, HEROINE_POLL_MS);
+  };
+  if (data.pictures.some((picture) => picture.status === 'queued')) setTimeout(watch, HEROINE_POLL_MS);
   screen(
-    el('h1', {}, t('heroine_pictures')),
+    title,
     worker,
     cards.length ? el('div', { class: 'list' }, ...cards) : el('p', { class: 'muted' }, t('heroine_none')),
   );
