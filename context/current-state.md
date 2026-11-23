@@ -47,7 +47,7 @@ Defined in `englishbot/command_registry.py`. The Telegram menu shows five, with 
 - AI model queue (`ai_models.py`, tables `app_settings`, `ai_model_stats`): only `:free` OpenRouter ids are accepted. The owner-only "Models" screen manages the queue and runs test checks. Models are tried in order. A daily sync drops models that are no longer free and notifies the owner.
 
 ## Content authoring
-- `/teacher_content` opens the dictionary web editor (`dictionary_editor.py`, `mini_app_static/editor.*`, API `/mini-app/api/editor/`) when the Mini App URL is set. The older Telegram dialog editor is a secondary button and the fallback.
+- `/teacher_content` (button "Dictionary and homework") opens the dictionary web editor (`dictionary_editor.py`, `mini_app_static/editor.*`, API `/mini-app/api/editor/`) when the Mini App URL is set. The older Telegram dialog editor is a secondary button and the fallback.
 - The web editor edits topics, words, translations, and pictures (gallery or link). Pictures are normalized server-side to upright JPEG up to 1024px. Deletes archive rows.
 
 ## Media

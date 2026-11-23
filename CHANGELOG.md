@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-11-23
+- The `/teacher_content` button now reads "📚 Dictionary and homework" ("📚 Словарь и домашки") instead of "Open dictionary editor", and its intro mentions tutor tasks and assigning homework.
 - The Telegram menu now shows five commands (`/learn`, `/homework`, `/topics`, `/teacher_content`, `/settings`) with descriptions in the user's Telegram language; other commands still work when typed, and the owner's longer personal menu is cleared. `/start` and `/help` no longer suggest `/create_assignment`.
 - Removed the Excel bulk edit: `/bulk_edit`, `/bulk_edit_with_archived`, workbook export/import, the bulk-edit session gate and monitor, its button in the Telegram editor, the `bulk_edit_sessions` table, and the `openpyxl` dependency. Content is edited in the web editor.
 - Word pictures from the tutor's pages: the AI now also marks where each word's drawing is (pictures are numbered for it), and the server cuts it out without the printed caption, trimming 6% off the edges. In the draft every word shows its picture; tapping it opens a cut-out editor over the forwarded photo (move the frame, drag its corners, switch to another photo), or the parent uploads their own picture or chooses none. Without AI or a found drawing the same editor starts empty. Saving copies the picture into the dictionary for new words and for words where the parent picked one; existing pictures are kept otherwise.
