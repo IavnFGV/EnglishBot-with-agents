@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-11-23
+- New look for both Mini Apps: a shared sky palette with light and dark themes that follow Telegram, the rounded Nunito font (system fallback), tactile buttons, yellow letter tiles with answer slots, a compact header with the progress ring, an animated correct/incorrect pill with haptics, and a finish screen with confetti (off with reduced motion). The editor uses the same palette and cards. Fixed a stray "null" printed in non-word tasks of the homework draft, in the word card without a picture, and in the picture cutter.
 - Learner Mini App: a wrong answer now shows the correct one (the engine moves to the next word, so "Try again!" was misleading); an empty typed answer is no longer sent and a rejected answer refreshes the screen instead of showing "Connection lost"; the finish screen says how many paper tasks are left; the typed-answer field gets focus.
 - The `/teacher_content` button now reads "📚 Dictionary and homework" ("📚 Словарь и домашки") instead of "Open dictionary editor", and its intro mentions tutor tasks and assigning homework.
 - The Telegram menu now shows five commands (`/learn`, `/homework`, `/topics`, `/teacher_content`, `/settings`) with descriptions in the user's Telegram language; other commands still work when typed, and the owner's longer personal menu is cleared. `/start` and `/help` no longer suggest `/create_assignment`.

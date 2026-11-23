@@ -11,8 +11,14 @@ let languages = [];
 let backHandler = null;
 const imageCache = new Map();
 
+function syncTheme() {
+  if (webApp?.colorScheme) document.documentElement.dataset.theme = webApp.colorScheme;
+}
+
 webApp?.ready();
 webApp?.expand();
+syncTheme();
+webApp?.onEvent?.('themeChanged', syncTheme);
 webApp?.BackButton?.onClick(() => backHandler && backHandler());
 
 function t(key, values = {}) {
@@ -32,6 +38,9 @@ function el(tag, props = {}, ...children) {
   for (const child of children) if (child !== null && child !== undefined) node.append(child);
   return node;
 }
+
+// Native append() prints null as text, so drop empty optional nodes first.
+const present = (...nodes) => nodes.filter((node) => node !== null && node !== undefined);
 
 class ApiError extends Error {}
 
@@ -252,7 +261,7 @@ function pictureSection(word, onChange, setStatus) {
     const urlInput = el('input', { type: 'url', placeholder: t('photo_url'), inputMode: 'url' });
     const useUrl = () => urlInput.value.trim() && update(() => postJson(`/words/${word.id}/image-url`, { url: urlInput.value.trim() }));
     urlInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') useUrl(); });
-    section.replaceChildren(
+    section.replaceChildren(...present(
       el('strong', {}, t('photo')),
       preview,
       fileInput,
@@ -260,7 +269,7 @@ function pictureSection(word, onChange, setStatus) {
       urlInput,
       el('button', { class: 'secondary', onclick: useUrl }, t('use_url')),
       word.image_id ? el('button', { class: 'link', onclick: () => update(() => postJson(`/words/${word.id}/image/delete`)) }, t('remove_photo')) : null,
-    );
+    ));
   };
   const update = async (request) => {
     setStatus(t('uploading'));
@@ -767,7 +776,7 @@ function openPictureEditor(ctx, state, onChange) {
     : null;
 
   if (pages.length) showPage(crop && pages.includes(crop.photo) ? crop.photo : pages[0], crop && pages.includes(crop.photo) ? crop.box : null);
-  overlay.append(
+  overlay.append(...present(
     el('strong', {}, `${t('word_picture')}: ${state.en.value || state.item.en || ''}`),
     state.item.current_image && !state.image.user ? el('p', { class: 'muted' }, t('picture_kept')) : null,
     pages.length ? el('p', { class: 'muted' }, t('picture_hint')) : el('p', { class: 'muted' }, t('no_photos')),
@@ -780,7 +789,7 @@ function openPictureEditor(ctx, state, onChange) {
     el('div', { class: 'row' },
       el('button', { class: 'secondary grow', onclick: close }, t('cancel')),
       el('button', { class: 'secondary grow', onclick: () => choose({ id: null, user: true }) }, t('picture_remove'))),
-  );
+  ));
   document.body.classList.add('no-scroll');
   document.body.append(overlay);
 }
@@ -988,7 +997,7 @@ async function showDraft(setId, backTo = null) {
         }) }, '✕')),
       el('label', { class: 'inline-check' }, enabled, t('task_enabled')),
       title,
-      words ? words.node : null,
+      ...(words ? [words.node] : []),
       instructionsBlock,
       strip,
       el('button', { class: 'secondary', onclick: () => { renderPicker(); picker.hidden = !picker.hidden; } }, t('attach_photo')),

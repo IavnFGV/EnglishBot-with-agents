@@ -20,8 +20,18 @@ function t(key, values = {}) {
   return value;
 }
 
+function syncTheme() {
+  if (webApp?.colorScheme) document.documentElement.dataset.theme = webApp.colorScheme;
+}
+
 webApp?.ready();
 webApp?.expand();
+syncTheme();
+webApp?.onEvent?.('themeChanged', syncTheme);
+
+function haptic(kind) {
+  try { webApp?.HapticFeedback?.notificationOccurred(kind); } catch (_) { /* optional */ }
+}
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -53,7 +63,7 @@ async function refresh() {
 
 function showError(error) {
   app.replaceChildren();
-  app.append(el('div', 'feedback error', error.message === 'expired_init_data' ? t('expired') : t('connection')));
+  app.append(el('div', 'error-text', error.message === 'expired_init_data' ? t('expired') : t('connection')));
   const retry = el('button', '', t('retry'));
   retry.onclick = refresh;
   app.append(retry);
@@ -70,6 +80,8 @@ async function act(action, value) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, action, value })
     })).json();
+    if (state.feedback === 'correct') haptic('success');
+    else if (state.feedback === 'incorrect') haptic('error');
     render();
   } catch (error) {
     if (['stale_question', 'session_completed', 'invalid_answer'].includes(error.message)) await refresh();
@@ -133,14 +145,19 @@ function button(text, action, value, className = '') {
 
 function drawMediumSelection() {
   const answer = app.querySelector('.answer');
-  const slots = mediumMask.split(' ');
-  const chosen = mediumSelected.map(index => [...state.question.letters][index]);
+  const letters = [...state.question.letters];
+  const chosen = mediumSelected.map(index => letters[index]);
   let position = 0;
-  answer.textContent = slots.map(slot => slot ? (chosen[position++] || '_') : '').join(' ');
+  answer.replaceChildren(...mediumMask.split(' ').map(slot => {
+    if (!slot) return el('span', 'slot-gap');
+    const letter = chosen[position++];
+    return el('span', letter ? 'slot filled' : 'slot', letter || '');
+  }));
   app.querySelectorAll('.letters button').forEach((choice, index) => {
     const selected = mediumSelected.includes(index);
-    choice.textContent = selected ? '_' : [...state.question.letters][index];
-    choice.disabled = selected || choice.textContent === ' ';
+    choice.textContent = letters[index];
+    choice.classList.toggle('used', selected);
+    choice.disabled = selected || letters[index] === ' ';
   });
 }
 
@@ -193,15 +210,18 @@ async function checkMedium() {
   }
 }
 
-function renderHomeworkProgress(progress) {
-  const panel = el('div', 'homework-progress');
+function renderHomeworkProgress(progress, big = false) {
+  const panel = el('div', big ? 'homework-progress big' : 'homework-progress');
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 200 200');
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', t('homework_progress', { completed: progress.completed, total: progress.total }));
   const addSvg = (tag, attributes, content) => {
     const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
+    for (const [name, value] of Object.entries(attributes)) {
+      if (name === 'fill' || name === 'stroke') node.style[name] = String(value);
+      else node.setAttribute(name, String(value));
+    }
     if (content !== undefined) node.textContent = content;
     svg.append(node);
   };
@@ -221,36 +241,55 @@ function renderHomeworkProgress(progress) {
     const start = -90 + index * sweep + gap / 2;
     const end = -90 + (index + 1) * sweep - gap / 2;
     const value = Math.max(0, Math.min(1, segment.value));
-    const color = segment.hard_clear ? '#167a6c' : value >= 1 ? '#79d99a' : value >= .66 ? '#ffaf5f' : value > 0 ? '#f7d36a' : '#dde7ef';
-    addSvg('path', { d: wedge(82, start, end), fill: '#dde7ef' });
+    const color = segment.hard_clear ? 'var(--accent)' : value >= 1 ? 'var(--good)' : value > 0 ? 'var(--sun)' : 'var(--line)';
+    addSvg('path', { d: wedge(82, start, end), fill: 'var(--line)' });
     if (value > 0) addSvg('path', { d: wedge(24 + 58 * value, start, end), fill: color });
   });
-  addSvg('circle', { cx: 100, cy: 100, r: 24, fill: '#fffdf7', stroke: '#f2d9b6', 'stroke-width': 2 });
-  addSvg('text', { x: 100, y: 106, 'text-anchor': 'middle', fill: '#2b3d52', 'font-size': 19, 'font-weight': 800 }, `${progress.completed}/${progress.total}`);
+  addSvg('circle', { cx: 100, cy: 100, r: big ? 30 : 36, fill: 'var(--surface)' });
+  addSvg('text', { x: 100, y: big ? 108 : 112, 'text-anchor': 'middle', fill: 'var(--ink)', 'font-size': big ? 24 : 34, 'font-weight': 900 }, `${progress.completed}/${progress.total}`);
   panel.append(svg);
   return panel;
+}
+
+function confetti() {
+  const layer = el('div', 'confetti');
+  layer.setAttribute('aria-hidden', 'true');
+  const colors = ['var(--sun)', 'var(--accent)', 'var(--good)', 'var(--bad)'];
+  for (let index = 0; index < 36; index += 1) {
+    const piece = el('i');
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.background = colors[index % colors.length];
+    piece.style.animationDelay = `${Math.random() * .6}s`;
+    piece.style.animationDuration = `${1.4 + Math.random() * 1.2}s`;
+    layer.append(piece);
+  }
+  setTimeout(() => layer.remove(), 3500);
+  return layer;
 }
 
 function render() {
   app.replaceChildren();
   if (state?.status === 'completed') {
-    if (state.homework_progress) app.append(renderHomeworkProgress(state.homework_progress));
-    const card = el('div', 'card');
+    const card = el('div', 'card finish');
+    card.append(el('div', 'medal', '🏆'));
     card.append(el('div', 'prompt', t('great')));
+    if (state.homework_progress) card.append(renderHomeworkProgress(state.homework_progress, true));
     card.append(el('div', 'hint', t('outcome', state.summary)));
-    if (state.paper_left) card.append(el('div', 'hint', t('paper_left', { count: state.paper_left })));
+    if (state.paper_left) card.append(el('div', 'paper', t('paper_left', { count: state.paper_left })));
     const close = el('button', '', t('back'));
     close.onclick = () => webApp?.close();
     card.append(close);
-    app.append(card);
+    app.append(card, confetti());
     return;
   }
   const q = state.question;
-  const top = el('div', 'top');
-  top.append(el('span', '', `${t('word')} ${q.number}/${q.total}`), el('span', '', `${q.completed}/${q.total} ${t('done')}`));
+  const top = el('header', 'top');
+  const topText = el('div', 'top-text');
+  topText.append(el('span', 'top-word', `${t('word')} ${q.number}/${q.total}`), el('span', 'top-done', `${q.completed}/${q.total} ${t('done')}`));
+  top.append(topText);
+  if (state.homework_progress) top.append(renderHomeworkProgress(state.homework_progress));
   app.append(top);
-  if (state.homework_progress) app.append(renderHomeworkProgress(state.homework_progress));
-  else {
+  if (!state.homework_progress) {
     const bar = el('div', 'bar');
     const fill = el('span');
     fill.style.width = `${100 * q.completed / Math.max(q.total, 1)}%`;
@@ -261,7 +300,7 @@ function render() {
   card.append(pictureFrame);
   loadImage(q.image_asset_id, pictureFrame);
   card.append(el('div', 'prompt', q.prompt));
-  if (q.hint) card.append(el('div', 'hint', q.hint));
+  if (q.hint && q.hint !== q.prompt) card.append(el('div', 'hint', q.hint));
   if (q.type === 'typed_answer' && q.first_letter) card.append(el('div', 'hint', t('starts', { letter: q.first_letter })));
   app.append(card);
   if (q.type === 'multiple_choice') {
@@ -271,18 +310,18 @@ function render() {
   } else if (q.type === 'jumbled_letters') {
     mediumSelected = [...q.selected];
     mediumMask = q.answer_mask.split(' ').map(slot => slot ? '_' : '').join(' ');
-    app.append(el('div', 'answer', q.answer_mask));
+    app.append(el('div', 'answer'));
     const letters = el('div', 'letters');
     [...q.letters].forEach((letter, index) => {
-      const selected = q.selected.includes(index);
-      const choice = el('button', '', selected ? '_' : letter);
+      const choice = el('button', '', letter);
       choice.onclick = () => editMedium('add', index);
-      choice.disabled = selected || letter === ' ';
       letters.append(choice);
     });
     app.append(letters);
+    drawMediumSelection();
     const actions = el('div', 'actions');
-    const backspace = el('button', 'secondary', '⌫');
+    const backspace = el('button', 'secondary backspace', '⌫');
+    backspace.setAttribute('aria-label', 'Backspace');
     backspace.onclick = () => editMedium('backspace');
     const check = el('button', '', t('check'));
     check.onclick = checkMedium;
@@ -303,10 +342,16 @@ function render() {
     if (q.can_skip_hard) actions.append(button(t('skip'), 'skip', null, 'secondary'));
     app.append(actions);
   }
-  const feedback = el('div', `feedback ${state.feedback === 'correct' ? 'correct' : state.feedback === 'incorrect' ? 'error' : ''}`, state.feedback === 'correct' ? t('feedback_correct') : state.feedback === 'incorrect' ? t('feedback_incorrect', { answer: state.correct_answer || '' }) : state.feedback === 'skipped' ? t('feedback_skipped') : '');
+  const feedback = el('div', 'feedback');
+  const pill = {
+    correct: ['correct', `✓ ${t('feedback_correct')}`],
+    incorrect: ['error', `✗ ${t('feedback_incorrect', { answer: state.correct_answer || '' })}`],
+    skipped: ['neutral', t('feedback_skipped')],
+  }[state.feedback];
+  if (pill) feedback.append(el('span', `pill ${pill[0]}`, pill[1]));
   app.append(feedback);
   if (q.tts_available) {
-    const listenButton = el('button', 'secondary', t('listen'));
+    const listenButton = el('button', 'secondary listen', t('listen'));
     listenButton.onclick = listen;
     app.append(listenButton);
   }

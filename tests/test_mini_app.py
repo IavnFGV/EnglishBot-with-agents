@@ -225,7 +225,7 @@ def test_mini_app_style_preserves_medium_phrase_spacing() -> None:
         return await _mini_app_response("GET", "/mini-app/style.css", {}, reader, None)
 
     response = asyncio.run(request())
-    assert b"white-space: pre-wrap" in response
+    assert b".slot-gap" in response
 
 
 def test_mini_app_launch_url_changes_with_deployed_commit(monkeypatch) -> None:
