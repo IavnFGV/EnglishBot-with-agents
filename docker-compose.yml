@@ -11,6 +11,11 @@ services:
         ENGLISHBOT_BUILD_REF: ${ENGLISHBOT_BUILD_REF:-unknown}
         ENGLISHBOT_ENV_NAME: ${ENGLISHBOT_ENV_NAME:-production}
     restart: unless-stopped
+    labels:
+      # infra-vps security report: "🔧 Fix" button runs this repo's deploy workflow
+      infra-vps.fix: github-workflow
+      infra-vps.fix.repo: IavnFGV/EnglishBot-with-agents
+      infra-vps.fix.workflow: deploy.yml
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
       interval: 10s
