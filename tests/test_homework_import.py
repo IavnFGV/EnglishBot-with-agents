@@ -460,34 +460,82 @@ def test_drafts_are_listed_until_saved_or_deleted(family: int, monkeypatch) -> N
     assert caught.value.code == "draft_not_available"
 
 
-def test_delete_set_hides_unfinished_homework_but_keeps_words_and_history(family: int) -> None:
-    from englishbot.homework import list_active_assignments, student_has_active_homework
-    from englishbot.homework_sets import delete_set, list_sets
+def test_archive_hides_set_without_touching_homework_and_restore_brings_it_back(family: int) -> None:
+    from englishbot.homework_sets import archive_set, get_set, list_sets, restore_set
 
     set_id = saved_set()  # assigned to KID, still active
-    with db.get_connection() as connection:
-        active_id = connection.execute("SELECT id FROM homework_assignments WHERE homework_set_id = ?", (set_id,)).fetchone()[0]
-        done_id = connection.execute(
-            "INSERT INTO homework_assignments (family_id, assigned_by_user_id, assigned_to_user_id, title, training_mode, status, created_at, updated_at, homework_set_id)"
-            " VALUES (?, ?, ?, 'old', 'easy', 'completed', 'x', 'x', ?)",
-            (family, MOM, KID, set_id),
-        ).lastrowid
-        connection.execute(
-            "INSERT INTO training_sessions (telegram_user_id, family_homework_assignment_id, current_index, correct_answers, total_questions, status, created_at, updated_at)"
-            " VALUES (?, ?, 0, 0, 2, 'active', 'x', 'x')",
-            (KID, active_id),
-        )
-
-    assert delete_set(MOM, set_id) == {"deleted": True, "cancelled_assignments": 1}
+    archive_set(MOM, set_id)
 
     assert list_sets(MOM) == []
-    assert list_active_assignments(KID) == [] and not student_has_active_homework(KID)
+    assert [row["id"] for row in list_sets(MOM, archived=True)] == [set_id]
+    assert get_set(MOM, set_id)["set"]["archived"] is True
     with db.get_connection() as connection:
-        statuses = dict(connection.execute("SELECT id, status FROM homework_assignments WHERE homework_set_id = ?", (set_id,)).fetchall())
-        assert statuses == {active_id: "cancelled", done_id: "completed"}
-        assert connection.execute("SELECT status FROM training_sessions WHERE family_homework_assignment_id = ?", (active_id,)).fetchone()[0] == "cancelled"
-        assert connection.execute("SELECT COUNT(*) FROM learning_items WHERE text IN ('owl', 'crow') AND is_archived = 0").fetchone()[0] == 2
-    assert error_code(lambda: delete_set(MOM, set_id)) == "set_not_found"
+        assert connection.execute("SELECT status FROM homework_assignments WHERE homework_set_id = ?", (set_id,)).fetchone()[0] == "active"
+
+    restore_set(MOM, set_id)
+    assert [row["id"] for row in list_sets(MOM)] == [set_id]
+    assert list_sets(MOM, archived=True) == []
+
+
+def test_set_words_can_be_added_from_dictionary_or_created_and_removed(family: int) -> None:
+    from englishbot.dictionary_editor import search_words
+    from englishbot.homework_sets import add_set_word, assign_set, remove_set_word
+
+    animals = create_topic(MOM, "Animals")
+    cat = create_word(MOM, animals["id"], "cat", {"ru": "кошка"})
+    set_id = saved_set()  # owl, crow; already assigned once
+
+    assert [word["text"] for word in search_words(MOM, "КОШ")] == ["cat"]  # Cyrillic is matched in any case
+    from englishbot.dictionary_editor import route_editor_request
+    assert [word["text"] for word in route_editor_request("POST", ["words", "search"], MOM, '{"q": "Cat"}'.encode())["words"]] == ["cat"]
+    assert search_words(STRANGER, "cat") == []
+    add_set_word(MOM, set_id, {"word_id": cat["id"]})
+    details = add_set_word(MOM, set_id, {"en": "eagle", "ru": "орёл", "topic": "Birds"})
+    assert [word["text"] for word in details["words"]] == ["owl", "crow", "cat", "eagle"]
+    add_set_word(MOM, set_id, {"word_id": cat["id"]})  # adding twice keeps one entry
+    owl_id = details["words"][0]["id"]
+    details = remove_set_word(MOM, set_id, owl_id)
+    assert [word["text"] for word in details["words"]] == ["crow", "cat", "eagle"]
+    assert error_code(lambda: add_set_word(MOM, set_id, {"en": "hawk", "ru": "ястреб", "topic": ""})) == "topic_required"
+
+    with db.get_connection() as connection:
+        first = connection.execute("SELECT id FROM homework_assignments WHERE homework_set_id = ? ORDER BY id", (set_id,)).fetchone()[0]
+        assert connection.execute("SELECT COUNT(*) FROM homework_assignment_items WHERE homework_assignment_id = ?", (first,)).fetchone()[0] == 2
+    assert assign_set(MOM, set_id, KID, "easy")["word_count"] == 3  # the next assignment uses the edited set
+
+
+def test_homework_overview_shows_progress_and_cancel_closes_the_session(family: int) -> None:
+    from englishbot.homework import list_active_assignments
+    from englishbot.homework_sets import cancel_assignment, list_assignments
+
+    set_id = saved_set()
+    with db.get_connection() as connection:
+        assignment_id = connection.execute("SELECT id FROM homework_assignments WHERE homework_set_id = ?", (set_id,)).fetchone()[0]
+        session_id = connection.execute(
+            "INSERT INTO training_sessions (telegram_user_id, family_homework_assignment_id, current_index, correct_answers, total_questions, status, created_at, updated_at)"
+            " VALUES (?, ?, 0, 1, 2, 'active', 'x', 'x')",
+            (KID, assignment_id),
+        ).lastrowid
+        for order, completed in enumerate((1, 0)):
+            connection.execute(
+                "INSERT INTO training_session_items (session_id, learning_item_id, prompt_text, expected_answer, item_order, is_completed)"
+                " VALUES (?, (SELECT learning_item_id FROM homework_assignment_items WHERE homework_assignment_id = ? AND item_order = ?), 'p', 'a', ?, ?)",
+                (session_id, assignment_id, order, order, completed),
+            )
+
+    overview = list_assignments(MOM)
+    assert [(row["id"], row["done"], row["total"], row["to"], row["set_id"]) for row in overview["active"]] == [(assignment_id, 1, 2, "Teia", set_id)]
+    assert list_assignments(STRANGER) == {"active": [], "finished": []}
+
+    cancel_assignment(MOM, assignment_id)
+
+    assert list_active_assignments(KID) == []
+    overview = list_assignments(MOM)
+    assert overview["active"] == [] and overview["finished"][0]["status"] == "cancelled"
+    with db.get_connection() as connection:
+        assert connection.execute("SELECT status FROM training_sessions WHERE id = ?", (session_id,)).fetchone()[0] == "cancelled"
+    assert error_code(lambda: cancel_assignment(MOM, assignment_id)) == "assignment_not_active"
+    assert error_code(lambda: cancel_assignment(STRANGER, assignment_id)) == "assignment_not_found"
 
 
 def test_assign_defaults_follow_the_last_assignment_and_sets_report_activity(family: int) -> None:

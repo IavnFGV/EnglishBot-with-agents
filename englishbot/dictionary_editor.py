@@ -39,7 +39,8 @@ LABEL_KEYS = (
     "models", "models_queue", "models_available", "models_hint", "models_empty_queue",
     "models_not_configured", "models_catalog_error", "model_add", "model_remove", "model_test",
     "model_testing", "model_test_ok", "model_test_failed", "model_stats", "model_no_stats",
-    "model_not_free", "model_avg_seconds", "drafts", "delete_draft", "delete_draft_confirm", "saved_sets", "delete_set", "delete_set_confirm", "sets_in_progress", "show_more", "search_sets",
+    "model_not_free", "model_avg_seconds", "drafts", "delete_draft", "delete_draft_confirm", "saved_sets", "archive_set", "archive_set_confirm", "restore_set", "archive", "archived_note", "sets_in_progress", "show_more", "search_sets",
+    "remove_from_set", "add_to_set", "search_dictionary", "create_word", "set_edit_note", "homework_list", "homework_now", "homework_finished", "cancel_homework", "cancel_homework_confirm", "homework_none", "homework_cancelled", "words_done", "assigned_on", "open_set",
 )
 
 
@@ -84,7 +85,7 @@ def _require_word(connection, family_id: int, word_id: int):
 
 
 def editor_labels(user_id: int) -> dict[str, str]:
-    placeholders = {name: "{" + name + "}" for name in ("count", "found", "expected", "seconds", "error", "ok", "fail")}
+    placeholders = {name: "{" + name + "}" for name in ("count", "found", "expected", "seconds", "error", "ok", "fail", "done", "total", "date")}
     return {key: translate_for_user(user_id, f"editor.ui.{key}", **placeholders) for key in LABEL_KEYS}
 
 
@@ -368,6 +369,8 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
     """Dispatch /mini-app/api/editor/<parts>; returns a JSON dict or (bytes, content_type)."""
     if method == "GET" and parts in ([], ["topics"]):
         return list_topics(user_id)
+    if parts == ["words", "search"] and method == "POST":
+        return {"words": search_words(user_id, _json(body).get("q"))}
     if method == "POST" and parts == ["topics"]:
         return create_topic(user_id, _json(body).get("title"))
     if len(parts) >= 2 and parts[0] == "topics":
@@ -399,12 +402,53 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
             return set_word_image_from_url(user_id, word_id, _json(body).get("url"))
         if method == "POST" and rest == ["image", "delete"]:
             return clear_word_image(user_id, word_id)
+    if parts and parts[0] == "assignments":
+        return _route_assignments(method, parts[1:], user_id)
     if parts and parts[0] == "models":
         return _route_models(method, parts[1:], user_id, body)
     if parts and parts[0] == "sets":
         return _route_sets(method, parts[1:], user_id, body)
     if len(parts) >= 2 and parts[0] == "imports":
         return _route_import(method, _int_part(parts[1]), parts[2:], user_id, body)
+    raise _error("not_found", 404)
+
+
+def search_words(user_id: int, query: object, limit: int = 20) -> list[dict[str, object]]:
+    """Family words whose English text or translation contains the query (any letter case)."""
+    family_id = _family_id(user_id)
+    needle = _clean_text(query, required=False).casefold()
+    if not needle:
+        return []
+    # SQLite lower() only folds ASCII, so Cyrillic matching is done here; a family dictionary is small.
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT learning_items.id, learning_items.text,
+                   group_concat(learning_item_translations.translation_text, ' ') AS translations
+            FROM learning_items
+            LEFT JOIN learning_item_translations ON learning_item_translations.learning_item_id = learning_items.id
+            WHERE learning_items.family_id = ? AND learning_items.is_archived = 0
+            GROUP BY learning_items.id
+            """,
+            (family_id,),
+        ).fetchall()
+        matches = sorted(
+            (row for row in rows if needle in f"{row['text']} {row['translations'] or ''}".casefold()),
+            key=lambda row: str(row["text"]).casefold(),
+        )[:limit]
+        return [_serialize_word(connection, int(row["id"])) for row in matches]
+
+
+def _route_assignments(method: str, rest: list[str], user_id: int):
+    from .homework_sets import HomeworkSetError, cancel_assignment, list_assignments
+
+    try:
+        if method == "GET" and rest == []:
+            return list_assignments(user_id)
+        if method == "POST" and len(rest) == 2 and rest[1] == "cancel":
+            return cancel_assignment(user_id, _int_part(rest[0]))
+    except HomeworkSetError as exc:
+        raise _error(exc.code, exc.status) from exc
     raise _error("not_found", 404)
 
 
@@ -460,19 +504,35 @@ def _route_models(method: str, rest: list[str], user_id: int, body: bytes):
 
 
 def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
-    from .homework_sets import HomeworkSetError, assign_set, delete_set, get_set, list_drafts, list_sets, rename_set
+    from .homework_sets import (
+        HomeworkSetError, add_set_word, archive_set, assign_set, get_set, list_drafts, list_sets,
+        remove_set_word, rename_set, restore_set,
+    )
 
     try:
         if method == "GET" and rest == []:
-            return {"sets": list_sets(user_id), "drafts": list_drafts(user_id), "labels": editor_labels(user_id)}
+            return {
+                "sets": list_sets(user_id),
+                "drafts": list_drafts(user_id),
+                "archived_count": len(list_sets(user_id, archived=True)),
+                "labels": editor_labels(user_id),
+            }
+        if method == "GET" and rest == ["archive"]:
+            return {"sets": list_sets(user_id, archived=True)}
         if rest:
             set_id = _int_part(rest[0])
             if method == "GET" and rest[1:] == []:
                 return get_set(user_id, set_id)
             if method == "POST" and rest[1:] == []:
                 return rename_set(user_id, set_id, _json(body).get("title"))
-            if method == "POST" and rest[1:] == ["delete"]:
-                return delete_set(user_id, set_id)
+            if method == "POST" and rest[1:] == ["archive"]:
+                return archive_set(user_id, set_id)
+            if method == "POST" and rest[1:] == ["restore"]:
+                return restore_set(user_id, set_id)
+            if method == "POST" and rest[1:] == ["words"]:
+                return add_set_word(user_id, set_id, _json(body))
+            if method == "POST" and len(rest) == 4 and rest[1] == "words" and rest[3] == "delete":
+                return remove_set_word(user_id, set_id, _int_part(rest[2]))
             if method == "POST" and rest[1:] == ["assign"]:
                 payload = _json(body)
                 result = assign_set(user_id, set_id, payload.get("assign_to"), payload.get("mode"))

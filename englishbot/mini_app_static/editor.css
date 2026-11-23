@@ -66,3 +66,10 @@ label.draft-row { flex-direction: row; font-weight: 400; cursor: pointer; }
 .model-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .model-actions button { min-height: 40px; padding: 6px 12px; }
 .model-actions button.secondary { background: var(--bg); border: 1px solid color-mix(in srgb, var(--hint) 45%, transparent); }
+button.icon { flex: none; min-height: 40px; width: 40px; padding: 0; background: none; color: var(--hint); font-size: 1.1rem; }
+.homework-card { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-bottom: 1px solid color-mix(in srgb, var(--hint) 25%, transparent); }
+.homework-card:last-child { border-bottom: 0; }
+.homework-card .title { font-weight: 600; overflow-wrap: anywhere; }
+.homework-card .sub { color: var(--hint); font-size: .9rem; }
+.progress { height: 10px; border-radius: 99px; background: color-mix(in srgb, var(--hint) 25%, transparent); overflow: hidden; }
+.progress span { display: block; height: 100%; background: var(--accent); }

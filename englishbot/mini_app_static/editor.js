@@ -26,6 +26,7 @@ function el(tag, props = {}, ...children) {
   for (const [key, value] of Object.entries(props)) {
     if (key === 'class') node.className = value;
     else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+    else if (key === 'style' || key.startsWith('aria-')) node.setAttribute(key, value);
     else if (value !== undefined && value !== null) node[key] = value;
   }
   for (const child of children) if (child !== null && child !== undefined) node.append(child);
@@ -101,6 +102,7 @@ async function showTopics() {
   screen(
     el('h1', {}, t('title')),
     el('button', { onclick: () => askTopicTitle('', async (title) => showWords((await postJson('/topics', { title })).id)) }, t('new_topic')),
+    el('button', { class: 'secondary', onclick: showHomework }, t('homework_list')),
     el('button', { class: 'secondary', onclick: showSets }, t('sets')),
     data.is_owner ? el('button', { class: 'secondary', onclick: () => showModels() }, t('models')) : null,
     data.topics.length ? list : el('p', { class: 'muted' }, t('no_topics')),
@@ -422,19 +424,144 @@ async function showSets() {
     others.length ? othersList : null,
     others.length ? moreButton : null,
     data.sets.length || drafts.length ? null : el('p', { class: 'muted' }, t('no_sets')),
+    data.archived_count ? el('button', { class: 'link', onclick: showArchive }, `${t('archive')} (${data.archived_count})`) : null,
   );
 }
 
-async function showSet(setId, message = '') {
+async function showArchive() {
   setBack(showSets);
+  let data;
+  try { data = await getJson('/sets/archive'); } catch (error) { fail(error); return; }
+  const search = el('input', { type: 'search', placeholder: t('search_sets') });
+  const list = el('div', { class: 'list' });
+  const render = () => {
+    const query = search.value.trim().toLowerCase();
+    const matching = data.sets.filter((set) => !query || set.title.toLowerCase().includes(query));
+    list.replaceChildren(...matching.map((set) => el('button', { class: 'item', onclick: () => showSet(set.id, '', showArchive) },
+      el('span', { class: 'texts' },
+        el('span', { class: 'title' }, set.title),
+        el('span', { class: 'sub' }, `${formatDate(set.saved_at)} · ${t('word_count', { count: set.item_count })}`)))));
+    list.hidden = matching.length === 0;
+  };
+  search.addEventListener('input', render);
+  render();
+  screen(el('h1', {}, t('archive')), data.sets.length > 10 ? search : null, list);
+}
+
+function statusLabel(status) {
+  if (status === 'completed') return t('assignment_completed');
+  if (status === 'cancelled') return t('homework_cancelled');
+  return t('assignment_active');
+}
+
+// Add a word to a saved set: pick from the dictionary or create a new one
+
+function showAddWord(setId, topics, backTo) {
+  setBack(() => showSet(setId, '', backTo));
+  const status = el('p', { class: 'status' });
+  const add = async (payload) => {
+    try {
+      await postJson(`/sets/${setId}/words`, payload);
+      showSet(setId, t('saved'), backTo);
+    } catch (error) { status.className = 'status error'; status.textContent = errorText(error); }
+  };
+  const results = el('div', { class: 'list' });
+  results.hidden = true;
+  const search = el('input', { type: 'search', placeholder: t('search_dictionary'), autocapitalize: 'off' });
+  let timer = null;
+  search.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const query = search.value.trim();
+      if (!query) { results.hidden = true; return; }
+      try {
+        const found = await postJson('/words/search', { q: query });
+        results.replaceChildren(...found.words.map((word) => el('button', { class: 'item', onclick: () => add({ word_id: word.id }) },
+          el('span', { class: 'texts' },
+            el('span', { class: 'title' }, word.text),
+            el('span', { class: 'sub' }, Object.values(word.translations).find(Boolean) || '')))));
+        results.hidden = found.words.length === 0;
+      } catch (error) { fail(error); }
+    }, 250);
+  });
+  const topicList = el('datalist', { id: 'add-word-topics' }, ...topics.map((topic) => el('option', { value: topic.title })));
+  const en = el('input', { type: 'text', maxLength: 100, placeholder: 'English', autocapitalize: 'off' });
+  const ru = el('input', { type: 'text', maxLength: 200, placeholder: t('translation') });
+  const topic = el('input', { type: 'text', maxLength: 100, placeholder: t('draft_topic') });
+  topic.setAttribute('list', 'add-word-topics');
+  const create = () => {
+    if (!en.value.trim()) { en.focus(); return; }
+    if (!topic.value.trim()) { topic.focus(); return; }
+    add({ en: en.value, ru: ru.value, topic: topic.value });
+  };
+  screen(
+    topicList,
+    el('h1', {}, t('add_to_set')),
+    search,
+    results,
+    el('strong', {}, t('create_word')),
+    en, ru, topic,
+    el('button', { onclick: create }, t('save')),
+    status,
+  );
+  search.focus();
+}
+
+// Homework overview for parents: progress, cancel, history
+
+async function showHomework() {
+  setBack(showTopics);
+  let data;
+  try { data = await getJson('/assignments'); } catch (error) { fail(error); return; }
+  const cancel = (assignment) => confirmThen(t('cancel_homework_confirm'), async () => {
+    await postJson(`/assignments/${assignment.id}/cancel`);
+    showHomework();
+  });
+  const activeCards = data.active.map((assignment) => {
+    const percent = assignment.total ? Math.round((assignment.done / assignment.total) * 100) : 0;
+    return el('div', { class: 'homework-card' },
+      el('div', { class: 'row' },
+        el('span', { class: 'title grow' }, assignment.title),
+        el('span', { class: 'sub' }, assignment.to)),
+      el('div', { class: 'progress' }, el('span', { style: `width:${percent}%` })),
+      el('span', { class: 'sub' }, `${t('words_done', { done: assignment.done, total: assignment.total })} · ${assignment.mode} · ${t('assigned_on', { date: formatDate(assignment.created_at) })}`),
+      el('div', { class: 'model-actions' },
+        el('button', { class: 'secondary', onclick: () => cancel(assignment) }, t('cancel_homework')),
+        assignment.set_id ? el('button', { class: 'secondary', onclick: () => showSet(assignment.set_id, '', showHomework) }, t('open_set')) : null));
+  });
+  let shown = SETS_PAGE;
+  const finishedList = el('div', { class: 'list' });
+  const more = el('button', { class: 'secondary' }, t('show_more'));
+  const renderFinished = () => {
+    finishedList.replaceChildren(...data.finished.slice(0, shown).map((assignment) => el('div', { class: 'item' },
+      el('span', { class: 'texts' },
+        el('span', { class: 'title' }, assignment.title),
+        el('span', { class: 'sub' }, `${assignment.to} · ${t('words_done', { done: assignment.done, total: assignment.total })} · ${formatDate(assignment.finished_at)} · ${statusLabel(assignment.status)}`)))));
+    more.hidden = data.finished.length <= shown;
+  };
+  more.addEventListener('click', () => { shown += SETS_PAGE; renderFinished(); });
+  renderFinished();
+  screen(
+    el('h1', {}, t('homework_list')),
+    data.active.length || data.finished.length ? null : el('p', { class: 'muted' }, t('homework_none')),
+    data.active.length ? el('strong', {}, t('homework_now')) : null,
+    data.active.length ? el('div', { class: 'list' }, ...activeCards) : null,
+    data.finished.length ? el('strong', {}, t('homework_finished')) : null,
+    data.finished.length ? finishedList : null,
+    data.finished.length ? more : null,
+  );
+}
+
+async function showSet(setId, message = '', backTo = showSets) {
+  setBack(backTo);
   let data;
   try { data = await getJson(`/sets/${setId}`); } catch (error) { fail(error); return; }
   const status = el('p', { class: 'status' });
   const setStatus = (text, kind = '') => { status.className = `status ${kind}`; status.textContent = text; };
-  const heading = el('h1', {}, data.set.title);
+  const heading = el('h1', {}, data.set.archived ? `🗄 ${data.set.title}` : data.set.title);
   const rename = () => askTopicTitle(data.set.title, async (title) => {
     await postJson(`/sets/${setId}`, { title });
-    showSet(setId);
+    showSet(setId, '', backTo);
   }, t('draft_name'));
   const recipient = el('select', {}, ...data.members.map((member) => el('option', { value: String(member.id) }, member.name)));
   const mode = el('select', {}, ...data.modes.map((option) => el('option', { value: option.code }, option.label)));
@@ -444,17 +571,19 @@ async function showSet(setId, message = '') {
     assignButton.disabled = true;
     try {
       await postJson(`/sets/${setId}/assign`, { assign_to: Number(recipient.value), mode: mode.value });
-      showSet(setId, t('assigned_ok'));
+      showSet(setId, t('assigned_ok'), backTo);
     } catch (error) { setStatus(errorText(error), 'error'); assignButton.disabled = false; }
   });
   const assignments = data.assignments.length
     ? el('div', { class: 'list' }, ...data.assignments.map((assignment) => el('div', { class: 'item' },
       el('span', { class: 'texts' },
         el('span', { class: 'title' }, `${assignment.to} · ${formatDate(assignment.created_at)}`),
-        el('span', { class: 'sub' }, `${assignment.mode} · ${assignment.status === 'completed' ? t('assignment_completed') : t('assignment_active')}`)))))
+        el('span', { class: 'sub' }, `${assignment.mode} · ${statusLabel(assignment.status)}`)))))
     : el('p', { class: 'muted' }, t('never_assigned'));
+  const removeWord = (word) => postJson(`/sets/${setId}/words/${word.id}/delete`).then(() => showSet(setId, '', backTo)).catch(fail);
   const words = el('div', { class: 'list' }, ...data.words.map((word) => el('div', { class: `item${word.archived ? ' excluded' : ''}` },
-    el('span', { class: 'texts' }, el('span', { class: 'title' }, word.text), el('span', { class: 'sub' }, word.ru)))));
+    el('span', { class: 'texts' }, el('span', { class: 'title' }, word.text), el('span', { class: 'sub' }, word.ru)),
+    el('button', { class: 'icon', title: t('remove_from_set'), 'aria-label': t('remove_from_set'), onclick: () => removeWord(word) }, '✕'))));
   screen(
     heading,
     el('button', { class: 'secondary', onclick: rename }, t('rename')),
@@ -466,12 +595,16 @@ async function showSet(setId, message = '') {
     el('strong', {}, t('set_assignments')),
     assignments,
     el('strong', {}, `${t('set_words')}: ${data.words.length}`),
-    words,
+    el('p', { class: 'muted' }, t('set_edit_note')),
+    data.words.length ? words : null,
+    el('button', { class: 'secondary', onclick: () => showAddWord(setId, data.topics, backTo) }, t('add_to_set')),
     el('div', { class: 'spacer' }),
-    el('button', { class: 'danger', onclick: () => confirmThen(t('delete_set_confirm'), async () => {
-      await postJson(`/sets/${setId}/delete`);
-      showSets();
-    }) }, t('delete_set')),
+    data.set.archived
+      ? el('button', { class: 'secondary', onclick: () => postJson(`/sets/${setId}/restore`).then(() => showSet(setId, '', showSets)).catch(fail) }, t('restore_set'))
+      : el('button', { class: 'danger', onclick: () => confirmThen(t('archive_set_confirm'), async () => {
+        await postJson(`/sets/${setId}/archive`);
+        showSets();
+      }) }, t('archive_set')),
   );
   if (message) setStatus(message, 'ok');
 }

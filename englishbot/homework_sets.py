@@ -17,7 +17,7 @@ STATUS_DRAFT = "draft"
 STATUS_FAILED = "failed"
 STATUS_SAVED = "saved"
 STATUS_CANCELLED = "cancelled"
-STATUS_DELETED = "deleted"
+STATUS_ARCHIVED = "archived"
 ASSIGNMENT_CANCELLED = "cancelled"
 MAX_SOURCES = 30
 MAX_TEXT_LENGTH = 200
@@ -267,6 +267,33 @@ def _link_word_to_topic(connection, topic_id: int, word_id: int) -> None:
         connection.execute("INSERT INTO topic_items (topic_id, learning_item_id) VALUES (?, ?)", (topic_id, word_id))
 
 
+def _ensure_word(user_id: int, family_id: int, english: str, russian: str, topic: str, topic_cache: dict[str, int]) -> tuple[int, bool]:
+    """Reuse the family word with this text or create it under the topic; return (id, created)."""
+    topic_id = _resolve_topic_id(user_id, family_id, topic, topic_cache)
+    with get_connection() as connection:
+        word_id = _existing_words(connection, family_id).get(english.lower())
+    if word_id is not None:
+        if topic_id is not None:
+            with get_connection() as connection:
+                _link_word_to_topic(connection, topic_id, word_id)
+        return word_id, False
+    if topic_id is None:
+        raise HomeworkSetError("topic_required")
+    word_id = int(create_teacher_topic_item(user_id, family_id, topic_id, english)["learning_item_id"])
+    if russian:
+        timestamp = utc_now()
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO learning_item_translations
+                    (learning_item_id, language_code, translation_text, created_at, updated_at)
+                VALUES (?, 'ru', ?, ?, ?)
+                """,
+                (word_id, russian, timestamp, timestamp),
+            )
+    return word_id, True
+
+
 def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[str, object]:
     """Create or reuse words, file them under topics, record set items, optionally assign homework."""
     family_id = _family_id(user_id)
@@ -300,29 +327,8 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
         english = _clean(entry.get("en"))
         if not english:
             continue
-        russian = _clean(entry.get("ru"))
-        topic_id = _resolve_topic_id(user_id, family_id, _clean(entry.get("topic")), topic_cache)
-        with get_connection() as connection:
-            word_id = _existing_words(connection, family_id).get(english.lower())
-        if word_id is None:
-            if topic_id is None:
-                raise HomeworkSetError("topic_required")
-            word_id = int(create_teacher_topic_item(user_id, family_id, topic_id, english)["learning_item_id"])
-            created += 1
-            if russian:
-                timestamp = utc_now()
-                with get_connection() as connection:
-                    connection.execute(
-                        """
-                        INSERT INTO learning_item_translations
-                            (learning_item_id, language_code, translation_text, created_at, updated_at)
-                        VALUES (?, 'ru', ?, ?, ?)
-                        """,
-                        (word_id, russian, timestamp, timestamp),
-                    )
-        elif topic_id is not None:
-            with get_connection() as connection:
-                _link_word_to_topic(connection, topic_id, word_id)
+        word_id, is_new = _ensure_word(user_id, family_id, english, _clean(entry.get("ru")), _clean(entry.get("topic")), topic_cache)
+        created += int(is_new)
         if word_id not in word_ids:
             word_ids.append(word_id)
 
@@ -355,13 +361,14 @@ def save_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[st
 
 
 def _require_saved(connection, user_id: int, set_id: int):
+    """A saved set, archived or not; drafts and cancelled batches are not sets yet."""
     row = _get_set(connection, user_id, set_id)
-    if row["status"] != STATUS_SAVED:
+    if row["status"] not in (STATUS_SAVED, STATUS_ARCHIVED):
         raise HomeworkSetError("set_not_found", 404)
     return row
 
 
-def list_sets(user_id: int) -> list[dict[str, object]]:
+def list_sets(user_id: int, *, archived: bool = False) -> list[dict[str, object]]:
     family_id = _family_id(user_id)
     with get_connection() as connection:
         rows = connection.execute(
@@ -374,7 +381,7 @@ def list_sets(user_id: int) -> list[dict[str, object]]:
             WHERE family_id = ? AND status = ?
             ORDER BY homework_sets.saved_at DESC, homework_sets.id DESC
             """,
-            (family_id, STATUS_SAVED),
+            (family_id, STATUS_ARCHIVED if archived else STATUS_SAVED),
         ).fetchall()
     return [
         {
@@ -419,8 +426,16 @@ def get_set(user_id: int, set_id: int) -> dict[str, object]:
     names = _member_names(family_id)
     members = [{"id": member_id, "name": name} for member_id, name in names.items()]
     members.sort(key=lambda member: member["id"] == user_id)
+    with get_connection() as connection:
+        topics = _active_topics(connection, family_id)
     return {
-        "set": {"id": set_id, "title": str(row["title"] or ""), "saved_at": str(row["saved_at"] or "")},
+        "set": {
+            "id": set_id,
+            "title": str(row["title"] or ""),
+            "saved_at": str(row["saved_at"] or ""),
+            "archived": row["status"] == STATUS_ARCHIVED,
+        },
+        "topics": topics,
         "words": [
             {"id": int(word["id"]), "text": str(word["text"]), "ru": str(word["ru"] or ""), "archived": bool(word["is_archived"])}
             for word in words
@@ -516,30 +531,138 @@ def list_drafts(user_id: int) -> list[dict[str, object]]:
     ]
 
 
-def delete_set(user_id: int, set_id: int) -> dict[str, int]:
-    """Hide a saved set; unfinished homework from it disappears, finished homework and words stay."""
+def _set_status(user_id: int, set_id: int, status: str) -> dict[str, object]:
     with get_connection() as connection:
         _require_saved(connection, user_id, set_id)
-        timestamp = utc_now()
-        active_ids = [
-            int(row["id"])
-            for row in connection.execute(
-                "SELECT id FROM homework_assignments WHERE homework_set_id = ? AND status = 'active'",
-                (set_id,),
-            ).fetchall()
-        ]
-        for assignment_id in active_ids:
-            # Close a running session first, so finishing it later cannot mark the homework completed.
-            connection.execute(
-                "UPDATE training_sessions SET status = ?, updated_at = ? WHERE family_homework_assignment_id = ? AND status = 'active'",
-                (ASSIGNMENT_CANCELLED, timestamp, assignment_id),
-            )
-            connection.execute(
-                "UPDATE homework_assignments SET status = ?, updated_at = ? WHERE id = ?",
-                (ASSIGNMENT_CANCELLED, timestamp, assignment_id),
-            )
         connection.execute(
             "UPDATE homework_sets SET status = ?, updated_at = ? WHERE id = ?",
-            (STATUS_DELETED, timestamp, set_id),
+            (status, utc_now(), set_id),
         )
-    return {"deleted": True, "cancelled_assignments": len(active_ids)}
+    return {"id": set_id, "archived": status == STATUS_ARCHIVED}
+
+
+def archive_set(user_id: int, set_id: int) -> dict[str, object]:
+    """Hide the set from the main list; its homework is not touched."""
+    return _set_status(user_id, set_id, STATUS_ARCHIVED)
+
+
+def restore_set(user_id: int, set_id: int) -> dict[str, object]:
+    return _set_status(user_id, set_id, STATUS_SAVED)
+
+
+def add_set_word(user_id: int, set_id: int, payload: dict[str, object]) -> dict[str, object]:
+    """Add an existing family word (word_id) or a new one (en, ru, topic); affects future assignments only."""
+    family_id = _family_id(user_id)
+    with get_connection() as connection:
+        _require_saved(connection, user_id, set_id)
+    if payload.get("word_id") is not None:
+        try:
+            word_id = int(payload["word_id"])
+        except (TypeError, ValueError) as exc:
+            raise HomeworkSetError("invalid_request") from exc
+        with get_connection() as connection:
+            found = connection.execute(
+                "SELECT 1 FROM learning_items WHERE id = ? AND family_id = ? AND is_archived = 0",
+                (word_id, family_id),
+            ).fetchone()
+        if found is None:
+            raise HomeworkSetError("word_not_found", 404)
+    else:
+        english = _clean(payload.get("en"))
+        if not english:
+            raise HomeworkSetError("text_required")
+        word_id, _ = _ensure_word(user_id, family_id, english, _clean(payload.get("ru")), _clean(payload.get("topic")), {})
+    with get_connection() as connection:
+        present = connection.execute(
+            "SELECT 1 FROM homework_set_items WHERE homework_set_id = ? AND learning_item_id = ?",
+            (set_id, word_id),
+        ).fetchone()
+        if present is None:
+            next_order = connection.execute(
+                "SELECT COALESCE(MAX(item_order), -1) + 1 FROM homework_set_items WHERE homework_set_id = ?",
+                (set_id,),
+            ).fetchone()[0]
+            connection.execute(
+                "INSERT INTO homework_set_items (homework_set_id, item_kind, learning_item_id, item_order) VALUES (?, 'word', ?, ?)",
+                (set_id, word_id, int(next_order)),
+            )
+    return get_set(user_id, set_id)
+
+
+def remove_set_word(user_id: int, set_id: int, word_id: int) -> dict[str, object]:
+    with get_connection() as connection:
+        _require_saved(connection, user_id, set_id)
+        connection.execute(
+            "DELETE FROM homework_set_items WHERE homework_set_id = ? AND learning_item_id = ?",
+            (set_id, word_id),
+        )
+    return get_set(user_id, set_id)
+
+
+def list_assignments(user_id: int) -> dict[str, list[dict[str, object]]]:
+    """Family homework for the parent: active with progress, then finished and cancelled."""
+    family_id = _family_id(user_id)
+    names = _member_names(family_id)
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT homework_assignments.id, homework_assignments.title, homework_assignments.status,
+                   homework_assignments.training_mode, homework_assignments.assigned_to_user_id,
+                   homework_assignments.created_at, homework_assignments.completed_at,
+                   homework_assignments.updated_at, homework_assignments.homework_set_id,
+                   (SELECT COUNT(*) FROM homework_assignment_items
+                    WHERE homework_assignment_id = homework_assignments.id) AS total,
+                   (SELECT COUNT(*) FROM training_session_items
+                    WHERE session_id = (SELECT MAX(id) FROM training_sessions
+                                        WHERE family_homework_assignment_id = homework_assignments.id)
+                      AND is_completed = 1) AS done
+            FROM homework_assignments
+            WHERE family_id = ?
+            ORDER BY homework_assignments.id DESC
+            """,
+            (family_id,),
+        ).fetchall()
+    def serialize(row) -> dict[str, object]:
+        total = int(row["total"])
+        done = total if row["status"] == "completed" else min(int(row["done"] or 0), total)
+        return {
+            "id": int(row["id"]),
+            "title": str(row["title"] or translate_for_user(user_id, "homework.default_title")),
+            "status": str(row["status"]),
+            "to": names.get(int(row["assigned_to_user_id"]), str(row["assigned_to_user_id"])),
+            "mode": translate_for_user(user_id, f"training.mode.{row['training_mode']}"),
+            "created_at": str(row["created_at"]),
+            "finished_at": str(row["completed_at"] or row["updated_at"]),
+            "set_id": int(row["homework_set_id"]) if row["homework_set_id"] is not None else None,
+            "done": done,
+            "total": total,
+        }
+    items = [serialize(row) for row in rows]
+    return {
+        "active": [item for item in items if item["status"] == "active"],
+        "finished": [item for item in items if item["status"] != "active"],
+    }
+
+
+def cancel_assignment(user_id: int, assignment_id: int) -> dict[str, object]:
+    """Cancel unfinished homework and close its running session so finishing it cannot complete it."""
+    family_id = _family_id(user_id)
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT status FROM homework_assignments WHERE id = ? AND family_id = ?",
+            (assignment_id, family_id),
+        ).fetchone()
+        if row is None:
+            raise HomeworkSetError("assignment_not_found", 404)
+        if row["status"] != "active":
+            raise HomeworkSetError("assignment_not_active", 409)
+        timestamp = utc_now()
+        connection.execute(
+            "UPDATE training_sessions SET status = ?, updated_at = ? WHERE family_homework_assignment_id = ? AND status = 'active'",
+            (ASSIGNMENT_CANCELLED, timestamp, assignment_id),
+        )
+        connection.execute(
+            "UPDATE homework_assignments SET status = ?, updated_at = ? WHERE id = ?",
+            (ASSIGNMENT_CANCELLED, timestamp, assignment_id),
+        )
+    return {"id": assignment_id, "status": ASSIGNMENT_CANCELLED}
