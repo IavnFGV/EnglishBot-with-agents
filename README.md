@@ -16,8 +16,9 @@ It was also a rewrite experiment. A large part of the restructuring was done wit
 - Topic-based learning through `/topics`
 - Personal homework flow through `/homework`
 - Family-shared learning content and assignments
-- Teacher-side content editing inside Telegram
-- Offline workbook export/import for bulk content editing
+- Dictionary editing in a Telegram Mini App web editor (with an older in-chat editor as fallback)
+- Turning forwarded tutor homework into a reviewed word list and homework, with an optional free OpenRouter model drafting it
+- Offline workbook export/import for bulk content editing (slated for removal)
 - Optional pronunciation playback through an external TTS service
 
 ## Architecture
@@ -37,6 +38,7 @@ flowchart TD
     B --> DB[SQLite]
     B --> AS[Local assets]
     B -. optional .-> TTS[External TTS service]
+    B -. optional .-> OR[OpenRouter free models]
     B --> XLSX[Workbook export/import]
     INFRA[infra-vps / VPS infrastructure] --> B
 ```
@@ -49,7 +51,7 @@ The rewrite used a simple three-role workflow:
 - `coder` for implementation
 - `complexity guard` for pushing back on unnecessary abstraction and scope growth
 
-The point was not to pretend the agents guarantee correctness. They were used as structured assistants for implementation, review, and iteration. Requests and implementation steps were documented during the rewrite, and that history remains in the repository as part of how the project evolved.
+The point was not to pretend the agents guarantee correctness. They were used as structured assistants for implementation, review, and iteration. The per-step prompt history from that rewrite was removed from the tree to keep it lean; it remains in git history and in the `v1.0-full` tag.
 
 In practice, the most useful part of the setup was the `complexity guard`. It helped keep a personal project from drifting into avoidable architecture and tooling overhead during a large rewrite.
 
@@ -83,6 +85,8 @@ Optional local configuration in `.env` includes:
 
 - `ENGLISHBOT_OWNER_TELEGRAM_USER_ID` for owner-managed local access
 - `ENGLISHBOT_TTS_BASE_URL` if you want TTS enabled
+- `ENGLISHBOT_MINI_APP_URL` for the learner Mini App and the dictionary web editor
+- `ENGLISHBOT_OPENROUTER_API_KEY` for AI drafting of forwarded homework
 
 ## Lessons learned
 

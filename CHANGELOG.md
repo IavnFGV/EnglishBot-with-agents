@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-11-23
+- Repository cleanup: removed the old agent prompt history (`chain_of_commands/`), Codex role files (`.codex/`), the historical handoff, the legacy `context/current_state.md` pointer, the finished rebuild and functionality-review docs, and the unused LOC and AI file-report scripts. Rewrote `context/current-state.md` to describe only the current state and refreshed the module map, architecture, README, and AGENTS.md. Runtime behavior is unchanged.
 - The homework draft can now pick existing dictionary words from any topic (search by English or Russian); such words join the homework without being filed under the draft's topic, and picking one twice does not duplicate it. Fixed hidden lists in the editor staying visible (`.list` display overrode the `hidden` attribute).
 - Saved homework sets can be moved to an archive and brought back (their homework is not touched), and their word list can be edited (remove a word, add one from a dictionary search, or create a new one); edits apply to later assignments only. The sets screen groups drafts, sets in progress, and the rest, shows 10 at a time with "Show more" and a name search, and assigning defaults to the author's last recipient and mode.
 - Added a "Homework" screen for parents: every family homework with progress (completed words of the latest session), mode and date; unfinished homework can be cancelled there (its running session is closed); finished and cancelled homework is listed 10 at a time.

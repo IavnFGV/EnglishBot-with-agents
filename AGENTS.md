@@ -13,9 +13,9 @@ Before planning or coding, read these files in order:
 3. `docs/architecture.md`
 4. `context/current-state.md`
 
-Read `context/englishbot_handoff.md` only when the task explicitly needs historical context, terminology background, or older target-design notes.
+Use `CHANGELOG.md` or git history only when the task needs historical context.
 
-## Mandatory workflow for Codex agents
+## Mandatory workflow for agents
 1. Confirm the smallest possible change.
 2. Review complexity before implementation.
 3. Read only the task-specific files listed in `docs/module-map.md`.
@@ -72,17 +72,13 @@ Read `context/englishbot_handoff.md` only when the task explicitly needs histori
 ## Token-saving navigation rules
 - Start from `docs/module-map.md` and open only the files listed for the task area.
 - Prefer reading tests for the task area before scanning unrelated modules.
-- Use `context/englishbot_handoff.md` only if current docs do not answer the question.
 - Avoid full-repository scans unless the module map is clearly missing the area.
 
 ## Do not read unless explicitly relevant
-- `chain_of_commands/`
-- `context/englishbot_handoff.md`
-- `context/current_state.md` except as a compatibility pointer
 - `logs/`
-- `.pytest_cache/`
+- `.pytest_cache/`, `.venv/`
 - `.git/`
-- generated SQLite backup folders such as `workbook_import_backups/`
+- local data and backup folders: `data/`, `backups/`, `server-copy/`, `bulk-edit/`, `ChatExport_*/`
 - `assets/images/teacher-content/` and other binary assets unless the task is about media handling
 
 ## Hard navigation constraints
