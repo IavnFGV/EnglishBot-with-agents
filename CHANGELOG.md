@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-11-23
+- Saved homework sets can be deleted: unfinished homework from the set is cancelled (and its running session closed), while words and finished homework stay. The sets screen groups drafts, sets in progress, and the rest, shows 10 at a time with "Show more" and a name search, and assigning defaults to the author's last recipient and mode.
 - The editor's "Homework sets" screen now lists unsaved drafts first, so a draft can be reopened even if the bot message with its button is lost, and a draft can be deleted from its screen.
 - Added an owner-only "Models" screen in the editor: the free OpenRouter models that read pictures are loaded from the live catalog, and the owner orders the queue, adds or removes models, and runs a test on a homework sample. The bot now tries queued models one by one and records per-model answers, refusals, and average time. The daily maintenance run removes queued models that stopped being free and messages the owner about removed and newly available free models.
 - The web editor has a "Homework sets" screen: saved sets can be renamed at any time (their assignments are renamed too, so the learner sees the new name) and assigned again to a family member with a chosen mode; deleted words are skipped.

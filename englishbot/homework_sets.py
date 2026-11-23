@@ -17,6 +17,8 @@ STATUS_DRAFT = "draft"
 STATUS_FAILED = "failed"
 STATUS_SAVED = "saved"
 STATUS_CANCELLED = "cancelled"
+STATUS_DELETED = "deleted"
+ASSIGNMENT_CANCELLED = "cancelled"
 MAX_SOURCES = 30
 MAX_TEXT_LENGTH = 200
 
@@ -205,6 +207,21 @@ def _display_name(member) -> str:
     return str(member["telegram_user_id"])
 
 
+def _assignment_defaults(user_id: int, family_id: int) -> dict[str, object]:
+    """Recipient and mode of the author's last assignment, so assigning is usually one tap."""
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT assigned_to_user_id, training_mode FROM homework_assignments
+            WHERE assigned_by_user_id = ? AND family_id = ? ORDER BY id DESC LIMIT 1
+            """,
+            (user_id, family_id),
+        ).fetchone()
+    if row is None:
+        return {"recipient": None, "mode": TRAINING_MODES[0]}
+    return {"recipient": int(row["assigned_to_user_id"]), "mode": str(row["training_mode"])}
+
+
 def get_draft(user_id: int, set_id: int) -> dict[str, object]:
     family_id = _family_id(user_id)
     with get_connection() as connection:
@@ -223,6 +240,7 @@ def get_draft(user_id: int, set_id: int) -> dict[str, object]:
         "items": draft.get("items", []),
         "topics": topics,
         "members": members,
+        "defaults": _assignment_defaults(user_id, family_id),
         "modes": [{"code": mode, "label": translate_for_user(user_id, f"training.mode.{mode}")} for mode in TRAINING_MODES],
     }
 
@@ -350,7 +368,8 @@ def list_sets(user_id: int) -> list[dict[str, object]]:
             """
             SELECT homework_sets.id, homework_sets.title, homework_sets.saved_at,
                    (SELECT COUNT(*) FROM homework_set_items WHERE homework_set_id = homework_sets.id) AS item_count,
-                   (SELECT COUNT(*) FROM homework_assignments WHERE homework_set_id = homework_sets.id) AS assignment_count
+                   (SELECT COUNT(*) FROM homework_assignments WHERE homework_set_id = homework_sets.id) AS assignment_count,
+                   (SELECT COUNT(*) FROM homework_assignments WHERE homework_set_id = homework_sets.id AND status = 'active') AS active_count
             FROM homework_sets
             WHERE family_id = ? AND status = ?
             ORDER BY homework_sets.saved_at DESC, homework_sets.id DESC
@@ -364,6 +383,7 @@ def list_sets(user_id: int) -> list[dict[str, object]]:
             "saved_at": str(row["saved_at"] or ""),
             "item_count": int(row["item_count"]),
             "assignment_count": int(row["assignment_count"]),
+            "active_count": int(row["active_count"]),
         }
         for row in rows
     ]
@@ -416,6 +436,7 @@ def get_set(user_id: int, set_id: int) -> dict[str, object]:
             for assignment in assignments
         ],
         "members": members,
+        "defaults": _assignment_defaults(user_id, family_id),
         "modes": [{"code": mode, "label": translate_for_user(user_id, f"training.mode.{mode}")} for mode in TRAINING_MODES],
     }
 
@@ -493,3 +514,32 @@ def list_drafts(user_id: int) -> list[dict[str, object]]:
         }
         for row in rows
     ]
+
+
+def delete_set(user_id: int, set_id: int) -> dict[str, int]:
+    """Hide a saved set; unfinished homework from it disappears, finished homework and words stay."""
+    with get_connection() as connection:
+        _require_saved(connection, user_id, set_id)
+        timestamp = utc_now()
+        active_ids = [
+            int(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM homework_assignments WHERE homework_set_id = ? AND status = 'active'",
+                (set_id,),
+            ).fetchall()
+        ]
+        for assignment_id in active_ids:
+            # Close a running session first, so finishing it later cannot mark the homework completed.
+            connection.execute(
+                "UPDATE training_sessions SET status = ?, updated_at = ? WHERE family_homework_assignment_id = ? AND status = 'active'",
+                (ASSIGNMENT_CANCELLED, timestamp, assignment_id),
+            )
+            connection.execute(
+                "UPDATE homework_assignments SET status = ?, updated_at = ? WHERE id = ?",
+                (ASSIGNMENT_CANCELLED, timestamp, assignment_id),
+            )
+        connection.execute(
+            "UPDATE homework_sets SET status = ?, updated_at = ? WHERE id = ?",
+            (STATUS_DELETED, timestamp, set_id),
+        )
+    return {"deleted": True, "cancelled_assignments": len(active_ids)}

@@ -374,25 +374,54 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
 }
 
+const SETS_PAGE = 10;
+
+function applyDefaults(defaults, recipient, mode) {
+  if (defaults?.recipient && [...recipient.options].some((option) => option.value === String(defaults.recipient))) recipient.value = String(defaults.recipient);
+  if (defaults?.mode) mode.value = defaults.mode;
+}
+
 async function showSets() {
   setBack(showTopics);
   let data;
   try { data = await getJson('/sets'); } catch (error) { fail(error); return; }
   labels = data.labels || labels;
-  const list = el('div', { class: 'list' }, ...data.sets.map((set) => el('button', { class: 'item', onclick: () => showSet(set.id) },
+  const setItem = (set) => el('button', { class: 'item', onclick: () => showSet(set.id) },
     el('span', { class: 'texts' },
       el('span', { class: 'title' }, set.title),
-      el('span', { class: 'sub' }, `${formatDate(set.saved_at)} · ${t('word_count', { count: set.item_count })}`)))));
+      el('span', { class: 'sub' }, `${formatDate(set.saved_at)} · ${t('word_count', { count: set.item_count })}`)));
   const drafts = (data.drafts || []).map((draft) => el('button', { class: 'item', onclick: () => showDraft(draft.id, showSets) },
     el('span', { class: 'texts' },
       el('span', { class: 'title' }, `📝 ${draft.title}`),
       el('span', { class: 'sub' }, `${formatDate(draft.updated_at)} · ${t('word_count', { count: draft.item_count })}`))));
+  const inProgress = data.sets.filter((set) => set.active_count > 0);
+  const others = data.sets.filter((set) => set.active_count === 0);
+  // Older sets stay reachable through paging and search instead of one endless list.
+  let shown = SETS_PAGE;
+  const othersList = el('div', { class: 'list' });
+  const moreButton = el('button', { class: 'secondary' }, t('show_more'));
+  const search = el('input', { type: 'search', placeholder: t('search_sets') });
+  const renderOthers = () => {
+    const query = search.value.trim().toLowerCase();
+    const matching = query ? others.filter((set) => set.title.toLowerCase().includes(query)) : others;
+    othersList.replaceChildren(...matching.slice(0, shown).map(setItem));
+    othersList.hidden = matching.length === 0;
+    moreButton.hidden = matching.length <= shown;
+  };
+  moreButton.addEventListener('click', () => { shown += SETS_PAGE; renderOthers(); });
+  search.addEventListener('input', () => { shown = SETS_PAGE; renderOthers(); });
+  renderOthers();
   screen(
     el('h1', {}, t('sets')),
     drafts.length ? el('strong', {}, t('drafts')) : null,
     drafts.length ? el('div', { class: 'list' }, ...drafts) : null,
-    drafts.length && data.sets.length ? el('strong', {}, t('saved_sets')) : null,
-    data.sets.length ? list : (drafts.length ? null : el('p', { class: 'muted' }, t('no_sets'))),
+    inProgress.length ? el('strong', {}, t('sets_in_progress')) : null,
+    inProgress.length ? el('div', { class: 'list' }, ...inProgress.map(setItem)) : null,
+    others.length && (drafts.length || inProgress.length) ? el('strong', {}, t('saved_sets')) : null,
+    others.length > SETS_PAGE ? search : null,
+    others.length ? othersList : null,
+    others.length ? moreButton : null,
+    data.sets.length || drafts.length ? null : el('p', { class: 'muted' }, t('no_sets')),
   );
 }
 
@@ -409,6 +438,7 @@ async function showSet(setId, message = '') {
   }, t('draft_name'));
   const recipient = el('select', {}, ...data.members.map((member) => el('option', { value: String(member.id) }, member.name)));
   const mode = el('select', {}, ...data.modes.map((option) => el('option', { value: option.code }, option.label)));
+  applyDefaults(data.defaults, recipient, mode);
   const assignButton = el('button', {}, t('assign'));
   assignButton.addEventListener('click', async () => {
     assignButton.disabled = true;
@@ -437,6 +467,11 @@ async function showSet(setId, message = '') {
     assignments,
     el('strong', {}, `${t('set_words')}: ${data.words.length}`),
     words,
+    el('div', { class: 'spacer' }),
+    el('button', { class: 'danger', onclick: () => confirmThen(t('delete_set_confirm'), async () => {
+      await postJson(`/sets/${setId}/delete`);
+      showSets();
+    }) }, t('delete_set')),
   );
   if (message) setStatus(message, 'ok');
 }
@@ -499,6 +534,7 @@ async function showDraft(setId, backTo = null) {
     ...data.members.map((member) => el('option', { value: String(member.id) }, member.name)),
     el('option', { value: '' }, t('dont_assign')));
   const mode = el('select', {}, ...data.modes.map((option) => el('option', { value: option.code }, option.label)));
+  applyDefaults(data.defaults, recipient, mode);
   const status = el('p', { class: 'status' });
   const saveButton = el('button', {}, t('save_draft'));
 

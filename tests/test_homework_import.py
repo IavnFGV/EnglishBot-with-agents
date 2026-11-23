@@ -458,3 +458,47 @@ def test_drafts_are_listed_until_saved_or_deleted(family: int, monkeypatch) -> N
     with pytest.raises(MiniAppError) as caught:
         editor("POST", ["imports", str(saved), "cancel"])
     assert caught.value.code == "draft_not_available"
+
+
+def test_delete_set_hides_unfinished_homework_but_keeps_words_and_history(family: int) -> None:
+    from englishbot.homework import list_active_assignments, student_has_active_homework
+    from englishbot.homework_sets import delete_set, list_sets
+
+    set_id = saved_set()  # assigned to KID, still active
+    with db.get_connection() as connection:
+        active_id = connection.execute("SELECT id FROM homework_assignments WHERE homework_set_id = ?", (set_id,)).fetchone()[0]
+        done_id = connection.execute(
+            "INSERT INTO homework_assignments (family_id, assigned_by_user_id, assigned_to_user_id, title, training_mode, status, created_at, updated_at, homework_set_id)"
+            " VALUES (?, ?, ?, 'old', 'easy', 'completed', 'x', 'x', ?)",
+            (family, MOM, KID, set_id),
+        ).lastrowid
+        connection.execute(
+            "INSERT INTO training_sessions (telegram_user_id, family_homework_assignment_id, current_index, correct_answers, total_questions, status, created_at, updated_at)"
+            " VALUES (?, ?, 0, 0, 2, 'active', 'x', 'x')",
+            (KID, active_id),
+        )
+
+    assert delete_set(MOM, set_id) == {"deleted": True, "cancelled_assignments": 1}
+
+    assert list_sets(MOM) == []
+    assert list_active_assignments(KID) == [] and not student_has_active_homework(KID)
+    with db.get_connection() as connection:
+        statuses = dict(connection.execute("SELECT id, status FROM homework_assignments WHERE homework_set_id = ?", (set_id,)).fetchall())
+        assert statuses == {active_id: "cancelled", done_id: "completed"}
+        assert connection.execute("SELECT status FROM training_sessions WHERE family_homework_assignment_id = ?", (active_id,)).fetchone()[0] == "cancelled"
+        assert connection.execute("SELECT COUNT(*) FROM learning_items WHERE text IN ('owl', 'crow') AND is_archived = 0").fetchone()[0] == 2
+    assert error_code(lambda: delete_set(MOM, set_id)) == "set_not_found"
+
+
+def test_assign_defaults_follow_the_last_assignment_and_sets_report_activity(family: int) -> None:
+    from englishbot.homework_sets import assign_set, get_set, list_sets
+
+    first = make_draft([])
+    assert get_draft(MOM, first)["defaults"] == {"recipient": None, "mode": "easy"}
+    save_draft(MOM, first, {"items": [{"en": "owl", "ru": "сова", "topic": "Birds"}], "assign_to": None})
+    assign_set(MOM, first, KID, "medium")
+
+    second = make_draft([])
+    assert get_draft(MOM, second)["defaults"] == {"recipient": KID, "mode": "medium"}
+    assert get_set(MOM, first)["defaults"] == {"recipient": KID, "mode": "medium"}
+    assert [(row["id"], row["active_count"]) for row in list_sets(MOM)] == [(first, 1)]

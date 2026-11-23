@@ -39,7 +39,7 @@ LABEL_KEYS = (
     "models", "models_queue", "models_available", "models_hint", "models_empty_queue",
     "models_not_configured", "models_catalog_error", "model_add", "model_remove", "model_test",
     "model_testing", "model_test_ok", "model_test_failed", "model_stats", "model_no_stats",
-    "model_not_free", "model_avg_seconds", "drafts", "delete_draft", "delete_draft_confirm", "saved_sets",
+    "model_not_free", "model_avg_seconds", "drafts", "delete_draft", "delete_draft_confirm", "saved_sets", "delete_set", "delete_set_confirm", "sets_in_progress", "show_more", "search_sets",
 )
 
 
@@ -460,7 +460,7 @@ def _route_models(method: str, rest: list[str], user_id: int, body: bytes):
 
 
 def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
-    from .homework_sets import HomeworkSetError, assign_set, get_set, list_drafts, list_sets, rename_set
+    from .homework_sets import HomeworkSetError, assign_set, delete_set, get_set, list_drafts, list_sets, rename_set
 
     try:
         if method == "GET" and rest == []:
@@ -471,6 +471,8 @@ def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
                 return get_set(user_id, set_id)
             if method == "POST" and rest[1:] == []:
                 return rename_set(user_id, set_id, _json(body).get("title"))
+            if method == "POST" and rest[1:] == ["delete"]:
+                return delete_set(user_id, set_id)
             if method == "POST" and rest[1:] == ["assign"]:
                 payload = _json(body)
                 result = assign_set(user_id, set_id, payload.get("assign_to"), payload.get("mode"))
