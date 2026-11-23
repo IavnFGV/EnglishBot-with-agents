@@ -30,11 +30,13 @@ services:
       ENGLISHBOT_DB_PATH: /app/data/englishbot.sqlite3
       ENGLISHBOT_LOG_DIR: /app/logs
       ENGLISHBOT_BACKUP_DIR: /app/backups
+      ENGLISHBOT_HEROINE_DIR: /app/heroine
     volumes:
       - /srv/services/englishbot/data:/app/data
       - /srv/services/englishbot/logs:/app/logs
       - /srv/services/englishbot/backups:/app/backups
       - /srv/service-static/englishbot:/app/assets
+      - /srv/services/englishbot/heroine:/app/heroine
     expose:
       - "8080"
     networks:
@@ -42,7 +44,20 @@ services:
         aliases:
           - englishbot-app
 
+  # Optional picture artist. Isolated on purpose: no .env, no database, not on the edge
+  # network; it sees only the shared heroine folder and its own Codex login.
+  heroine-artist:
+    build: infra/heroine-artist
+    restart: unless-stopped
+    user: "1000:1000"
+    volumes:
+      - /srv/services/englishbot/heroine:/work
+      - /srv/services/englishbot/codex-home:/home/node/.codex
+    networks:
+      - artist
+
 networks:
+  artist: {}
   edge:
     external: true
     name: edge

@@ -7,6 +7,7 @@ from .build_info import format_startup_banner, load_build_info
 from .config import load_environment
 from .daily_maintenance import run_daily_maintenance_loop
 from .db import init_db
+from .heroine_pictures import run_heroine_loop
 from .logging_setup import configure_logging
 from .runtime import build_bot
 from .status_server import (
@@ -45,14 +46,16 @@ async def run() -> None:
     bot = build_bot()
     set_mini_app_bot(bot)
     maintenance_task = asyncio.create_task(run_daily_maintenance_loop(bot))
+    heroine_task = asyncio.create_task(run_heroine_loop(bot))
     try:
         await configure_bot_commands(bot)
         logger.info("Starting EnglishBot with long polling")
         await dispatcher.start_polling(bot)
     finally:
         set_mini_app_bot(None)
-        maintenance_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await maintenance_task
+        for task in (maintenance_task, heroine_task):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         status_server.close()
         await status_server.wait_closed()

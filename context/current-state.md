@@ -50,6 +50,12 @@ Defined in `englishbot/command_registry.py`. The Telegram menu shows five, with 
 - `/teacher_content` (button "Dictionary and homework") opens the dictionary web editor (`dictionary_editor.py`, `mini_app_static/editor.*`, API `/mini-app/api/editor/`) when the Mini App URL is set. The older Telegram dialog editor is a secondary button and the fallback.
 - The web editor edits topics, words, translations, and pictures (gallery or link). Pictures are normalized server-side to upright JPEG up to 1024px. Deletes archive rows.
 
+## Heroine pictures (optional)
+- `heroine_pictures.py` plus the `heroine-artist` container (`infra/heroine-artist/`: Codex CLI, stdlib worker). They share only `ENGLISHBOT_HEROINE_DIR` (`jobs/`, `results/`, `status.json`, `refs/`); the artist has no secrets or DB.
+- Table `heroine_pictures` (queued, ready, failed, approved, skipped). Active words without a picture and never drawn get a job 10 minutes after creation; the editor's word screen can request one with an idea.
+- The editor's "🎨 Heroine pictures" screen: use, redraw with an edited scene, or skip. Candidates are re-encoded JPEGs in `assets/images/heroine-candidates/`; approving makes one the word's picture.
+- A 60-second loop in the bot enqueues, collects results, notifies the requester (or the owner) and alerts the owner once when Codex needs `codex login --device-auth`.
+
 ## Media
 - `assets` plus `learning_item_assets` hold media metadata; local files are the runtime truth, and `source_url` is only traceability.
 - Telegram `file_id`s are cached separately in `telegram_asset_file_cache` (photos and synthesized voice).

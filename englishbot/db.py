@@ -120,6 +120,33 @@ def _ensure_homework_task_schema(connection: sqlite3.Connection) -> None:
         )
 
 
+def _ensure_heroine_picture_schema(connection: sqlite3.Connection) -> None:
+    """Candidate word pictures drawn by the optional heroine artist container."""
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS heroine_pictures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            family_id INTEGER NOT NULL,
+            learning_item_id INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            scene_request TEXT,
+            scene TEXT,
+            local_path TEXT,
+            error TEXT,
+            requested_by INTEGER,
+            notified INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (family_id) REFERENCES families (id),
+            FOREIGN KEY (learning_item_id) REFERENCES learning_items (id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_heroine_pictures_item ON heroine_pictures (learning_item_id)"
+    )
+
+
 def _ensure_assets_schema(
     connection: sqlite3.Connection,
     *,
@@ -1260,6 +1287,7 @@ def init_db() -> None:
         if "homework_set_id" not in get_table_columns(connection, "homework_assignments"):
             connection.execute("ALTER TABLE homework_assignments ADD COLUMN homework_set_id INTEGER")
         _ensure_homework_task_schema(connection)
+        _ensure_heroine_picture_schema(connection)
         connection.execute("DROP TABLE IF EXISTS assignment_items")
         connection.execute("DROP TABLE IF EXISTS assignments")
         connection.execute("DROP TABLE IF EXISTS messages")

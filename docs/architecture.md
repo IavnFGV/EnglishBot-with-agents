@@ -19,6 +19,7 @@
 - Learning domain: `vocabulary.py`, `topics.py`, `assets.py`, `exercises.py`, `training.py`
 - Family-first workflows: `topic_access.py`, `homework.py`, `learner_homework.py`, `teacher_assignments.py`, `teacher_content.py`
 - Homework import and web editor: `homework_sets.py`, `homework_import_handlers.py`, `ai_extraction.py`, `ai_models.py`, `dictionary_editor.py`
+- Optional heroine pictures: `heroine_pictures.py` in the bot, plus the separate `heroine-artist` container (`infra/heroine-artist/`) that shares only a job folder
 - Telegram orchestration: `*_handlers.py`
 - Multi-step Telegram UI: `learner_training_dialog.py`, `homework_dialog.py`, `teacher_assignment_dialog.py`, `teacher_content_dialog.py`
 - Operations and optional HTTP UI: `logging_setup.py`, `build_info.py`, `audit.py`, `daily_maintenance.py`, `status_server.py`, `mini_app.py`, `mini_app_handlers.py`, `mini_app_static/`

@@ -46,6 +46,9 @@ LABEL_KEYS = (
     "no_photos", "move_up", "move_down",
     "word_picture", "picture_done", "picture_other_page", "picture_upload", "picture_remove", "picture_hint",
     "picture_too_small", "picture_kept",
+    "heroine_pictures", "heroine_draw", "heroine_idea", "heroine_idea_hint", "heroine_drawing",
+    "heroine_requested", "heroine_use", "heroine_redraw", "heroine_skip", "heroine_none", "heroine_failed",
+    "heroine_scene", "heroine_state_offline", "heroine_state_auth_required", "heroine_state_limited",
 )
 
 
@@ -121,7 +124,17 @@ def list_topics(user_id: int) -> dict[str, object]:
         ],
         "labels": editor_labels(user_id),
         "is_owner": _is_owner(user_id),
+        "heroine": _heroine_summary(user_id),
     }
+
+
+def _heroine_summary(user_id: int) -> dict[str, object] | None:
+    from .config import get_heroine_dir
+    from .heroine_pictures import count_open_pictures
+
+    if get_heroine_dir() is None:
+        return None
+    return {"open": count_open_pictures(user_id)}
 
 
 def _is_owner(user_id: int) -> bool:
@@ -407,6 +420,12 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
             return set_word_image_from_url(user_id, word_id, _json(body).get("url"))
         if method == "POST" and rest == ["image", "delete"]:
             return clear_word_image(user_id, word_id)
+    if len(parts) == 3 and parts[0] == "words" and parts[2] == "heroine" and method == "POST":
+        from .heroine_pictures import request_picture
+
+        return request_picture(user_id, _int_part(parts[1]), _json(body).get("scene"))
+    if parts and parts[0] == "heroine":
+        return _route_heroine(method, parts[1:], user_id, body)
     if parts and parts[0] == "assignments":
         return _route_assignments(method, parts[1:], user_id)
     if parts and parts[0] == "models":
@@ -446,6 +465,24 @@ def search_words(user_id: int, query: object, limit: int = 20) -> list[dict[str,
             key=lambda row: str(row["text"]).casefold(),
         )[:limit]
         return [_serialize_word(connection, int(row["id"])) for row in matches]
+
+
+def _route_heroine(method: str, rest: list[str], user_id: int, body: bytes):
+    from .heroine_pictures import approve_picture, candidate_path, list_pictures, redraw_picture, skip_picture
+
+    if method == "GET" and rest == []:
+        return {**list_pictures(user_id), "labels": editor_labels(user_id)}
+    if len(rest) == 2:
+        picture_id = _int_part(rest[0])
+        if method == "GET" and rest[1] == "image":
+            return candidate_path(user_id, picture_id).read_bytes(), "image/jpeg"
+        if method == "POST" and rest[1] == "approve":
+            return approve_picture(user_id, picture_id)
+        if method == "POST" and rest[1] == "skip":
+            return skip_picture(user_id, picture_id)
+        if method == "POST" and rest[1] == "redraw":
+            return redraw_picture(user_id, picture_id, _json(body).get("scene"))
+    raise _error("not_found", 404)
 
 
 def _route_assignments(method: str, rest: list[str], user_id: int):

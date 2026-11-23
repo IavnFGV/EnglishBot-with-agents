@@ -168,12 +168,16 @@ jobs:
             sudo mkdir -p "${DATA_ROOT}/data"
             sudo mkdir -p "${DATA_ROOT}/logs"
             sudo mkdir -p "${DATA_ROOT}/backups"
+            # Shared with the heroine artist container (runs as uid 1000) and its Codex login.
+            sudo mkdir -p "${DATA_ROOT}/heroine/jobs" "${DATA_ROOT}/heroine/results" "${DATA_ROOT}/heroine/refs" "${DATA_ROOT}/codex-home"
             sudo mkdir -p "${STATIC_ROOT}"
             sudo mkdir -p "${SYNC_ROOT}/backups"
             sudo chown -R "${USER}:${USER}" "${DATA_ROOT}" || true
             sudo chown -R "${USER}:${USER}" "${STATIC_ROOT}" || true
             sudo chown -R "${USER}:${USER}" "${SYNC_ROOT}" || true
             sudo chown -R "${USER}:${USER}" "${SERVICE_DIR}" || true
+            sudo chown -R 1000:1000 "${DATA_ROOT}/heroine" "${DATA_ROOT}/codex-home"
+            sudo chmod 700 "${DATA_ROOT}/codex-home"
             show_dir_state "${DATA_ROOT}"
             show_dir_state "${DATA_ROOT}/data"
             show_dir_state "${DATA_ROOT}/logs"

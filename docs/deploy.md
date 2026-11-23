@@ -179,3 +179,19 @@ Homework import needs `ENGLISHBOT_OPENROUTER_API_KEY` in the stack `.env`; `ENGL
 Static files are packaged under `englishbot/mini_app_static/`. The API prefix is `/mini-app/api/sessions/{session_id}`. `GET` returns the current question or summary, `POST .../answer` applies an action, `GET .../media/{asset_id}` serves the current item's local image, and `GET .../tts` serves the current item's persisted voice variant when TTS is enabled. Every API and media request requires `X-Telegram-Init-Data`, verified with the bot token server-side. Health remains `GET /healthz`. Nginx must forward that header and must not cache authenticated API/media responses publicly.
 
 For local development, run `python -m englishbot` and use the existing port 8080. A Telegram WebApp launch requires a publicly reachable HTTPS URL; use an HTTPS development tunnel and set `ENGLISHBOT_MINI_APP_URL` to its `/mini-app` URL. The bot creates the official inline WebApp button for each session, so BotFather Main Mini App registration and a menu button are not required for this version. Do not set the menu button to this URL yet: a menu launch has no session id and cannot open a question. If BotFather asks you to pair a website domain with the bot, use `/setdomain` for that HTTPS domain. Leave `ENGLISHBOT_MINI_APP_URL` empty to keep the original Telegram training launch with no interface choice. Do not put the bot token in the URL or frontend.
+
+## Optional heroine artist
+
+The `heroine-artist` service in `docker-compose.yml` draws word pictures with the Codex CLI on the owner's ChatGPT subscription. It is isolated on purpose: no `.env`, no database, its own `artist` network (not `edge`), uid 1000. It mounts only:
+
+```text
+/srv/services/englishbot/heroine      -> /work (shared with the bot at /app/heroine)
+/srv/services/englishbot/codex-home   -> /home/node/.codex (Codex login)
+```
+
+Deploy creates both folders. One-time setup on the VPS:
+
+1. Put up to five varied drawn heroine cards (never real photos) into `/srv/services/englishbot/heroine/refs/`; they are used in file-name order (`HEROINE_MAX_REFS`, default 5).
+2. Log in Codex: `cd /opt/dockge/stacks/englishbot && docker compose exec heroine-artist codex login --device-auth`, open the printed link, and enter the code.
+
+The artist writes `status.json` every minute (`ready`, `busy`, `auth_required`, `limited`). When the login expires the bot messages the owner with the same command. The Codex version is pinned by `CODEX_VERSION` in `infra/heroine-artist/Dockerfile`; Dependabot does not update it.

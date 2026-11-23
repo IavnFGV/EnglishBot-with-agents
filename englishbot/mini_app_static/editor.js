@@ -8,6 +8,7 @@ const MAX_UPLOAD_BYTES = 900 * 1024;
 
 let labels = {};
 let languages = [];
+let heroineEnabled = false;
 let backHandler = null;
 const imageCache = new Map();
 
@@ -100,6 +101,7 @@ async function showTopics() {
   try { data = await getJson('/topics'); } catch (error) { app.replaceChildren(el('p', { class: 'status error' }, errorText(error))); return; }
   labels = data.labels || labels;
   languages = data.languages || languages;
+  heroineEnabled = Boolean(data.heroine);
   document.title = t('title');
   const list = el('div', { class: 'list' });
   for (const topic of data.topics) {
@@ -113,6 +115,8 @@ async function showTopics() {
     el('button', { onclick: () => askTopicTitle('', async (title) => showWords((await postJson('/topics', { title })).id)) }, t('new_topic')),
     el('button', { class: 'secondary', onclick: showHomework }, t('homework_list')),
     el('button', { class: 'secondary', onclick: showSets }, t('sets')),
+    data.heroine ? el('button', { class: 'secondary', onclick: showPictures },
+      data.heroine.open ? `${t('heroine_pictures')} (${data.heroine.open})` : t('heroine_pictures')) : null,
     data.is_owner ? el('button', { class: 'secondary', onclick: () => showModels() }, t('models')) : null,
     data.topics.length ? list : el('p', { class: 'muted' }, t('no_topics')),
   );
@@ -269,6 +273,7 @@ function pictureSection(word, onChange, setStatus) {
       urlInput,
       el('button', { class: 'secondary', onclick: useUrl }, t('use_url')),
       word.image_id ? el('button', { class: 'link', onclick: () => update(() => postJson(`/words/${word.id}/image/delete`)) }, t('remove_photo')) : null,
+      heroineEnabled ? heroineRequest(word, setStatus) : null,
     ));
   };
   const update = async (request) => {
@@ -285,6 +290,64 @@ function pictureSection(word, onChange, setStatus) {
   };
   render();
   return section;
+}
+
+// Heroine pictures drawn by the optional artist container
+
+function heroineRequest(word, setStatus) {
+  const idea = el('textarea', { rows: 2, maxLength: 500, placeholder: t('heroine_idea_hint') });
+  const button = el('button', { class: 'secondary', onclick: async () => {
+    button.disabled = true;
+    try {
+      await postJson(`/words/${word.id}/heroine`, { scene: idea.value });
+      idea.value = '';
+      setStatus(t('heroine_requested'), 'ok');
+    } catch (error) { setStatus(errorText(error), 'error'); } finally { button.disabled = false; }
+  } }, t('heroine_draw'));
+  return el('details', {}, el('summary', {}, t('heroine_draw')), el('label', {}, t('heroine_idea'), idea), button);
+}
+
+async function showPictures() {
+  setBack(showTopics);
+  let data;
+  try { data = await getJson('/heroine'); } catch (error) { fail(error); return; }
+  labels = data.labels || labels;
+  const worker = ['offline', 'auth_required', 'limited'].includes(data.worker)
+    ? el('p', { class: 'status error' }, t(`heroine_state_${data.worker}`)) : null;
+  const cards = data.pictures.map((picture) => {
+    const status = el('p', { class: 'status' });
+    const act = async (path, json) => {
+      card.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+      try { await postJson(`/heroine/${picture.id}/${path}`, json); showPictures(); }
+      catch (error) { status.className = 'status error'; status.textContent = errorText(error); card.querySelectorAll('button').forEach((button) => { button.disabled = false; }); }
+    };
+    const scene = el('textarea', { rows: 3, maxLength: 500, value: picture.scene || picture.scene_request || '' });
+    let body;
+    if (picture.status === 'ready') {
+      const img = el('img', { class: 'picture', alt: picture.word });
+      api(`/heroine/${picture.id}/image`).then((response) => response.blob()).then((blob) => { img.src = URL.createObjectURL(blob); }).catch(() => {});
+      body = [img, el('button', { onclick: () => act('approve') }, t('heroine_use'))];
+    } else if (picture.status === 'failed') {
+      body = [el('p', { class: 'status error' }, t('heroine_failed', { error: picture.error || '' }))];
+    } else {
+      body = [el('p', { class: 'muted' }, picture.scene_request ? `${t('heroine_drawing')} ${picture.scene_request}` : t('heroine_drawing'))];
+    }
+    const card = el('div', { class: 'homework-card' },
+      el('strong', {}, picture.word),
+      ...body,
+      ...(picture.status === 'queued' ? [] : [
+        el('label', {}, t('heroine_scene'), scene),
+        el('button', { class: 'secondary', onclick: () => act('redraw', { scene: scene.value }) }, t('heroine_redraw')),
+      ]),
+      el('button', { class: 'link', onclick: () => act('skip') }, t('heroine_skip')),
+      status);
+    return card;
+  });
+  screen(
+    el('h1', {}, t('heroine_pictures')),
+    worker,
+    cards.length ? el('div', { class: 'list' }, ...cards) : el('p', { class: 'muted' }, t('heroine_none')),
+  );
 }
 
 // Large phone photos are scaled down before upload; the server re-encodes them anyway.
@@ -1079,4 +1142,5 @@ async function showDraft(setId, backTo = null) {
 }
 
 const importId = Number(new URLSearchParams(location.search).get('import'));
-if (importId) showDraft(importId); else showTopics();
+const startScreen = new URLSearchParams(location.search).get('pictures') ? showPictures : showTopics;
+if (importId) showDraft(importId); else startScreen();

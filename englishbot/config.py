@@ -110,3 +110,9 @@ def get_ai_models() -> list[str]:
     if raw_value is None or not raw_value.strip():
         return list(DEFAULT_AI_MODELS)
     return [model.strip() for model in raw_value.split(",") if model.strip()]
+
+
+def get_heroine_dir() -> Path | None:
+    """Folder shared with the optional heroine artist container; unset disables the feature."""
+    value = (os.getenv("ENGLISHBOT_HEROINE_DIR") or "").strip()
+    return Path(value) if value else None
