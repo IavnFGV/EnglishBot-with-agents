@@ -156,7 +156,19 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
     if len(parts) == 6 and parts[4] == "media" and parts[5].isdigit() and method == "GET":
         file_path, content_type = safe_media_path(user_id, session_id, int(parts[5]), "image")
         return _response(200, await asyncio.to_thread(file_path.read_bytes), content_type, "private, max-age=3600")
-    if len(parts) == 5 and parts[4] == "tts" and method == "GET":
+    if len(parts) == 5 and parts[4] == "voices" and method == "GET":
+        if get_tts_base_url() is None:
+            raise MiniAppError("tts_unavailable", 503)
+        try:
+            catalog = await asyncio.to_thread(build_tts_client().fetch_voices)
+            current = catalog.resolve_voice_id(get_user_tts_voice_id(user_id))
+        except TTSClientError:
+            raise MiniAppError("tts_unavailable", 503)
+        index = next((position for position, voice in enumerate(catalog.voices) if voice.voice_id == current), 0)
+        return _json_response(200, {"voices": [voice.display_name for voice in catalog.voices], "current": index})
+    if len(parts) in {5, 6} and parts[4] == "tts" and method == "GET":
+        if len(parts) == 6 and not parts[5].isdigit():
+            raise MiniAppError("invalid_voice")
         if get_tts_base_url() is None:
             raise MiniAppError("tts_unavailable", 503)
         question = get_current_question(user_id)
@@ -164,7 +176,14 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
             raise MiniAppError("session_not_found", 404)
         client = build_tts_client()
         try:
-            variant = await asyncio.to_thread(get_or_create_learning_item_tts_variant, client=client, learning_item_id=int(question["learning_item_id"]), text=str(question["expected_answer"]), preferred_voice_id=get_user_tts_voice_id(user_id))
+            voice_id = get_user_tts_voice_id(user_id)
+            if len(parts) == 6:
+                # A one-off voice picked in the Mini App; the saved setting stays as is.
+                voices = (await asyncio.to_thread(client.fetch_voices)).voices
+                if int(parts[5]) >= len(voices):
+                    raise MiniAppError("invalid_voice")
+                voice_id = voices[int(parts[5])].voice_id
+            variant = await asyncio.to_thread(get_or_create_learning_item_tts_variant, client=client, learning_item_id=int(question["learning_item_id"]), text=str(question["expected_answer"]), preferred_voice_id=voice_id)
             file_path = resolve_runtime_asset_path(str(variant["local_path"])).resolve()
             file_path.relative_to(resolve_runtime_asset_path("assets").resolve())
             if not file_path.is_file() or file_path.suffix.lower() not in {".mp3", ".ogg", ".wav"}:

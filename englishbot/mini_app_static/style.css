@@ -125,7 +125,9 @@ input.answer::placeholder { color: var(--muted); font-weight: 700; font-size: 1.
 .feedback .pill.error { background: var(--bad-soft); color: var(--bad); animation: shake .35s ease-out; }
 .feedback .pill.neutral { background: var(--surface); color: var(--muted); }
 .error-text { color: var(--bad); font-weight: 800; text-align: center; }
-.listen { align-self: center; min-height: 48px; padding: 8px 22px; font-size: 1.05rem; }
+.sound { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.listen { min-height: 48px; padding: 8px 18px; font-size: 1.05rem; }
+.voice-name { min-height: 1.2em; margin-top: -6px; text-align: center; color: var(--muted); font-size: .9rem; font-weight: 700; }
 
 /* Finish screen */
 .finish { gap: 16px; }

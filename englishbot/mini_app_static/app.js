@@ -126,15 +126,54 @@ async function loadImage(assetId, frame) {
   } finally { clearTimeout(spinnerTimer); }
 }
 
-async function listen() {
-  if (busy) return;
+let voices = null;
+let voiceIndex = null;
+let audio = null;
+let audioLoading = false;
+
+async function play(path) {
+  if (audioLoading) return;
+  audioLoading = true;
   try {
-    const blob = await (await api('/tts')).blob();
+    const blob = await (await api(path)).blob();
     const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
+    if (audio) audio.pause();
+    audio = new Audio(url);
     audio.onended = () => URL.revokeObjectURL(url);
     await audio.play();
-  } catch (_) { app.querySelector('.feedback').textContent = t('audio_unavailable'); }
+  } catch (_) {
+    const feedback = app.querySelector('.feedback');
+    if (feedback) feedback.replaceChildren(el('span', 'pill neutral', t('audio_unavailable')));
+  } finally { audioLoading = false; }
+}
+
+function listen() {
+  if (busy) return;
+  play(voiceIndex === null ? '/tts' : `/tts/${voiceIndex}`);
+}
+
+function showVoiceName() {
+  const caption = app.querySelector('.voice-name');
+  if (caption && voices && voiceIndex !== null) caption.textContent = t('voice_name', { voice: voices[voiceIndex] });
+}
+
+async function switchVoice() {
+  if (busy || audioLoading) return;
+  try {
+    if (!voices) {
+      const data = await (await api('/voices')).json();
+      voices = data.voices;
+      if (voiceIndex === null) voiceIndex = data.current;
+    }
+  } catch (_) {
+    const feedback = app.querySelector('.feedback');
+    if (feedback) feedback.replaceChildren(el('span', 'pill neutral', t('audio_unavailable')));
+    return;
+  }
+  if (!voices.length) return;
+  voiceIndex = (voiceIndex + 1) % voices.length;
+  showVoiceName();
+  await play(`/tts/${voiceIndex}`);
 }
 
 function button(text, action, value, className = '') {
@@ -351,9 +390,14 @@ function render() {
   if (pill) feedback.append(el('span', `pill ${pill[0]}`, pill[1]));
   app.append(feedback);
   if (q.tts_available) {
+    const sound = el('div', 'sound');
     const listenButton = el('button', 'secondary listen', t('listen'));
     listenButton.onclick = listen;
-    app.append(listenButton);
+    const voiceButton = el('button', 'secondary listen', t('other_voice'));
+    voiceButton.onclick = switchVoice;
+    sound.append(listenButton, voiceButton);
+    app.append(sound, el('div', 'voice-name'));
+    showVoiceName();
   }
   if (q.type === 'typed_answer') app.querySelector('input.answer')?.focus();
 }

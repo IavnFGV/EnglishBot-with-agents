@@ -143,7 +143,7 @@ def interface_labels(user_id: int) -> dict[str, str]:
         "check", "skip", "listen", "type", "connection", "retry",
         "audio_unavailable", "expired", "starts", "feedback_correct",
         "feedback_incorrect", "feedback_skipped", "homework_progress", "outcome",
-        "paper_left",
+        "paper_left", "other_voice", "voice_name",
     )
     return {
         key: translate_for_user(
@@ -156,6 +156,7 @@ def interface_labels(user_id: int) -> dict[str, str]:
             deferred="{deferred}",
             assisted="{assisted}",
             answer="{answer}",
+            voice="{voice}",
         )
         for key in keys
     }

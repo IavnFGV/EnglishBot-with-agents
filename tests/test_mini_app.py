@@ -455,3 +455,43 @@ def test_mini_app_script_does_not_send_empty_typed_answer() -> None:
     script = (Path(__file__).parents[1] / "englishbot" / "mini_app_static" / "app.js").read_text()
     assert "if (input.value.trim()) act('hard', input.value)" in script
     assert "'invalid_answer'].includes(error.message)" in script
+
+
+def test_voice_switch_plays_picked_voice_without_changing_setting(tmp_path: Path, monkeypatch) -> None:
+    import json as json_module
+    from englishbot import tts
+    from englishbot.tts import TTSVoice, TTSVoiceCatalog
+    from englishbot.user_profiles import get_user_tts_voice_id, set_user_tts_voice_id
+
+    user_id, session_id = seed(tmp_path)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("ENGLISHBOT_TTS_BASE_URL", "http://tts.internal")
+    set_user_tts_voice_id(user_id, "b")
+    calls = []
+
+    class Client:
+        model_key = "test-model"
+        def fetch_voices(self):
+            return TTSVoiceCatalog("a", (TTSVoice("a", "Anna"), TTSVoice("b", "Ben"), TTSVoice("c", "Cleo")))
+        def synthesize(self, *, text, voice_id):
+            calls.append(voice_id)
+            return b"OggS" + voice_id.encode()
+
+    monkeypatch.setattr(tts, "build_tts_client", lambda: Client())
+    headers = {"x-telegram-init-data": sign_test_init_data(user_id, TOKEN)}
+
+    def request(path: str) -> bytes:
+        async def run():
+            reader = asyncio.StreamReader()
+            reader.feed_eof()
+            return await _mini_app_response("GET", f"/mini-app/api/sessions/{session_id}{path}", headers, reader, None)
+        return asyncio.run(run())
+
+    voices = json_module.loads(request("/voices").split(b"\r\n\r\n", 1)[1])
+    assert voices == {"voices": ["Anna", "Ben", "Cleo"], "current": 1}
+    assert request("/tts/2").endswith(b"OggSc")
+    assert request("/tts").endswith(b"OggSb")
+    assert calls == ["c", "b"]
+    assert get_user_tts_voice_id(user_id) == "b"
+    assert error_code(lambda: request("/tts/9")) == "invalid_voice"
+    assert error_code(lambda: request("/tts/x")) == "invalid_voice"
