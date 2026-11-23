@@ -74,7 +74,7 @@ Defined in `englishbot/command_registry.py`: `/start`, `/help`, `/version`, `/le
 
 ## Next work
 - Remove the Excel bulk edit, and later the Telegram dialog editor once the web editor is adopted.
-- Homework import phase 2: a phrase word-tile exercise; phase 3: irregular-verb forms.
+- Homework import beyond words: phrases and question-answer pairs, then irregular verbs, then a task checklist; analysis and proposed model in `docs/homework-task-types.md`.
 
 ## Tests
 - `python -m pytest` is the canonical suite and the CI command; tests are focused per module or flow.
