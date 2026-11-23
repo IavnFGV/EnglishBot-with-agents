@@ -628,7 +628,7 @@ async function showDraft(setId, backTo = null) {
   const rowState = [];
 
   const knownRows = el('div', { class: 'list draft-list' });
-  const addRow = (item) => {
+  const addRow = (item, { top = false } = {}) => {
     const known = Boolean(item.existing_id);
     const state = {
       item,
@@ -647,17 +647,56 @@ async function showDraft(setId, backTo = null) {
     const card = el('label', { class: 'draft-row' }, el('span', { class: 'draft-check' }, state.include), fields);
     state.include.addEventListener('change', () => card.classList.toggle('excluded', !state.include.checked));
     rowState.push(state);
-    (known ? knownRows : rows).append(card);
+    (known && !top ? knownRows : rows).append(card);
+    rows.hidden = rows.childElementCount === 0;
     return state;
   };
   data.items.forEach(addRow);
   const knownCount = data.items.filter((item) => item.existing_id).length;
+  rows.hidden = rows.childElementCount === 0;
+
+  // Pick an existing word (from any topic) into this homework without duplicating it.
+  const dictionarySearch = el('input', { type: 'search', placeholder: `🔍 ${t('search_dictionary')}`, autocapitalize: 'off' });
+  const dictionaryResults = el('div', { class: 'list' });
+  dictionaryResults.hidden = true;
+  const pickWord = (word) => {
+    const present = rowState.find((state) => state.item.existing_id === word.id
+      || state.en.value.trim().toLowerCase() === word.text.toLowerCase());
+    if (present) {
+      present.include.checked = true;
+      present.include.dispatchEvent(new Event('change'));
+      present.include.closest('.draft-row')?.scrollIntoView({ block: 'center' });
+    } else {
+      const translation = Object.values(word.translations || {}).find(Boolean) || '';
+      addRow({ en: word.text, ru: translation, topic: '', existing_id: word.id, manual: true }, { top: true });
+    }
+    dictionarySearch.value = '';
+    dictionaryResults.hidden = true;
+  };
+  let searchTimer = null;
+  dictionarySearch.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      const query = dictionarySearch.value.trim();
+      if (!query) { dictionaryResults.hidden = true; return; }
+      try {
+        const found = await postJson('/words/search', { q: query });
+        dictionaryResults.replaceChildren(...found.words.map((word) => el('button', { class: 'item', onclick: () => pickWord(word) },
+          el('span', { class: 'texts' },
+            el('span', { class: 'title' }, word.text),
+            el('span', { class: 'sub' }, Object.values(word.translations || {}).find(Boolean) || '')),
+          el('span', { class: 'sub' }, '+'))));
+        dictionaryResults.hidden = found.words.length === 0;
+      } catch (error) { dictionaryResults.hidden = true; }
+    }, 250);
+  });
 
   const allTopic = el('input', { type: 'text', maxLength: 100, placeholder: t('draft_topic') });
   allTopic.setAttribute('list', 'draft-topics');
   const firstTopic = data.items.find((item) => item.topic)?.topic || '';
   allTopic.value = firstTopic;
   const applyTopic = () => rowState.forEach((state) => {
+    if (state.item.manual) return; // picked from another topic: it only joins the homework
     state.topic.value = allTopic.value;
     const sub = state.item.existing_id && state.include.closest('.draft-row')?.querySelector('.sub');
     if (sub) sub.textContent = [state.item.ru, allTopic.value].filter(Boolean).join(' · ');
@@ -707,8 +746,10 @@ async function showDraft(setId, backTo = null) {
     el('label', {}, t('draft_name'), titleInput),
     el('label', {}, t('draft_topic'), el('div', { class: 'row' }, el('span', { class: 'grow' }, allTopic), el('button', { class: 'secondary', onclick: applyTopic }, '↓'))),
     el('strong', {}, `${t('draft_words')}: ${data.items.length - knownCount}`),
-    rows.childElementCount ? rows : null,
-    el('button', { class: 'secondary', onclick: () => { const state = addRow({ en: '', ru: '', topic: allTopic.value }); state.en.focus(); } }, t('add_item')),
+    rows,
+    dictionarySearch,
+    dictionaryResults,
+    el('button', { class: 'secondary', onclick: () => { const state = addRow({ en: '', ru: '', topic: allTopic.value }, { top: true }); state.en.focus(); } }, t('create_word')),
     knownCount ? el('strong', {}, `${t('already_known')}: ${knownCount}`) : null,
     knownCount ? knownRows : null,
     el('label', {}, t('assign_to'), recipient),

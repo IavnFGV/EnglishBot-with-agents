@@ -550,3 +550,30 @@ def test_assign_defaults_follow_the_last_assignment_and_sets_report_activity(fam
     assert get_draft(MOM, second)["defaults"] == {"recipient": KID, "mode": "medium"}
     assert get_set(MOM, first)["defaults"] == {"recipient": KID, "mode": "medium"}
     assert [(row["id"], row["active_count"]) for row in list_sets(MOM)] == [(first, 1)]
+
+
+def test_word_picked_from_another_topic_joins_homework_without_moving_topics(family: int) -> None:
+    transport = create_topic(MOM, "Transport")
+    boat = create_word(MOM, transport["id"], "boat", {"ru": "лодка"})
+    set_id = make_draft([{"en": "shark", "ru": "акула", "topic": "Fishes"}])
+
+    result = save_draft(MOM, set_id, {
+        "assign_to": KID,
+        "items": [
+            {"en": "shark", "ru": "акула", "topic": "Fishes", "include": True},
+            {"en": "boat", "ru": "лодка", "topic": "", "include": True, "existing_id": boat["id"]},
+        ],
+    })
+
+    assert result["word_count"] == 2 and result["created_words"] == 1
+    with db.get_connection() as connection:
+        topics_of_boat = [row[0] for row in connection.execute(
+            "SELECT topics.title FROM topic_items JOIN topics ON topics.id = topic_items.topic_id WHERE topic_items.learning_item_id = ?",
+            (boat["id"],),
+        )]
+        assert topics_of_boat == ["Transport"]
+        homework_words = [row[0] for row in connection.execute(
+            "SELECT li.text FROM homework_assignment_items hai JOIN learning_items li ON li.id = hai.learning_item_id WHERE hai.homework_assignment_id = ? ORDER BY hai.item_order",
+            (result["assignment_id"],),
+        )]
+        assert homework_words == ["shark", "boat"]
