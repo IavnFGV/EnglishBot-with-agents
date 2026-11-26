@@ -332,6 +332,18 @@ def test_tts_endpoint_reuses_persisted_variant(tmp_path: Path, monkeypatch) -> N
     assert second.endswith(b"OggSdemo")
     assert len(calls) == 1
 
+    # A clip whose file was deleted (e.g. after a voice model change) is synthesized and stored again.
+    from englishbot.assets import resolve_runtime_asset_path
+    with db.get_connection() as connection:
+        local_path = connection.execute(
+            "SELECT assets.local_path FROM learning_item_tts_variants JOIN assets ON assets.id = learning_item_tts_variants.asset_id"
+        ).fetchone()[0]
+    resolve_runtime_asset_path(local_path).unlink()
+    third = asyncio.run(request())
+    fourth = asyncio.run(request())
+    assert third.endswith(b"OggSdemo") and fourth.endswith(b"OggSdemo")
+    assert len(calls) == 2
+
 
 def test_tts_endpoint_disabled_or_failing_does_not_advance_session(tmp_path: Path, monkeypatch) -> None:
     user_id, session_id = seed(tmp_path)

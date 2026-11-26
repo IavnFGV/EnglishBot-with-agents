@@ -414,6 +414,8 @@ def get_learning_item_tts_variant(
         return variant_row
     finally:
         if owns_connection:
+            # Keep the removal of a stale row (its file is gone); without it the clip could never be stored again.
+            connection.commit()
             connection.close()
 
 
