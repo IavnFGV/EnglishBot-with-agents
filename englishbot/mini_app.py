@@ -251,7 +251,11 @@ def claim_completion_notification(session_id: int) -> bool:
         return cursor.rowcount == 1
 
 
-HEROINE_POSES = ("idle", "windup", "throw", "happy", "oops")
+HEROINE_POSES = (
+    "idle", "windup", "throw", "happy", "oops",
+    "bridge-stand", "bridge-carry", "bridge-walk", "bridge-leap", "bridge-fall", "bridge-wet",
+    "spell-ready", "spell-cast", "spell-success", "spell-sooty", "spell-sneeze",
+)
 HEROINE_POSE_DIR = Path("assets/images/heroine-game")
 
 

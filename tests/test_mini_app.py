@@ -506,7 +506,14 @@ def test_ball_game_answers_through_server_and_has_labels(tmp_path: Path) -> None
     assert "prefetchQuestion(next.question);" in script
     assert "if (await ensureVoices()) showVoiceName();" in script
     assert "previous.options.indexOf(next.correct_answer)" in script
-    assert "gameMode && q.type === 'multiple_choice'" in script
+    # Each question type has a list of game skins; questions take turns when a list grows.
+    assert "multiple_choice: [renderBallGame]" in script
+    assert "jumbled_letters: [renderBridgeGame]" in script
+    assert "typed_answer: [renderSpellGame]" in script
+    assert "skins[(q.number - 1) % skins.length]" in script
+    # Bridge and spell answer through the same medium "check" and hard actions.
+    assert "await act('check', undefined" in script
+    assert "act('hard', input.value, async (next, previous)" in script
     user_id, _ = seed(tmp_path)
     labels = interface_labels(user_id)
     assert labels["game_mode"] != "mini_app.ui.game_mode"
@@ -534,6 +541,8 @@ def test_heroine_poses_need_auth_and_exist_only_on_server(tmp_path: Path, monkey
     (pose_dir / "secret.webp").write_bytes(b"x")
     response = asyncio.run(request("idle"))
     assert b"image/webp" in response and response.endswith(b"RIFF-sprite")
+    (pose_dir / "spell-sneeze.webp").write_bytes(b"RIFF-sneeze")
+    assert asyncio.run(request("spell-sneeze")).endswith(b"RIFF-sneeze")
     for pose in ("secret", "..%2Fidle"):
         with pytest.raises(MiniAppError):
             asyncio.run(request(pose))

@@ -285,7 +285,7 @@ function editMedium(action, index) {
   mediumTimer = setTimeout(() => flushMedium().catch(showError), 200);
 }
 
-async function checkMedium() {
+async function checkMedium(beforeRender) {
   if (busy || mediumChecking) return;
   mediumChecking = true;
   clearTimeout(mediumTimer);
@@ -293,7 +293,7 @@ async function checkMedium() {
   try {
     await flushMedium();
     mediumChecking = false;
-    await act('check');
+    await act('check', undefined, typeof beforeRender === 'function' ? beforeRender : undefined);
   } catch (error) {
     mediumChecking = false;
     showError(error);
@@ -420,40 +420,182 @@ function centerIn(field, node, fx = .5, fy = .5) {
 }
 
 // Drawn heroine poses live on the server; without them the SVG heroine stays.
-const POSES = ['idle', 'windup', 'throw', 'happy', 'oops'];
-let sprites = null;
-let spritesLoading = null;
+const BALL_POSES = ['idle', 'windup', 'throw', 'happy', 'oops'];
+const BRIDGE_POSES = ['bridge-stand', 'bridge-carry', 'bridge-walk', 'bridge-leap', 'bridge-fall', 'bridge-wet'];
+const SPELL_POSES = ['spell-ready', 'spell-cast', 'spell-success', 'spell-sooty', 'spell-sneeze'];
+const spriteUrls = {};
+const spriteLoads = {};
 
-function loadSprites() {
-  if (!spritesLoading) {
-    spritesLoading = Promise.all(POSES.map(async pose => {
+function loadPose(pose) {
+  if (!spriteLoads[pose]) {
+    spriteLoads[pose] = (async () => {
       const url = URL.createObjectURL(await (await api(`/heroine/${pose}`)).blob());
       const image = new Image();
       image.src = url;
-      await image.decode();
-      return [pose, url];
-    })).then(entries => { sprites = Object.fromEntries(entries); }, () => { sprites = null; });
+      // Decoding only warms the cache; never let it hold the game back.
+      await Promise.race([image.decode().catch(() => {}), new Promise(resolve => setTimeout(resolve, 1200))]);
+      spriteUrls[pose] = url;
+    })();
+    spriteLoads[pose].catch(() => { delete spriteLoads[pose]; });
   }
-  return spritesLoading;
+  return spriteLoads[pose];
 }
 
-function dressHeroine(heroine) {
-  if (sprites) {
+function loadSprites(poses = [...BALL_POSES, ...BRIDGE_POSES, ...SPELL_POSES]) {
+  return Promise.all(poses.map(loadPose)).then(() => true, () => false);
+}
+
+function makeHeroine(poses, pose, className = '') {
+  const heroine = el('div', `heroine ${className}`.trim());
+  heroine.dataset.poses = poses.join(' ');
+  setPose(heroine, pose);
+  const dress = () => {
     // All poses stay in the DOM so switching is instant and never flickers.
-    heroine.replaceChildren(...POSES.map(pose => {
-      const image = el('img', `sprite pose-${pose}`);
+    heroine.replaceChildren(...poses.map(name => {
+      const image = el('img', 'sprite');
       image.alt = '';
-      image.src = sprites[pose];
+      image.dataset.pose = name;
+      image.src = spriteUrls[name];
       return image;
     }));
     heroine.classList.add('drawn');
-  } else heroine.innerHTML = HEROINE_SVG;
+    setPose(heroine, heroine.dataset.pose);
+  };
+  if (poses.every(name => spriteUrls[name])) dress();
+  else {
+    heroine.innerHTML = HEROINE_SVG;
+    loadSprites(poses).then(ok => { if (ok && heroine.isConnected) dress(); });
+  }
+  return heroine;
 }
 
 function setPose(heroine, pose) {
-  heroine.classList.remove('idle', 'windup', 'throw', 'happy', 'oops');
+  if (heroine.dataset.pose) heroine.classList.remove(heroine.dataset.pose);
   void heroine.offsetWidth; // restart CSS animations of the new pose
+  heroine.dataset.pose = pose;
   heroine.classList.add(pose);
+  heroine.querySelectorAll('.sprite').forEach(image => image.classList.toggle('on', image.dataset.pose === pose));
+}
+
+// Little sound effects synthesized on the fly, so no audio files are needed.
+let soundContext = null;
+
+function noiseSource(context, seconds) {
+  const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * seconds), context.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let index = 0; index < data.length; index += 1) data[index] = Math.random() * 2 - 1;
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  return source;
+}
+
+function envelope(context, start, peak, attack, release) {
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(peak, start + attack);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + attack + release);
+  gain.connect(context.destination);
+  return gain;
+}
+
+function tone(context, type, from, to, start, length, peak = .2) {
+  const osc = context.createOscillator();
+  osc.type = type;
+  osc.frequency.setValueAtTime(from, start);
+  osc.frequency.exponentialRampToValueAtTime(to, start + length);
+  osc.connect(envelope(context, start, peak, .01, length));
+  osc.start(start); osc.stop(start + length + .05);
+}
+
+const SOUNDS = {
+  unlock() {},
+  pop(context, now) {
+    const noise = noiseSource(context, .12);
+    const filter = context.createBiquadFilter();
+    filter.type = 'highpass'; filter.frequency.value = 1200;
+    noise.connect(filter); filter.connect(envelope(context, now, .5, .003, .09));
+    noise.start(now);
+  },
+  plank(context, now) {
+    tone(context, 'triangle', 520, 260, now, .07, .3);
+    tone(context, 'square', 180, 120, now, .05, .05);
+  },
+  chime(context, now) {
+    [1047, 1319, 1568, 2093, 2637].forEach((freq, index) => tone(context, 'sine', freq, freq * 1.01, now + index * .07, .5, .12));
+  },
+  boing(context, now) { tone(context, 'sine', 180, 900, now, .32, .25); },
+  splash(context, now) {
+    const noise = noiseSource(context, .8);
+    const filter = context.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(4000, now);
+    filter.frequency.exponentialRampToValueAtTime(250, now + .7);
+    noise.connect(filter); filter.connect(envelope(context, now, .6, .01, .7));
+    noise.start(now);
+  },
+  whoosh(context, now) {
+    const noise = noiseSource(context, .5);
+    const filter = context.createBiquadFilter();
+    filter.type = 'bandpass'; filter.Q.value = 3;
+    filter.frequency.setValueAtTime(400, now);
+    filter.frequency.exponentialRampToValueAtTime(3000, now + .4);
+    noise.connect(filter); filter.connect(envelope(context, now, .35, .1, .35));
+    noise.start(now);
+  },
+  fart(context, now) {
+    const osc = context.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(115, now);
+    osc.frequency.exponentialRampToValueAtTime(55, now + .75);
+    const wobble = context.createOscillator();
+    const depth = context.createGain();
+    wobble.frequency.value = 23; depth.gain.value = 35;
+    wobble.connect(depth); depth.connect(osc.frequency);
+    const filter = context.createBiquadFilter();
+    filter.type = 'lowpass'; filter.frequency.value = 520; filter.Q.value = 6;
+    osc.connect(filter); filter.connect(envelope(context, now, .5, .03, .75));
+    osc.start(now); wobble.start(now); osc.stop(now + .85); wobble.stop(now + .85);
+  },
+  sneeze(context, now) {
+    // "ah... ah..." rising, then a noisy "CHOO".
+    tone(context, 'triangle', 330, 470, now, .28, .12);
+    tone(context, 'triangle', 380, 620, now + .38, .3, .14);
+    const noise = noiseSource(context, .45);
+    const filter = context.createBiquadFilter();
+    filter.type = 'bandpass'; filter.Q.value = 1.2;
+    filter.frequency.setValueAtTime(3200, now + .78);
+    filter.frequency.exponentialRampToValueAtTime(900, now + 1.15);
+    noise.connect(filter); filter.connect(envelope(context, now + .78, .7, .015, .38));
+    noise.start(now + .78);
+  },
+};
+
+function sfx(kind) {
+  try {
+    soundContext = soundContext || new (window.AudioContext || window.webkitAudioContext)();
+    if (soundContext.state === 'suspended') soundContext.resume();
+    SOUNDS[kind](soundContext, soundContext.currentTime + .01);
+  } catch (_) { /* sound is optional */ }
+}
+
+// Say a question's word aloud (the clip was prefetched when the question appeared).
+async function speak(question) {
+  if (!question?.tts_available) return;
+  try {
+    const url = await audioUrl(question.token, voicePath());
+    if (soundContext) {
+      try {
+        const data = await (await fetch(url)).arrayBuffer();
+        const buffer = await soundContext.decodeAudioData(data);
+        const source = soundContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(soundContext.destination);
+        source.start();
+        return;
+      } catch (_) { /* fall back to an audio element */ }
+    }
+    await new Audio(url).play();
+  } catch (_) { /* sound is optional */ }
 }
 
 function throwBall(field, heroine, balloon, facingRight) {
@@ -484,8 +626,8 @@ function throwBall(field, heroine, balloon, facingRight) {
       }, duration * index / 7);
     }
   }
-  const flight = ball.animate(frames, { duration, easing: 'cubic-bezier(.3, .1, .6, 1)', fill: 'forwards' });
-  return flight.finished.then(() => ball.remove(), () => ball.remove());
+  ball.animate(frames, { duration, easing: 'cubic-bezier(.3, .1, .6, 1)', fill: 'forwards' });
+  return wait(duration).then(() => ball.remove());
 }
 
 function burst(field, balloon, good) {
@@ -515,9 +657,7 @@ function burst(field, balloon, good) {
 
 function renderBallGame(q) {
   const field = el('div', 'playfield');
-  const heroine = el('div', 'heroine idle');
-  dressHeroine(heroine);
-  if (!sprites) loadSprites().then(() => { if (sprites && heroine.isConnected) dressHeroine(heroine); });
+  const heroine = makeHeroine(BALL_POSES, 'idle');
   const balloons = q.options.map(() => null);
   balloonSpots(q.options.length).forEach(([left, top], index) => {
     const balloon = el('button', `balloon tone-${index % 4}`);
@@ -527,6 +667,7 @@ function renderBallGame(q) {
     balloon.style.animationDelay = `${index * .18}s, ${.9 + index * .18}s`;
     balloon.onclick = () => {
       if (busy) return;
+      sfx('unlock');
       balloon.classList.add('target');
       const facingRight = left > 50 || (left === 50 && Math.random() < .5);
       heroine.classList.toggle('face-right', facingRight);
@@ -540,6 +681,7 @@ function renderBallGame(q) {
         if (next.feedback === 'correct') {
           streak += 1;
           balloon.classList.add('popped');
+          sfx('pop');
           burst(field, balloon, true);
           setPose(heroine, 'happy');
           if (streak >= 2) field.append(el('div', 'streak', `🔥 ${streak}`));
@@ -563,6 +705,151 @@ function renderBallGame(q) {
   return field;
 }
 
+// Bridge: letters float as planks; the heroine crosses on a right word and falls in on a wrong one.
+function renderBridgeGame() {
+  const scene = el('div', 'bridge-scene');
+  scene.append(el('div', 'bank left'), el('div', 'bank right'), el('div', 'river'));
+  const heroine = makeHeroine(BRIDGE_POSES, 'bridge-stand', 'on-bank');
+  const bridge = el('div', 'answer bridge');
+  const letters = el('div', 'letters planks');
+  [...state.question.letters].forEach((letter, index) => {
+    const plank = el('button', '', letter);
+    plank.style.animationDelay = `${(index % 5) * -.6}s`;
+    plank.onclick = () => {
+      if (busy || mediumChecking) return;
+      sfx('plank');
+      setPose(heroine, 'bridge-carry');
+      clearTimeout(heroine.poseTimer);
+      heroine.poseTimer = setTimeout(() => { if (!busy) setPose(heroine, 'bridge-stand'); }, 450);
+      editMedium('add', index);
+    };
+    letters.append(plank);
+  });
+  scene.append(bridge, heroine, letters);
+  const wrapper = el('div', 'bridge-game');
+  const actions = el('div', 'actions');
+  const backspace = el('button', 'secondary backspace', '⌫');
+  backspace.setAttribute('aria-label', 'Backspace');
+  backspace.onclick = () => { sfx('plank'); editMedium('backspace'); };
+  const check = el('button', '', `🌉 ${t('check')}`);
+  check.onclick = () => {
+    sfx('unlock');
+    checkMedium(async next => {
+      const box = scene.getBoundingClientRect();
+      const span = bridge.getBoundingClientRect();
+      const start = heroine.getBoundingClientRect();
+      const toEnd = span.right - start.left - start.width * .55;
+      // Timers drive the story; the animation only paints the way between two spots.
+      const move = async (x, y, duration, easing = 'linear') => {
+        const from = heroine.style.translate || '0px 0px';
+        heroine.style.translate = `${x}px ${y}px`;
+        heroine.animate([{ translate: from }, { translate: `${x}px ${y}px` }], { duration: reducedMotion ? 1 : duration, easing });
+        await wait(duration);
+      };
+      setPose(heroine, 'bridge-walk');
+      heroine.classList.add('walking');
+      if (next.feedback === 'correct') {
+        await move(toEnd, 0, 1100);
+        heroine.classList.remove('walking');
+        setPose(heroine, 'bridge-leap');
+        sfx('boing');
+        await move(box.right - start.right - 6, -14, 380, 'ease-out');
+        setPose(heroine, 'bridge-stand');
+        sfx('chime');
+        burst(scene, bridge.lastElementChild || bridge, true);
+        await wait(900);
+      } else {
+        await move(toEnd * .45, 0, 600);
+        heroine.classList.remove('walking');
+        bridge.querySelectorAll('.slot').forEach((slot, index) => {
+          slot.style.animationDelay = `${index * 40}ms`;
+          slot.classList.add('falling');
+        });
+        setPose(heroine, 'bridge-fall');
+        await wait(160);
+        await move(toEnd * .45, box.bottom - span.bottom + 10, 380, 'ease-in');
+        sfx('splash');
+        scene.append(el('div', 'splash'));
+        setPose(heroine, 'bridge-wet');
+        await move(toEnd * .45, box.bottom - span.bottom - 30, 260, 'ease-out');
+        heroine.classList.add('bobbing');
+        await wait(1500);
+      }
+    });
+  };
+  actions.append(backspace, check);
+  wrapper.append(scene, actions);
+  return wrapper;
+}
+
+// Spell: typed letters fly out of the wand as runes; a right word is cast, a wrong one backfires.
+function renderSpellGame(q) {
+  const wrapper = el('div', 'spell-game');
+  const scene = el('div', 'spell-scene');
+  const heroine = makeHeroine(SPELL_POSES, 'spell-ready');
+  const runes = el('div', 'runes');
+  scene.append(heroine, runes);
+  const input = el('input', 'answer');
+  input.autocomplete = 'off'; input.autocapitalize = 'off'; input.spellcheck = false;
+  input.placeholder = t('type');
+  input.maxLength = 200;
+  let shown = '';
+  input.addEventListener('input', () => {
+    const value = input.value;
+    if (value.length > shown.length && value.startsWith(shown)) {
+      [...value.slice(shown.length)].forEach(char => runes.append(el('span', char === ' ' ? 'rune gap' : 'rune', char)));
+    } else runes.replaceChildren(...[...value].map(char => el('span', char === ' ' ? 'rune gap still' : 'rune still', char)));
+    shown = value;
+  });
+  const cast = () => {
+    if (busy) return;
+    if (!input.value.trim()) { input.focus(); return; }
+    sfx('unlock');
+    sfx('whoosh');
+    setPose(heroine, 'spell-cast');
+    runes.classList.add('casting');
+    act('hard', input.value, async (next, previous) => {
+      await wait(450);
+      if (next.feedback === 'correct') {
+        setPose(heroine, 'spell-success');
+        runes.classList.add('success');
+        sfx('chime');
+        speak(previous);
+        burst(scene, runes, true);
+        app.querySelector('.picture-frame')?.classList.add('alive');
+        await wait(1700);
+      } else {
+        const sneeze = Math.random() < .5;
+        setPose(heroine, sneeze ? 'spell-sneeze' : 'spell-sooty');
+        runes.classList.add('fizzle');
+        sfx(sneeze ? 'sneeze' : 'fart');
+        scene.append(el('div', sneeze ? 'sneeze-cloud' : 'smoke'));
+        await wait(sneeze ? 1900 : 1700);
+      }
+    });
+  };
+  input.addEventListener('keydown', event => { if (event.key === 'Enter') cast(); });
+  const actions = el('div', 'actions');
+  const castButton = el('button', '', `🪄 ${t('check')}`);
+  castButton.onclick = cast;
+  actions.append(castButton);
+  if (q.can_skip_hard) actions.append(button(t('skip'), 'skip', null, 'secondary'));
+  wrapper.append(scene, input, actions);
+  return wrapper;
+}
+
+// Game skins per question type. Add another skin to a list and questions take turns with it.
+const GAME_SKINS = {
+  multiple_choice: [renderBallGame],
+  jumbled_letters: [renderBridgeGame],
+  typed_answer: [renderSpellGame],
+};
+
+function pickSkin(q) {
+  const skins = GAME_SKINS[q.type] || [];
+  return skins.length ? skins[(q.number - 1) % skins.length] : null;
+}
+
 function render() {
   app.replaceChildren();
   if (state?.status === 'completed') {
@@ -583,8 +870,9 @@ function render() {
   const topText = el('div', 'top-text');
   topText.append(el('span', 'top-word', `${t('word')} ${q.number}/${q.total}`), el('span', 'top-done', `${q.completed}/${q.total} ${t('done')}`));
   top.append(topText);
-  const playing = gameMode && q.type === 'multiple_choice';
-  if (q.type === 'multiple_choice') {
+  const skin = pickSkin(q);
+  const playing = gameMode && skin !== null;
+  if (skin) {
     const toggle = el('button', 'secondary mode-toggle', gameMode ? t('quiz_mode') : t('game_mode'));
     toggle.onclick = () => { if (!busy) setGameMode(!gameMode); };
     top.append(toggle);
@@ -597,7 +885,7 @@ function render() {
     fill.style.width = `${100 * q.completed / Math.max(q.total, 1)}%`;
     bar.append(fill); app.append(bar);
   }
-  const card = el('div', playing ? 'card compact' : 'card');
+  const card = el('div', playing ? `card compact ${q.type}` : 'card');
   const pictureFrame = el('div', 'picture-frame');
   card.append(pictureFrame);
   loadImage(q.image_asset_id, pictureFrame);
@@ -606,14 +894,18 @@ function render() {
   if (q.hint && q.hint !== q.prompt) card.append(el('div', 'hint', q.hint));
   if (q.type === 'typed_answer' && q.first_letter) card.append(el('div', 'hint', t('starts', { letter: q.first_letter })));
   app.append(card);
-  if (playing) app.append(renderBallGame(q));
-  else if (q.type === 'multiple_choice') {
+  if (q.type === 'jumbled_letters') {
+    mediumSelected = [...q.selected];
+    mediumMask = q.answer_mask.split(' ').map(slot => slot ? '_' : '').join(' ');
+  }
+  if (playing) {
+    app.append(skin(q));
+    if (q.type === 'jumbled_letters') drawMediumSelection();
+  } else if (q.type === 'multiple_choice') {
     const choices = el('div', 'choices');
     q.options.forEach((option, index) => choices.append(button(option, 'easy', index)));
     app.append(choices);
   } else if (q.type === 'jumbled_letters') {
-    mediumSelected = [...q.selected];
-    mediumMask = q.answer_mask.split(' ').map(slot => slot ? '_' : '').join(' ');
     app.append(el('div', 'answer'));
     const letters = el('div', 'letters');
     [...q.letters].forEach((letter, index) => {

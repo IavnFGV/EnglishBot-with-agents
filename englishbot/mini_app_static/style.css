@@ -175,8 +175,7 @@ input.answer::placeholder { color: var(--muted); font-weight: 700; font-size: 1.
 .sprite { display: block; width: 100%; height: auto; transform-origin: 50% 100%; filter: drop-shadow(0 3px 2px rgba(29, 42, 68, .18)); }
 .heroine.face-right .sprite { scale: -1 1; }
 .heroine.drawn .sprite { display: none; }
-.heroine.idle .pose-idle, .heroine.windup .pose-windup, .heroine.throw .pose-throw,
-.heroine.happy .pose-happy, .heroine.oops .pose-oops { display: block; }
+.heroine.drawn .sprite.on { display: block; }
 .playfield::after {
   content: ""; position: absolute; left: 50%; bottom: 4px; width: 92px; height: 12px; translate: -50% 0;
   border-radius: 50%; background: color-mix(in srgb, var(--ink) 16%, transparent); transition: transform .2s ease-out;
@@ -233,6 +232,97 @@ input.answer::placeholder { color: var(--muted); font-weight: 700; font-size: 1.
 @keyframes tilt { from { transform: rotate(-7deg); } to { transform: rotate(7deg); } }
 @keyframes spark { to { transform: translate(var(--dx), var(--dy)) scale(.4); opacity: 0; } }
 
+/* Bridge game: banks, a river with floating letter planks, and the bridge of answer slots */
+.card.compact.jumbled_letters .picture-frame, .card.compact.typed_answer .picture-frame { height: clamp(80px, 14vh, 140px); }
+.bridge-game { display: flex; flex-direction: column; gap: 14px; }
+.bridge-scene {
+  position: relative; height: 330px; overflow: hidden; border-radius: 28px; border: 2px solid var(--line);
+  background: linear-gradient(to bottom, var(--sky-deep), var(--surface) 60%);
+}
+.bank { position: absolute; top: 160px; bottom: 0; width: 15%; z-index: 1; background: linear-gradient(to bottom, #6cc46f 0 14px, #9b6b3f 14px); }
+.bank.left { left: 0; border-top-right-radius: 14px; }
+.bank.right { right: 0; border-top-left-radius: 14px; }
+.river {
+  position: absolute; left: 0; right: 0; top: 186px; bottom: 0;
+  background: repeating-linear-gradient(170deg, #5fb4f0 0 18px, #4aa3e6 18px 36px);
+  animation: river 4s linear infinite;
+}
+.answer.bridge {
+  position: absolute; z-index: 2; left: 15%; right: 15%; top: 150px; width: auto; min-height: 36px; padding: 0 2px;
+  gap: 2px; flex-wrap: nowrap; border: 0; border-radius: 0; background: transparent; font-size: 1.15rem;
+}
+.answer.bridge::before {
+  content: ""; position: absolute; left: -2px; right: -2px; top: 50%; height: 3px; z-index: -1;
+  background: repeating-linear-gradient(90deg, #7a5230 0 6px, transparent 6px 10px);
+}
+.answer.bridge .slot {
+  flex: 1 1 0; min-width: 0; max-width: 2.4rem; height: 34px; width: auto;
+  border: 2px dashed color-mix(in srgb, #7a5230 60%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--surface) 55%, transparent);
+  color: #3b2a12; text-transform: lowercase;
+}
+.answer.bridge .slot.filled { border: 0; background: linear-gradient(#c58a50, #a96f38); box-shadow: inset 0 -4px 0 #7a5230; color: #fff7e6; animation: plank-in .25s ease-out; }
+.answer.bridge .slot.falling { animation: plank-fall .7s ease-in forwards; }
+.answer.bridge .slot-gap { flex: 0 0 .5rem; }
+.bridge-scene .heroine { left: 1%; bottom: auto; top: 24px; width: 118px; translate: 0 0; z-index: 3; }
+.bridge-scene .heroine.drawn { width: 120px; }
+.heroine.walking .sprite.on { animation: walk-bob .32s ease-in-out infinite; }
+.heroine.bobbing { animation: wet-bob 1s ease-in-out infinite; }
+.letters.planks {
+  position: absolute; z-index: 2; left: 8px; right: 8px; top: 200px; bottom: 8px;
+  display: flex; flex-wrap: wrap; justify-content: center; align-content: center; gap: 8px;
+}
+.letters.planks button {
+  min-height: 46px; min-width: 46px; padding: 6px 10px; font-size: 1.35rem; text-transform: lowercase;
+  background: linear-gradient(#d39a5e, #b27a42); color: #fff7e6; box-shadow: 0 4px 0 #7a5230; border-radius: 10px;
+  animation: float-plank 2.8s ease-in-out infinite;
+}
+.letters.planks button:active:not(:disabled) { box-shadow: 0 1px 0 #7a5230; }
+.letters.planks button.used { background: transparent; box-shadow: none; border: 2px dashed rgba(255, 255, 255, .5); color: transparent; animation: none; }
+.splash { position: absolute; z-index: 4; left: 30%; top: 175px; width: 120px; height: 60px; pointer-events: none; }
+.splash::before, .splash::after {
+  content: ""; position: absolute; bottom: 0; width: 18px; height: 18px; border-radius: 50%; background: #bfe6ff;
+  box-shadow: 30px -10px 0 #9fd8ff, 60px 4px 0 #bfe6ff, 90px -6px 0 #9fd8ff, 15px -30px 0 #dff2ff, 75px -28px 0 #dff2ff;
+  animation: splash .7s ease-out forwards;
+}
+.splash::after { left: 10px; animation-delay: .08s; transform: scale(.7); }
+
+/* Spell game: the young witch, runes from the wand, success sparkle or a backfire */
+.spell-game { display: flex; flex-direction: column; gap: 12px; }
+.spell-scene {
+  position: relative; height: 190px; overflow: hidden; border-radius: 28px; border: 2px solid var(--line);
+  background: radial-gradient(120% 90% at 80% 0%, #3b2a6e, #1d1640 70%);
+}
+.spell-scene .heroine { left: 4px; bottom: 2px; width: 125px; translate: 0 0; }
+.spell-scene .heroine.drawn { width: 136px; }
+.runes {
+  position: absolute; left: 150px; right: 10px; top: 0; bottom: 0;
+  display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: 2px 4px;
+}
+.rune { font-size: 1.9rem; font-weight: 900; color: #ffe27a; text-shadow: 0 0 10px #ffcf4a, 0 0 22px #ff7ab6; animation: rune-in .45s cubic-bezier(.2, 1.4, .5, 1) both; }
+.rune.still { animation: none; }
+.rune.gap { width: .6rem; }
+.runes.casting .rune { animation: rune-glow .45s ease-in-out infinite alternate; }
+.runes.success .rune { animation: rune-win .9s ease-out forwards; }
+.runes.fizzle .rune { animation: rune-fizzle .9s ease-in forwards; color: #9a93ad; text-shadow: none; }
+.smoke, .sneeze-cloud { position: absolute; z-index: 4; left: 30px; top: 20px; width: 110px; height: 110px; border-radius: 50%; pointer-events: none; }
+.smoke { background: radial-gradient(circle, rgba(80, 80, 90, .85), rgba(80, 80, 90, 0) 70%); animation: smoke 1.4s ease-out forwards; }
+.sneeze-cloud { left: 90px; top: 40px; background: radial-gradient(circle, rgba(220, 240, 255, .9), rgba(220, 240, 255, 0) 70%); animation: smoke 1.2s ease-out forwards; }
+.picture-frame.alive .picture { animation: alive 1.2s ease-in-out; }
+.spell-game input.answer { text-align: center; }
+
+@keyframes river { from { background-position: 0 0; } to { background-position: 120px 0; } }
+@keyframes float-plank { 0%, 100% { translate: 0 0; rotate: -2deg; } 50% { translate: 0 -5px; rotate: 2deg; } }
+@keyframes plank-in { from { transform: translateY(40px) rotate(-12deg); opacity: .3; } to { transform: none; opacity: 1; } }
+@keyframes plank-fall { to { transform: translateY(190px) rotate(40deg); opacity: 0; } }
+@keyframes walk-bob { 50% { transform: translateY(-5px) rotate(1.5deg); } }
+@keyframes wet-bob { 50% { transform: translateY(5px); } }
+@keyframes splash { from { transform: translateY(20px) scale(.4); opacity: 1; } to { transform: translateY(-30px) scale(1.1); opacity: 0; } }
+@keyframes rune-in { from { transform: translate(-80px, 40px) scale(.2) rotate(-90deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes rune-glow { to { transform: translateY(-4px) scale(1.12); text-shadow: 0 0 16px #fff2b0, 0 0 30px #ff7ab6; } }
+@keyframes rune-win { 40% { transform: translateY(-14px) scale(1.4); color: #fff; } 100% { transform: translateY(-70px) scale(.4); opacity: 0; } }
+@keyframes rune-fizzle { 30% { transform: translateY(-4px); } 100% { transform: translateY(60px) rotate(25deg); opacity: 0; } }
+@keyframes smoke { from { transform: scale(.3); opacity: 1; } to { transform: scale(1.8) translateY(-20px); opacity: 0; } }
+@keyframes alive { 25% { transform: scale(1.15) rotate(-4deg); } 50% { transform: scale(1.1) rotate(4deg); } 75% { transform: scale(1.12) rotate(-2deg); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
