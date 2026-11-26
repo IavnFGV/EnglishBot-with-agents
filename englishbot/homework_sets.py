@@ -21,7 +21,10 @@ from .families import create_homework_assignment, get_user_family, list_family_m
 from .i18n import translate_for_user
 from .teacher_content import create_teacher_topic, create_teacher_topic_item
 from .training import TRAINING_MODES
-from .verbs import DEFAULT_VERB_TOPIC, ITEM_TYPE_WORD, VerbFormsError, create_family_verb, find_family_verb, load_forms, validate_forms
+from .verbs import (
+    DEFAULT_VERB_TOPIC, ITEM_TYPE_WORD, VERB_COLUMNS, VERB_JOIN, VerbFormsError, add_list_verb, ensure_family_verb,
+    find_family_verb, find_list_verb, list_verbs, row_forms,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -466,11 +469,14 @@ def store_extraction(set_id: int, result: ExtractionResult, picture_ids: list[in
             items.append(item)
         verbs = []
         for verb in result.verbs:
-            existing_id = find_family_verb(connection, family_id, verb["base"])
+            # A listed verb keeps the list's forms; the model's are kept only for a verb missing from it.
+            listed = find_list_verb(connection, verb["base"])
+            if listed is not None:
+                verb = {key: listed[key] for key in ("base", "past", "participle", "ru")}
             verbs.append({
                 **verb,
-                "topic": _match_topic_title(DEFAULT_VERB_TOPIC, topics),
-                "existing_id": existing_id,
+                "listed": listed is not None,
+                "existing_id": find_family_verb(connection, family_id, int(listed["id"])) if listed else None,
             })
         _write_draft(connection, row, {"model": result.model, "tasks": _draft_tasks(row, items, verbs)})
     entries = [*items, *verbs]
@@ -545,6 +551,7 @@ def get_draft(user_id: int, set_id: int) -> dict[str, object]:
         draft = json.loads(row["draft_json"] or "{}")
         topics = _active_topics(connection, family_id)
         photos = _set_photo_ids(connection, set_id)
+        verbs = list_verbs(connection)
     members = [
         {"id": int(member["telegram_user_id"]), "name": _display_name(member)}
         for member in list_family_members(family_id)
@@ -556,6 +563,7 @@ def get_draft(user_id: int, set_id: int) -> dict[str, object]:
         "photos": photos,
         "task_kinds": _task_kinds(user_id),
         "topics": topics,
+        "verbs": verbs,
         "members": members,
         "defaults": _assignment_defaults(user_id, family_id),
         "modes": [{"code": mode, "label": translate_for_user(user_id, f"training.mode.{mode}")} for mode in TRAINING_MODES],
@@ -631,18 +639,17 @@ def _ensure_word(user_id: int, family_id: int, english: str, russian: str, topic
 
 
 def _ensure_verb(user_id: int, family_id: int, entry: dict[str, object], topic_cache: dict[str, int]) -> tuple[int, bool]:
-    """Reuse the family verb with this base form or create it with its forms; return (id, created)."""
-    try:
-        base, past, participle = validate_forms(entry.get("base"), entry.get("past"), entry.get("participle"))
-    except VerbFormsError as exc:
-        raise HomeworkSetError("invalid_verb_forms") from exc
-    topic_id = _resolve_topic_id(user_id, family_id, _clean(entry.get("topic")) or DEFAULT_VERB_TOPIC, topic_cache)
+    """The family item of a listed verb under the irregular verbs topic; a verb missing from the list
+    is added to it first with the forms from the draft. Returns (id, created)."""
+    topic_id = int(_resolve_topic_id(user_id, family_id, DEFAULT_VERB_TOPIC, topic_cache))
     with get_connection() as connection:
-        verb_id = find_family_verb(connection, family_id, base)
-        if verb_id is not None:
-            _link_word_to_topic(connection, int(topic_id), verb_id)
-            return verb_id, False
-    return create_family_verb(family_id, int(topic_id), base, past, participle, _clean(entry.get("ru"))), True
+        verb = find_list_verb(connection, entry.get("base"))
+        if verb is None:
+            try:
+                verb = add_list_verb(connection, entry.get("base"), entry.get("past"), entry.get("participle"), _clean(entry.get("ru")))
+            except VerbFormsError as exc:
+                raise HomeworkSetError("invalid_verb_forms") from exc
+        return ensure_family_verb(connection, family_id, topic_id, verb)
 
 
 def _clean_instructions(value: object) -> str:
@@ -909,13 +916,14 @@ def get_set(user_id: int, set_id: int) -> dict[str, object]:
         row = _require_saved(connection, user_id, set_id)
         tasks = _saved_tasks(connection, set_id)
         words = connection.execute(
-            """
+            f"""
             SELECT learning_items.id, learning_items.text, learning_items.is_archived, homework_set_items.task_id,
-                   learning_items.item_type, learning_items.details_json,
+                   learning_items.item_type, {VERB_COLUMNS},
                    (SELECT translation_text FROM learning_item_translations
                     WHERE learning_item_id = learning_items.id AND language_code = 'ru') AS ru
             FROM homework_set_items
             JOIN learning_items ON learning_items.id = homework_set_items.learning_item_id
+            {VERB_JOIN}
             WHERE homework_set_items.homework_set_id = ?
             ORDER BY homework_set_items.item_order
             """,
@@ -968,7 +976,7 @@ def get_set(user_id: int, set_id: int) -> dict[str, object]:
 
 def _display_text(word) -> str:
     """A verb is listed with all three forms: "go – went – gone"."""
-    forms = load_forms(word["details_json"]) if word["item_type"] != ITEM_TYPE_WORD else None
+    forms = row_forms(word) if word["item_type"] != ITEM_TYPE_WORD else None
     return " – ".join([str(word["text"]), *forms]) if forms else str(word["text"])
 
 

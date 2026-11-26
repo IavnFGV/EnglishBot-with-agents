@@ -277,7 +277,6 @@ def test_each_answer_is_logged_with_expected_and_given_text(tmp_path, caplog):
 
 
 def test_distractor_pool_matches_per_item_resolution_in_order(tmp_path: Path) -> None:
-    import json
     from englishbot.training import _build_distractor_pool, _resolve_learning_item
 
     setup_db(tmp_path)
@@ -286,8 +285,9 @@ def test_distractor_pool_matches_per_item_resolution_in_order(tmp_path: Path) ->
         family_id = connection.execute("SELECT family_id FROM learning_items WHERE id = 1").fetchone()[0]
         verb_lexeme = connection.execute("INSERT INTO lexemes (lemma, created_at, updated_at) VALUES ('go', '', '')").lastrowid
         connection.execute(
-            "INSERT INTO learning_items (family_id, lexeme_id, text, is_archived, item_type, details_json, created_at, updated_at) VALUES (?, ?, 'go', 0, 'verb', ?, '', '')",
-            (family_id, verb_lexeme, json.dumps({"past": "went", "participle": "gone"})),
+            "INSERT INTO learning_items (family_id, lexeme_id, text, is_archived, item_type, verb_id, created_at, updated_at) "
+            "VALUES (?, ?, 'go', 0, 'verb', (SELECT id FROM irregular_verbs WHERE base = 'go'), '', '')",
+            (family_id, verb_lexeme),
         )
         connection.execute("UPDATE learning_items SET is_archived = 1 WHERE id = 4")
         family_ids = [row[0] for row in connection.execute("SELECT id FROM learning_items WHERE family_id = ? AND is_archived = 0 ORDER BY id", (family_id,))]

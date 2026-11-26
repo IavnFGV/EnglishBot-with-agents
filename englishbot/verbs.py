@@ -1,10 +1,10 @@
-"""Irregular verbs: a learning item whose text is the base form and whose details hold V2 and V3.
+"""Irregular verbs: one shared list (`irregular_verbs`) holds every verb's three forms.
 
-A verb is drilled by showing the base form with its translation and asking for the second and
-third forms; the expected answer is "V2 V3" (e.g. "went gone", "was/were been").
+A family verb is a learning item (item_type 'verb') whose text is the base form and whose
+verb_id points at the list. It is drilled by showing the base form with its translation and
+asking for the second and third forms; the expected answer is "V2 V3" (e.g. "went gone").
 """
 
-import json
 import re
 
 from .db import get_connection, utc_now
@@ -40,22 +40,49 @@ def validate_forms(base: object, past: object, participle: object) -> tuple[str,
     return forms
 
 
-def dump_details(past: str, participle: str) -> str:
-    return json.dumps({"past": past, "participle": participle}, ensure_ascii=False)
+# SQL pieces that read a learning item's forms from the list.
+VERB_JOIN = "LEFT JOIN irregular_verbs ON irregular_verbs.id = learning_items.verb_id"
+VERB_COLUMNS = "irregular_verbs.past AS verb_past, irregular_verbs.participle AS verb_participle"
 
 
-def load_forms(details_json: object) -> tuple[str, str] | None:
-    """(past, participle) from stored details, or None when they are missing or broken."""
-    try:
-        details = json.loads(str(details_json or ""))
-    except ValueError:
+def row_forms(row) -> tuple[str, str] | None:
+    """(past, participle) from a row selected with VERB_COLUMNS, or None for a plain word."""
+    if row["verb_past"] and row["verb_participle"]:
+        return str(row["verb_past"]), str(row["verb_participle"])
+    return None
+
+
+def get_verb_forms(verb_id: object) -> tuple[str, str] | None:
+    if verb_id is None:
         return None
-    if not isinstance(details, dict):
-        return None
-    past, participle = clean_form(details.get("past")), clean_form(details.get("participle"))
-    if not past or not participle:
-        return None
-    return past, participle
+    with get_connection() as connection:
+        row = connection.execute("SELECT past, participle FROM irregular_verbs WHERE id = ?", (int(verb_id),)).fetchone()
+    return (str(row["past"]), str(row["participle"])) if row is not None else None
+
+
+def _serialize_list_verb(row) -> dict[str, object]:
+    return {"id": int(row["id"]), "base": str(row["base"]), "past": str(row["past"]),
+            "participle": str(row["participle"]), "ru": str(row["translation_ru"])}
+
+
+def list_verbs(connection) -> list[dict[str, object]]:
+    rows = connection.execute("SELECT * FROM irregular_verbs ORDER BY base").fetchall()
+    return [_serialize_list_verb(row) for row in rows]
+
+
+def find_list_verb(connection, base: object) -> dict[str, object] | None:
+    row = connection.execute("SELECT * FROM irregular_verbs WHERE base = ?", (clean_form(base),)).fetchone()
+    return _serialize_list_verb(row) if row is not None else None
+
+
+def add_list_verb(connection, base: object, past: object, participle: object, russian: str = "") -> dict[str, object]:
+    """Add a verb missing from the list (e.g. one from a tutor's homework); an existing one is returned as is."""
+    base, past, participle = validate_forms(base, past, participle)
+    connection.execute(
+        "INSERT OR IGNORE INTO irregular_verbs (base, past, participle, translation_ru, created_at) VALUES (?, ?, ?, ?, ?)",
+        (base, past, participle, russian, utc_now()),
+    )
+    return find_list_verb(connection, base)  # type: ignore[return-value]
 
 
 def expected_answer(past: str, participle: str) -> str:
@@ -119,14 +146,14 @@ def tricky_options(base: str, answer: str) -> list[str]:
     return result
 
 
-def find_family_verb(connection, family_id: int, base: str) -> int | None:
+def find_family_verb(connection, family_id: int, verb_id: int) -> int | None:
     row = connection.execute(
         """
         SELECT id FROM learning_items
-        WHERE family_id = ? AND is_archived = 0 AND item_type = ? AND lower(text) = ?
+        WHERE family_id = ? AND is_archived = 0 AND item_type = ? AND verb_id = ?
         ORDER BY id LIMIT 1
         """,
-        (family_id, ITEM_TYPE_VERB, base.lower()),
+        (family_id, ITEM_TYPE_VERB, verb_id),
     ).fetchone()
     return int(row["id"]) if row is not None else None
 
@@ -141,43 +168,35 @@ def _lexeme_id(connection, lemma: str) -> int:
     ).lastrowid)
 
 
-def create_family_verb(family_id: int, topic_id: int, base: str, past: str, participle: str, russian: str = "") -> int:
-    """A new verb item linked to the topic; the base form may also exist as a plain word."""
-    base, past, participle = validate_forms(base, past, participle)
-    timestamp = utc_now()
-    with get_connection() as connection:
-        verb_id = int(connection.execute(
+def ensure_family_verb(connection, family_id: int, topic_id: int, verb: dict[str, object]) -> tuple[int, bool]:
+    """The family's item for a listed verb, created under the topic on first use; returns (id, created)."""
+    existing = find_family_verb(connection, family_id, int(verb["id"]))
+    if existing is None:
+        timestamp = utc_now()
+        existing = int(connection.execute(
             """
-            INSERT INTO learning_items (family_id, lexeme_id, text, is_archived, item_type, details_json, created_at, updated_at)
+            INSERT INTO learning_items (family_id, lexeme_id, text, is_archived, item_type, verb_id, created_at, updated_at)
             VALUES (?, ?, ?, 0, ?, ?, ?, ?)
             """,
-            (family_id, _lexeme_id(connection, base), base, ITEM_TYPE_VERB, dump_details(past, participle), timestamp, timestamp),
+            (family_id, _lexeme_id(connection, str(verb["base"])), verb["base"], ITEM_TYPE_VERB, int(verb["id"]), timestamp, timestamp),
         ).lastrowid)
-        if russian:
+        if verb["ru"]:
             connection.execute(
                 """
                 INSERT INTO learning_item_translations (learning_item_id, language_code, translation_text, created_at, updated_at)
                 VALUES (?, 'ru', ?, ?, ?)
                 """,
-                (verb_id, russian, timestamp, timestamp),
+                (existing, verb["ru"], timestamp, timestamp),
             )
-        connection.execute("INSERT INTO topic_items (topic_id, learning_item_id) VALUES (?, ?)", (topic_id, verb_id))
-    return verb_id
-
-
-def set_item_verb_forms(connection, item_id: int, forms: dict[str, object] | None, base: str) -> None:
-    """Make the item a verb with these forms, or a plain word when forms is None."""
-    if forms is None:
-        connection.execute(
-            "UPDATE learning_items SET item_type = ?, details_json = NULL, updated_at = ? WHERE id = ?",
-            (ITEM_TYPE_WORD, utc_now(), item_id),
-        )
-        return
-    _, past, participle = validate_forms(base, forms.get("past"), forms.get("participle"))
-    connection.execute(
-        "UPDATE learning_items SET item_type = ?, details_json = ?, updated_at = ? WHERE id = ?",
-        (ITEM_TYPE_VERB, dump_details(past, participle), utc_now(), item_id),
-    )
+        created = True
+    else:
+        created = False
+    linked = connection.execute(
+        "SELECT 1 FROM topic_items WHERE topic_id = ? AND learning_item_id = ?", (topic_id, existing)
+    ).fetchone()
+    if linked is None:
+        connection.execute("INSERT INTO topic_items (topic_id, learning_item_id) VALUES (?, ?)", (topic_id, existing))
+    return existing, created
 
 
 def verb_task_text(telegram_user_id: int, question: dict[str, object]) -> str | None:

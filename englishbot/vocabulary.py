@@ -78,7 +78,7 @@ def get_learning_item(learning_item_id: int) -> dict[str, object] | None:
                 text,
                 is_archived,
                 item_type,
-                details_json,
+                verb_id,
                 created_at,
                 updated_at
             FROM learning_items
@@ -103,7 +103,7 @@ def list_learning_items(
             text,
             is_archived,
             item_type,
-            details_json,
+            verb_id,
             created_at,
             updated_at
         FROM learning_items
@@ -197,7 +197,7 @@ def _serialize_learning_item_row(
         "audio_ref": resolve_asset_ref_for_role(int(row["id"]), PRIMARY_AUDIO_ROLE),
         "is_archived": int(row["is_archived"]),
         "item_type": str(row["item_type"] or "word"),
-        "details_json": row["details_json"],
+        "verb_id": int(row["verb_id"]) if row["verb_id"] is not None else None,
         "created_at": str(row["created_at"]),
         "updated_at": str(row["updated_at"]),
         "assets": [

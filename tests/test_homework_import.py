@@ -925,11 +925,13 @@ def test_replacing_a_word_picture_deletes_the_old_file(family: int) -> None:
 
 def test_whole_topic_joins_a_saved_set_once_and_verbs_go_to_the_verbs_task(family: int) -> None:
     from englishbot.homework_sets import add_set_topic
+    from englishbot.verbs import ensure_family_verb, find_list_verb
 
     birds = create_topic(MOM, "Birds")
     create_word(MOM, birds["id"], "owl", {"ru": "сова"})
     create_word(MOM, birds["id"], "eagle", {"ru": "орёл"})
-    create_word(MOM, birds["id"], "fly", {"ru": "летать"}, {"past": "flew", "participle": "flown"})
+    with db.get_connection() as connection:
+        ensure_family_verb(connection, family, birds["id"], find_list_verb(connection, "fly"))
     set_id = make_draft([])
     save_draft(MOM, set_id, {"title": "ДЗ", "tasks": [
         {"kind": "words", "items": [{"en": "owl", "ru": "сова", "topic": "Birds"}]},

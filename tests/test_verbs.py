@@ -117,7 +117,9 @@ def test_draft_puts_verbs_into_their_own_task_and_save_creates_verb_items(family
     assert kinds == ["words", "verbs", "note"]
     verbs_task = draft["tasks"][1]
     assert [item["base"] for item in verbs_task["items"]] == ["go", "be"]
-    assert verbs_task["items"][0]["topic"] == "Irregular verbs" and verbs_task["items"][0]["existing_id"] is None
+    assert verbs_task["items"][0]["listed"] and verbs_task["items"][0]["existing_id"] is None
+    # The editor gets the whole list to pick verbs from.
+    assert any(verb["base"] == "go" and verb["participle"] == "gone" for verb in draft["verbs"])
 
     result = save_draft(MOM, set_id, {"tasks": draft["tasks"], "assign_to": KID, "mode": "hard"})
     assert result["word_count"] == 3 and result["created_words"] == 3 and result["assignment_id"]
@@ -146,10 +148,27 @@ def test_known_verbs_are_reused_and_a_plain_word_with_the_same_text_stays_separa
     assert [row["item_type"] for row in rows] == ["word", "verb"]
 
 
-def test_save_rejects_broken_verb_forms(family: int) -> None:
-    set_id = make_verb_draft([GO])
+def test_listed_verbs_keep_list_forms_and_new_ones_join_the_list(family: int) -> None:
+    wrong_go = {"base": "go", "past": "goed", "participle": "goed", "ru": "идти"}
+    zap = {"base": "zap", "past": "zop", "participle": "zopen", "ru": "бахнуть"}
+    set_id = make_verb_draft([wrong_go, zap])
+    items = get_draft(MOM, set_id)["tasks"][0]["items"]
+    assert (items[0]["past"], items[0]["listed"]) == ("went", True)
+    assert (items[1]["past"], items[1]["listed"]) == ("zop", False)
+    save_draft(MOM, set_id, {"tasks": get_draft(MOM, set_id)["tasks"]})
+    with db.get_connection() as connection:
+        listed = {row["base"]: row["past"] for row in connection.execute("SELECT base, past FROM irregular_verbs")}
+        topics = {row["title"] for row in connection.execute(
+            "SELECT topics.title FROM topic_items JOIN topics ON topics.id = topic_items.topic_id "
+            "JOIN learning_items ON learning_items.id = topic_items.learning_item_id WHERE learning_items.item_type = 'verb'")}
+    assert listed["go"] == "went" and listed["zap"] == "zop" and len(listed) > 140
+    assert topics == {"Irregular verbs"}
+
+
+def test_save_rejects_broken_forms_of_a_new_verb(family: int) -> None:
+    set_id = make_verb_draft([{"base": "zap", "past": "zop", "participle": "zopen", "ru": ""}])
     draft = get_draft(MOM, set_id)
-    draft["tasks"][0]["items"][0]["past"] = "went gone"
+    draft["tasks"][0]["items"][0]["past"] = "zop zip"
     with pytest.raises(Exception) as caught:
         save_draft(MOM, set_id, {"tasks": draft["tasks"]})
     assert getattr(caught.value, "code", "") == "invalid_verb_forms"
@@ -217,31 +236,40 @@ def test_word_questions_never_offer_verb_answers(family: int) -> None:
 # Dictionary editor and learner screens
 
 
-def test_editor_creates_edits_and_converts_verbs(family: int) -> None:
-    topic = create_topic(MOM, "Irregular verbs")
-    verb = create_word(MOM, topic["id"], "sing", {"ru": "петь"}, {"past": "sang", "participle": "sung"})
-    assert verb["type"] == "verb" and verb["forms"] == {"past": "sang", "participle": "sung"}
-    assert verb["translations"]["ru"] == "петь"
-    updated = update_word(MOM, verb["id"], translations={"ru": "петь"}, verb={"past": "sang", "participle": "sung/sang"})
-    assert updated["forms"]["participle"] == "sung/sang"
-    with pytest.raises(MiniAppError):
-        update_word(MOM, verb["id"], verb={"past": "", "participle": "sung"})
-    plain = update_word(MOM, verb["id"], verb=None)
+def test_editor_shows_list_forms_and_keeps_a_verbs_base_form(family: int) -> None:
+    set_id = make_verb_draft([GO])
+    save_draft(MOM, set_id, {"tasks": get_draft(MOM, set_id)["tasks"]})
+    topic = next(topic for topic in get_set(MOM, set_id)["topics"] if topic["title"] == "Irregular verbs")
+    verb = list_words(MOM, topic["id"])["words"][0]
+    assert verb["type"] == "verb" and verb["forms"] == {"past": "went", "participle": "gone"}
+    updated = update_word(MOM, verb["id"], text="walk", translations={"ru": "ходить"})
+    assert updated["text"] == "go" and updated["translations"]["ru"] == "ходить"
+    assert len(search_words(MOM, "go", item_type="verb")) == 1
+    plain = create_word(MOM, topic["id"], "sing", {"ru": "петь"})
     assert plain["type"] == "word" and plain["forms"] is None
-    kept = update_word(MOM, verb["id"], text="sing")
-    assert kept["type"] == "word"
-    assert [word["text"] for word in list_words(MOM, topic["id"])["words"]] == ["sing"]
-    assert search_words(MOM, "sing", item_type="verb") == []
-    assert len(search_words(MOM, "sing", item_type="word")) == 1
 
 
-def test_item_type_columns_survive_a_restart(family: int) -> None:
-    topic = create_topic(MOM, "Irregular verbs")
-    verb = create_word(MOM, topic["id"], "go", {}, {"past": "went", "participle": "gone"})
+def test_verbs_link_to_the_list_and_old_verbs_move_into_it(family: int) -> None:
+    import json
+
+    set_id = make_verb_draft([GO])
+    save_draft(MOM, set_id, {"tasks": get_draft(MOM, set_id)["tasks"]})
+    with db.get_connection() as connection:
+        lexeme = connection.execute("INSERT INTO lexemes (lemma, created_at, updated_at) VALUES ('zap', '', '')").lastrowid
+        old_id = connection.execute(
+            "INSERT INTO learning_items (family_id, lexeme_id, text, is_archived, item_type, details_json, created_at, updated_at) "
+            "VALUES (?, ?, 'zap', 0, 'verb', ?, '', '')",
+            (family, lexeme, json.dumps({"past": "zop", "participle": "zopen"})),
+        ).lastrowid
     db.init_db()
     with db.get_connection() as connection:
-        row = connection.execute("SELECT item_type, details_json FROM learning_items WHERE id = ?", (verb["id"],)).fetchone()
-    assert row["item_type"] == "verb" and "went" in row["details_json"]
+        rows = connection.execute(
+            "SELECT learning_items.text, learning_items.details_json, irregular_verbs.past FROM learning_items "
+            "JOIN irregular_verbs ON irregular_verbs.id = learning_items.verb_id WHERE item_type = 'verb' ORDER BY learning_items.id"
+        ).fetchall()
+        count = connection.execute("SELECT COUNT(*) FROM irregular_verbs WHERE base = 'go'").fetchone()[0]
+    assert [(row["text"], row["past"], row["details_json"]) for row in rows] == [("go", "went", None), ("zap", "zop", None)]
+    assert count == 1 and old_id
 
 
 def test_homework_screen_shows_one_drill_line_for_words_and_verbs() -> None:
@@ -250,12 +278,3 @@ def test_homework_screen_shows_one_drill_line_for_words_and_verbs() -> None:
     assert "1/4" in _drill_line(KID, assignment)
     only_verbs = {**assignment, "tasks": [{"kind": "verbs"}]}
     assert _drill_line(KID, only_verbs) != _drill_line(KID, assignment)
-
-
-def test_a_word_saved_as_three_forms_can_be_fixed_into_a_verb(family: int) -> None:
-    topic = create_topic(MOM, "Irregular verbs")
-    create_word(MOM, topic["id"], "go", {"ru": "ехать"})
-    broken = create_word(MOM, topic["id"], "go went gone", {"ru": "идти"})
-    fixed = update_word(MOM, broken["id"], text="go", verb={"past": "went", "participle": "gone"})
-    assert fixed["text"] == "go" and fixed["type"] == "verb"
-    assert [word["text"] for word in list_words(MOM, topic["id"])["words"]] == ["go", "go"]

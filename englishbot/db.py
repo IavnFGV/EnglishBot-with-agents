@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -41,12 +42,63 @@ def _is_url_like_asset_ref(value: str) -> bool:
 
 
 def _ensure_learning_item_type_schema(connection: sqlite3.Connection) -> None:
-    """Learning items are words by default; irregular verbs keep their forms in details_json."""
+    """Learning items are words by default; an irregular verb points at its row in irregular_verbs."""
     columns = get_table_columns(connection, "learning_items")
     if "item_type" not in columns:
         connection.execute("ALTER TABLE learning_items ADD COLUMN item_type TEXT NOT NULL DEFAULT 'word'")
     if "details_json" not in columns:
         connection.execute("ALTER TABLE learning_items ADD COLUMN details_json TEXT")
+    if "verb_id" not in columns:
+        connection.execute("ALTER TABLE learning_items ADD COLUMN verb_id INTEGER REFERENCES irregular_verbs (id)")
+    _ensure_irregular_verbs(connection)
+
+
+def _ensure_irregular_verbs(connection: sqlite3.Connection) -> None:
+    """The shared list of irregular verbs: loaded at startup, the only place verb forms live."""
+    from .irregular_verbs_data import IRREGULAR_VERBS
+
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS irregular_verbs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            base TEXT NOT NULL UNIQUE,
+            past TEXT NOT NULL,
+            participle TEXT NOT NULL,
+            translation_ru TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    timestamp = utc_now()
+    connection.executemany(
+        "INSERT OR IGNORE INTO irregular_verbs (base, past, participle, translation_ru, created_at) VALUES (?, ?, ?, ?, ?)",
+        [(*verb, timestamp) for verb in IRREGULAR_VERBS],
+    )
+    # Verbs saved before the list existed kept their forms in details_json; link them to the list.
+    legacy = connection.execute(
+        """
+        SELECT learning_items.id, learning_items.text, learning_items.details_json,
+               (SELECT translation_text FROM learning_item_translations
+                WHERE learning_item_id = learning_items.id AND language_code = 'ru') AS ru
+        FROM learning_items WHERE item_type = 'verb' AND verb_id IS NULL
+        """
+    ).fetchall()
+    for row in legacy:
+        base = str(row["text"]).strip().lower()
+        try:
+            details = json.loads(row["details_json"] or "")
+        except ValueError:
+            details = None
+        if isinstance(details, dict) and details.get("past") and details.get("participle"):
+            connection.execute(
+                "INSERT OR IGNORE INTO irregular_verbs (base, past, participle, translation_ru, created_at) VALUES (?, ?, ?, ?, ?)",
+                (base, str(details["past"]), str(details["participle"]), str(row["ru"] or ""), timestamp),
+            )
+        verb = connection.execute("SELECT id FROM irregular_verbs WHERE base = ?", (base,)).fetchone()
+        if verb is None:
+            connection.execute("UPDATE learning_items SET item_type = 'word', details_json = NULL WHERE id = ?", (int(row["id"]),))
+        else:
+            connection.execute("UPDATE learning_items SET verb_id = ?, details_json = NULL WHERE id = ?", (int(verb["id"]), int(row["id"])))
 
 
 def _ensure_homework_task_schema(connection: sqlite3.Connection) -> None:
@@ -472,7 +524,7 @@ def _rebuild_learning_items_for_family_schema(connection: sqlite3.Connection) ->
         "updated_at",
     }
     # Item type columns are added later by _ensure_learning_item_type_schema and must survive restarts.
-    if learning_item_columns - {"item_type", "details_json"} == expected_columns:
+    if learning_item_columns - {"item_type", "details_json", "verb_id"} == expected_columns:
         return
 
     connection.execute("DROP TRIGGER IF EXISTS trg_learning_items_set_workbook_key")

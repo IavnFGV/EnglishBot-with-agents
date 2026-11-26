@@ -210,34 +210,17 @@ function showWord(topic, word, savedMessage = false) {
   const mainField = mainLanguage ? translationField(mainLanguage, `${t('translation')} (${mainLanguage.label})`) : null;
   const others = otherLanguages.map((language) => translationField(language, language.label));
   const othersFilled = otherLanguages.some((language) => word?.translations?.[language.code]);
-  // An irregular verb keeps its 2nd and 3rd forms; the quiz asks for them.
-  const isVerb = el('input', { type: 'checkbox', checked: word?.type === 'verb' });
-  const pastInput = el('input', { type: 'text', value: word?.forms?.past || '', maxLength: 40, autocapitalize: 'off' });
-  const participleInput = el('input', { type: 'text', value: word?.forms?.participle || '', maxLength: 40, autocapitalize: 'off' });
-  const verbFields = el('div', { class: 'section' },
-    el('label', {}, t('verb_past'), pastInput),
-    el('label', {}, t('verb_participle'), participleInput),
-    el('span', { class: 'sub' }, t('verb_hint')));
-  const syncVerb = () => { verbFields.hidden = !isVerb.checked; };
-  // A word saved as "go went gone" in one cell is split into its forms when marked as a verb.
-  isVerb.addEventListener('change', () => {
-    const forms = textInput.value.trim().split(/[\s,;–—-]+/).filter(Boolean);
-    if (isVerb.checked && forms.length === 3 && !pastInput.value.trim() && !participleInput.value.trim()) {
-      [textInput.value, pastInput.value, participleInput.value] = forms.map((form) => form.toLowerCase());
-    }
-  });
-  isVerb.addEventListener('change', syncVerb);
-  syncVerb();
+  // An irregular verb shows its forms from the bot's list; its English text is not edited here.
+  const isVerb = word?.type === 'verb';
+  textInput.disabled = isVerb;
+  const verbInfo = isVerb ? el('span', { class: 'sub' }, `${wordTitle(word)} · ${t('verb_from_list')}`) : null;
 
   const save = async () => {
     if (!textInput.value.trim()) { textInput.focus(); return; }
-    if (isVerb.checked && !pastInput.value.trim()) { pastInput.focus(); return; }
-    if (isVerb.checked && !participleInput.value.trim()) { participleInput.focus(); return; }
     const payload = {
-      text: textInput.value,
       translations: Object.fromEntries(Object.entries(translationInputs).map(([code, input]) => [code, input.value])),
-      verb: isVerb.checked ? { past: pastInput.value, participle: participleInput.value } : null,
     };
+    if (!isVerb) payload.text = textInput.value;
     saveButton.disabled = true;
     try {
       const saved = word
@@ -248,16 +231,15 @@ function showWord(topic, word, savedMessage = false) {
       if (isNew) { showWord(topic, saved, true); return; }
       setStatus(t('saved'), 'ok');
     } catch (error) {
-      setStatus(error.message === 'invalid_verb_forms' ? t('verb_forms_invalid') : errorText(error), 'error');
+      setStatus(errorText(error), 'error');
     } finally { saveButton.disabled = false; }
   };
   const saveButton = el('button', { onclick: save }, t('save'));
-  [textInput, pastInput, participleInput, ...Object.values(translationInputs)].forEach((input) => input.addEventListener('keydown', (event) => { if (event.key === 'Enter') save(); }));
+  [textInput, ...Object.values(translationInputs)].forEach((input) => input.addEventListener('keydown', (event) => { if (event.key === 'Enter') save(); }));
 
   screen(
     el('label', {}, t('word'), textInput),
-    el('label', { class: 'inline-check' }, isVerb, t('verb')),
-    verbFields,
+    verbInfo,
     mainField,
     others.length ? el('details', { open: othersFilled }, el('summary', {}, t('other_languages')), ...others) : null,
     saveButton,
@@ -1154,25 +1136,32 @@ function wordTitle(word) {
   return word.type === 'verb' && word.forms ? [word.text, word.forms.past, word.forms.participle].join(' – ') : word.text;
 }
 
-// Irregular verbs of a draft: three forms and a translation per row; all go under one topic.
-function verbsEditor(items) {
+// Irregular verbs of a draft. Verbs come from the bot's list and are shown as they are; a verb missing
+// from the list (e.g. read from a tutor's message) keeps editable forms and joins the list on save.
+function verbsEditor(items, list = []) {
+  const listed = new Map(list.map((verb) => [verb.base, verb]));
   const rows = el('div', { class: 'list draft-list' });
   const rowState = [];
+  const clean = (value) => String(value || '').trim().toLowerCase().replace(/\s*\/\s*/g, '/');
   const addRow = (item, { top = false } = {}) => {
-    const known = Boolean(item.existing_id);
+    const verb = listed.get(clean(item.base));
     const field = (value, placeholder) => el('input', { type: 'text', value: value || '', maxLength: 40, placeholder, autocapitalize: 'off' });
-    const state = {
-      item,
-      base: field(item.base, 'V1'),
-      past: field(item.past, 'V2'),
-      participle: field(item.participle, 'V3'),
-      ru: el('input', { type: 'text', value: item.ru || '', maxLength: 200, placeholder: t('translation') }),
-    };
-    const fields = known
+    const state = verb
+      ? { item, verb }
+      : {
+        item,
+        base: field(item.base, 'V1'),
+        past: field(item.past, 'V2'),
+        participle: field(item.participle, 'V3'),
+        ru: el('input', { type: 'text', value: item.ru || '', maxLength: 200, placeholder: t('translation') }),
+      };
+    const fields = verb
       ? el('div', { class: 'draft-fields compact' },
-        el('span', { class: 'title' }, [item.base, item.past, item.participle].join(' – ')),
-        el('span', { class: 'sub' }, [item.ru, t('already_known')].filter(Boolean).join(' · ')))
-      : el('div', { class: 'draft-fields' }, el('div', { class: 'row verb-forms' }, state.base, state.past, state.participle), state.ru);
+        el('span', { class: 'title' }, [verb.base, verb.past, verb.participle].join(' – ')),
+        el('span', { class: 'sub' }, [verb.ru, item.existing_id ? t('already_known') : ''].filter(Boolean).join(' · ')))
+      : el('div', { class: 'draft-fields' },
+        el('div', { class: 'row verb-forms' }, state.base, state.past, state.participle), state.ru,
+        el('span', { class: 'sub' }, t('verb_new')));
     const card = el('div', { class: 'draft-row' }, fields, removeButton(() => {
       rowState.splice(rowState.indexOf(state), 1);
       card.remove();
@@ -1181,35 +1170,43 @@ function verbsEditor(items) {
     if (top) rows.prepend(card); else rows.append(card);
     return state;
   };
+  const baseOf = (state) => (state.verb ? state.verb.base : clean(state.base.value));
+  const has = (base) => rowState.some((state) => baseOf(state) === base);
   items.filter((item) => item.include !== false).forEach((item) => addRow(item));
-  const topic = el('input', { type: 'text', maxLength: 100, placeholder: t('draft_topic') });
-  topic.setAttribute('list', 'draft-topics');
-  topic.value = items.find((item) => item.topic)?.topic || 'Irregular verbs';
+
+  const options = el('datalist', { id: 'irregular-verbs' }, ...list.map((verb) => el('option', { value: verb.base }, `${verb.past} ${verb.participle} · ${verb.ru}`)));
+  const pick = el('input', { type: 'text', maxLength: 40, placeholder: t('verb_pick'), autocapitalize: 'off' });
+  pick.setAttribute('list', 'irregular-verbs');
+  const add = () => {
+    const base = clean(pick.value);
+    if (!base) { pick.focus(); return; }
+    pick.value = '';
+    if (has(base)) return;
+    const state = addRow({ base, past: '', participle: '', ru: '' }, { top: true });
+    if (!state.verb) state.past.focus();
+  };
+  pick.addEventListener('keydown', (event) => { if (event.key === 'Enter') add(); });
+  pick.addEventListener('change', () => { if (listed.has(clean(pick.value))) add(); });
   const node = el('div', { class: 'section' },
-    el('label', {}, t('draft_topic'), topic),
     el('span', { class: 'sub' }, t('verb_hint')),
-    rows,
-    el('button', { class: 'secondary', onclick: () => addRow({ base: '', past: '', participle: '', ru: '' }, { top: true }).base.focus() }, t('create_verb')));
-  const clean = (input) => input.value.trim().toLowerCase().replace(/\s*\/\s*/g, '/');
+    el('div', { class: 'row' }, pick, el('button', { class: 'secondary', onclick: add }, t('create_verb'))),
+    options,
+    rows);
   return {
     node,
-    collect: () => rowState.map((state) => ({
-      base: state.base.value, past: state.past.value, participle: state.participle.value, ru: state.ru.value,
-      topic: topic.value, existing_id: state.item.existing_id || null,
-    })),
-    // Dictionary verbs (from a whole topic) join once, matched by id or base form.
+    collect: () => rowState.map((state) => (state.verb
+      ? { base: state.verb.base, past: state.verb.past, participle: state.verb.participle, ru: state.verb.ru, existing_id: state.item.existing_id || null }
+      : { base: state.base.value, past: state.past.value, participle: state.participle.value, ru: state.ru.value, existing_id: null })),
+    // Dictionary verbs (from a whole topic) join once, matched by base form.
     addExisting: (verbs) => verbs.forEach((verb) => {
-      if (rowState.some((state) => state.item.existing_id === verb.id || state.base.value.trim().toLowerCase() === verb.text.toLowerCase())) return;
-      addRow({
-        base: verb.text, past: verb.forms?.past || '', participle: verb.forms?.participle || '',
-        ru: Object.values(verb.translations || {}).find(Boolean) || '', existing_id: verb.id,
-      });
+      if (has(clean(verb.text))) return;
+      addRow({ base: verb.text, past: verb.forms?.past || '', participle: verb.forms?.participle || '', existing_id: verb.id });
     }),
-    // The first included new verb with a missing or malformed form, so saving can point at it.
+    // The first verb missing from the list with a missing or malformed form, so saving can point at it.
     invalid: () => {
       for (const state of rowState) {
-        if (state.item.existing_id || !state.base.value.trim()) continue;
-        const bad = [state.base, state.past, state.participle].find((input) => !VERB_FORM.test(clean(input)));
+        if (state.verb || !state.base.value.trim()) continue;
+        const bad = [state.base, state.past, state.participle].find((input) => !VERB_FORM.test(clean(input.value)));
         if (bad) return bad;
       }
       return null;
@@ -1269,7 +1266,7 @@ async function showDraft(setId, backTo = null) {
     const title = el('input', { type: 'text', value: task.title || '', maxLength: 200, placeholder: t('task_title') });
     const instructions = el('textarea', { value: task.instructions || '', maxLength: 4000, rows: 4, placeholder: t('task_instructions') });
     const words = task.kind === 'words' ? wordsEditor(task.items || [], '', { setId, photos: () => photos, topics: data.topics, addVerbs })
-      : task.kind === 'verbs' ? verbsEditor(task.items || []) : null;
+      : task.kind === 'verbs' ? verbsEditor(task.items || [], data.verbs || []) : null;
     view.addVerbs = words?.addExisting;
     view.label = () => title.value.trim() || kindLabel(data.task_kinds, task.kind);
     title.addEventListener('input', refreshPhotos);

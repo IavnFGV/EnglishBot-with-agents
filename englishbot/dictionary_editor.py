@@ -21,7 +21,7 @@ from .families import get_user_family
 from .i18n import LANGUAGE_LABELS, translate_for_user
 from .mini_app import MiniAppError
 from .teacher_content import TRANSLATION_LANGUAGE_CODES, create_teacher_topic, create_teacher_topic_item
-from .verbs import ITEM_TYPE_VERB, ITEM_TYPE_WORD, VerbFormsError, create_family_verb, load_forms, set_item_verb_forms
+from .verbs import ITEM_TYPE_VERB, ITEM_TYPE_WORD, VERB_COLUMNS, VERB_JOIN, row_forms
 
 
 MAX_IMAGE_SIDE = 1024
@@ -52,7 +52,8 @@ LABEL_KEYS = (
     "heroine_scene", "heroine_state_offline", "heroine_state_auth_required", "heroine_state_limited",
     "heroine_count_drawing", "heroine_count_ready", "heroine_ready_open",
     "remove_word", "add_topic", "add_topic_hint", "draft_autosaved", "new_words_topic",
-    "verb", "verb_base", "verb_past", "verb_participle", "verb_hint", "verb_forms_invalid", "create_verb",
+    "verb_base", "verb_past", "verb_participle", "verb_hint", "verb_forms_invalid", "create_verb",
+    "verb_from_list", "verb_new", "verb_pick",
 )
 
 
@@ -88,7 +89,7 @@ def _require_topic(connection, family_id: int, topic_id: int):
 
 def _require_word(connection, family_id: int, word_id: int):
     word = connection.execute(
-        "SELECT id, lexeme_id, text FROM learning_items WHERE id = ? AND family_id = ? AND is_archived = 0",
+        "SELECT id, lexeme_id, text, item_type FROM learning_items WHERE id = ? AND family_id = ? AND is_archived = 0",
         (word_id, family_id),
     ).fetchone()
     if word is None:
@@ -194,7 +195,9 @@ def delete_topic(user_id: int, topic_id: int) -> dict[str, object]:
 
 def _serialize_word(connection, word_id: int) -> dict[str, object]:
     word = connection.execute(
-        "SELECT id, text, item_type, details_json FROM learning_items WHERE id = ?", (word_id,)
+        f"SELECT learning_items.id, learning_items.text, learning_items.item_type, {VERB_COLUMNS} "
+        f"FROM learning_items {VERB_JOIN} WHERE learning_items.id = ?",
+        (word_id,),
     ).fetchone()
     translations = {
         str(row["language_code"]): str(row["translation_text"])
@@ -214,19 +217,11 @@ def _serialize_word(connection, word_id: int) -> dict[str, object]:
 
 
 def _verb_fields(word) -> dict[str, object]:
-    forms = load_forms(word["details_json"]) if word["item_type"] == ITEM_TYPE_VERB else None
+    """A verb's forms come from the irregular verbs list and are shown, not edited."""
+    forms = row_forms(word) if word["item_type"] == ITEM_TYPE_VERB else None
     if forms is None:
         return {"type": ITEM_TYPE_WORD, "forms": None}
     return {"type": ITEM_TYPE_VERB, "forms": {"past": forms[0], "participle": forms[1]}}
-
-
-def _verb_payload(verb: object) -> dict[str, object] | None:
-    """The editor sends {"past", "participle"} for a verb and null for a plain word."""
-    if verb is None:
-        return None
-    if not isinstance(verb, dict):
-        raise _error("invalid_verb_forms")
-    return verb
 
 
 def list_words(user_id: int, topic_id: int) -> dict[str, object]:
@@ -270,38 +265,23 @@ def _write_translations(connection, word_id: int, translations: object) -> None:
             )
 
 
-def create_word(user_id: int, topic_id: int, text: object, translations: object = None, verb: object = None) -> dict[str, object]:
+def create_word(user_id: int, topic_id: int, text: object, translations: object = None) -> dict[str, object]:
     family_id = _family_id(user_id)
     clean_text = _clean_text(text, required=True)
-    forms = _verb_payload(verb)
     with get_connection() as connection:
         _require_topic(connection, family_id, topic_id)
-    if forms is not None:
-        try:
-            word_id = create_family_verb(family_id, topic_id, clean_text, forms.get("past"), forms.get("participle"))
-        except VerbFormsError as exc:
-            raise _error("invalid_verb_forms") from exc
-    else:
-        word_id = int(create_teacher_topic_item(user_id, family_id, topic_id, clean_text)["learning_item_id"])
+    word_id = int(create_teacher_topic_item(user_id, family_id, topic_id, clean_text)["learning_item_id"])
     with get_connection() as connection:
         _write_translations(connection, word_id, translations)
         return _serialize_word(connection, word_id)
 
 
-def update_word(
-    user_id: int, word_id: int, text: object = None, translations: object = None, verb: object = ...,
-) -> dict[str, object]:
-    """verb: forms dict makes the item a verb, None a plain word; omitted keeps its type."""
+def update_word(user_id: int, word_id: int, text: object = None, translations: object = None) -> dict[str, object]:
+    """A verb keeps the base form of its listed verb; only its translations change."""
     family_id = _family_id(user_id)
     with get_connection() as connection:
         word = _require_word(connection, family_id, word_id)
-        if verb is not ...:
-            try:
-                base = _clean_text(text, required=True) if text is not None else str(word["text"])
-                set_item_verb_forms(connection, word_id, _verb_payload(verb), base.lower())
-            except VerbFormsError as exc:
-                raise _error("invalid_verb_forms") from exc
-        if text is not None:
+        if text is not None and word["item_type"] != ITEM_TYPE_VERB:
             clean_text = _clean_text(text, required=True)
             timestamp = utc_now()
             connection.execute(
@@ -449,13 +429,13 @@ def route_editor_request(method: str, parts: list[str], user_id: int, body: byte
             return list_words(user_id, topic_id)
         if method == "POST" and rest == ["words"]:
             payload = _json(body)
-            return create_word(user_id, topic_id, payload.get("text"), payload.get("translations"), payload.get("verb"))
+            return create_word(user_id, topic_id, payload.get("text"), payload.get("translations"))
     if len(parts) >= 2 and parts[0] == "words":
         word_id = _int_part(parts[1])
         rest = parts[2:]
         if method == "POST" and rest == []:
             payload = _json(body)
-            return update_word(user_id, word_id, payload.get("text"), payload.get("translations"), payload.get("verb", ...))
+            return update_word(user_id, word_id, payload.get("text"), payload.get("translations"))
         if method == "POST" and rest == ["delete"]:
             return delete_word(user_id, word_id)
         if method == "GET" and rest == ["image"]:

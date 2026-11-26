@@ -8,7 +8,10 @@ from .db import DEFAULT_HINT_LANGUAGE, get_connection, utc_now
 from .exercises import ResolvedLearningItem, TranslationEntry, build_exercise
 from .families import get_user_family, list_family_learning_items
 from .user_profiles import get_user_hint_language
-from .verbs import ITEM_TYPE_VERB, ITEM_TYPE_WORD, answer_matches as verb_answer_matches, expected_answer as verb_expected_answer, load_forms
+from .verbs import (
+    ITEM_TYPE_VERB, ITEM_TYPE_WORD, VERB_COLUMNS, VERB_JOIN, answer_matches as verb_answer_matches,
+    expected_answer as verb_expected_answer, get_verb_forms, row_forms,
+)
 from .vocabulary import get_learning_item_with_translations, get_lexeme
 
 
@@ -1103,16 +1106,17 @@ def _resolve_distractor_items(connection, learning_item_ids: list[int]) -> dict[
         rows = connection.execute(
             f"""
             SELECT learning_items.id, learning_items.text, learning_items.item_type,
-                   learning_items.details_json, lexemes.lemma
+                   {VERB_COLUMNS}, lexemes.lemma
             FROM learning_items
             JOIN lexemes ON lexemes.id = learning_items.lexeme_id
+            {VERB_JOIN}
             WHERE learning_items.id IN ({",".join("?" * len(chunk))})
             """,
             tuple(chunk),
         ).fetchall()
         for row in rows:
             headword, item_type, verb_base = str(row["lemma"]), ITEM_TYPE_WORD, None
-            forms = load_forms(row["details_json"]) if row["item_type"] == ITEM_TYPE_VERB else None
+            forms = row_forms(row) if row["item_type"] == ITEM_TYPE_VERB else None
             if forms is not None:
                 item_type, verb_base = ITEM_TYPE_VERB, str(row["text"]).strip() or headword
                 headword = verb_expected_answer(*forms)
@@ -1147,7 +1151,7 @@ def _resolve_learning_item(learning_item_id: int) -> ResolvedLearningItem:
     ]
     headword = str(lexeme["lemma"])
     item_type, verb_base = ITEM_TYPE_WORD, None
-    forms = load_forms(learning_item.get("details_json")) if learning_item.get("item_type") == ITEM_TYPE_VERB else None
+    forms = get_verb_forms(learning_item.get("verb_id")) if learning_item.get("item_type") == ITEM_TYPE_VERB else None
     if forms is not None:
         # The learner sees "go — идти" and answers with the other two forms.
         item_type, verb_base = ITEM_TYPE_VERB, str(learning_item["text"]).strip() or headword
