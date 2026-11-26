@@ -919,3 +919,50 @@ def test_replacing_a_word_picture_deletes_the_old_file(family: int) -> None:
     set_word_image(MOM, word["id"], page_bytes())
     set_word_image(MOM, word["id"], png_bytes("blue"))
     assert len(list(folder.glob("*"))) == 1
+
+
+# Whole topics and autosaved drafts
+
+def test_whole_topic_joins_a_saved_set_once_and_verbs_go_to_the_verbs_task(family: int) -> None:
+    from englishbot.homework_sets import add_set_topic
+
+    birds = create_topic(MOM, "Birds")
+    create_word(MOM, birds["id"], "owl", {"ru": "сова"})
+    create_word(MOM, birds["id"], "eagle", {"ru": "орёл"})
+    create_word(MOM, birds["id"], "fly", {"ru": "летать"}, {"past": "flew", "participle": "flown"})
+    set_id = make_draft([])
+    save_draft(MOM, set_id, {"title": "ДЗ", "tasks": [
+        {"kind": "words", "items": [{"en": "owl", "ru": "сова", "topic": "Birds"}]},
+        {"kind": "verbs", "items": [{"base": "go", "past": "went", "participle": "gone", "ru": "идти"}]},
+    ]})
+
+    details = add_set_topic(MOM, set_id, birds["id"])
+    add_set_topic(MOM, set_id, birds["id"])  # adding the topic again keeps one entry per word
+    words_task, verbs_task = [task["id"] for task in details["tasks"] if task["kind"] in ("words", "verbs")]
+    by_task = {task: [word["text"] for word in details["words"] if word["task_id"] == task] for task in (words_task, verbs_task)}
+    assert by_task == {words_task: ["owl", "eagle"], verbs_task: ["go – went – gone", "fly – flew – flown"]}
+    assert len(get_set(MOM, set_id)["words"]) == 4
+
+    other = create_topic(STRANGER, "Secret")
+    assert error_code(lambda: add_set_topic(MOM, set_id, other["id"])) == "topic_not_found"
+    assert error_code(lambda: add_set_topic(MOM, set_id, "x")) == "invalid_request"
+
+
+def test_draft_work_is_autosaved_until_the_draft_is_saved(family: int, monkeypatch) -> None:
+    from englishbot.homework_sets import update_draft
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    set_id = make_draft([{"en": "owl", "ru": "сова", "topic": "Birds"}])
+    tasks = [{"kind": "words", "title": "", "instructions": "", "enabled": True, "photos": [], "items": [
+        {"en": "owl", "ru": "сова", "topic": "Birds", "existing_id": None},
+        {"en": "cat", "ru": "кошка", "topic": "", "existing_id": 5, "manual": True},
+    ]}]
+    status, result = request(f"/mini-app/api/editor/imports/{set_id}", method="POST", body=json.dumps({"title": "Птицы", "tasks": tasks}).encode())
+    assert (status, result) == (200, {"saved": True})
+    draft = get_draft(MOM, set_id)
+    assert draft["set"]["title"] == "Птицы" and draft["tasks"] == tasks
+
+    assert error_code(lambda: update_draft(MOM, set_id, {"tasks": [{"kind": "poem"}]})) == "invalid_request"
+    assert error_code(lambda: update_draft(STRANGER, set_id, {"tasks": []})) == "set_not_found"
+    save_draft(MOM, set_id, {"title": "Птицы", "tasks": [{**tasks[0], "items": tasks[0]["items"][:1]}]})
+    assert error_code(lambda: update_draft(MOM, set_id, {"tasks": tasks})) == "draft_not_available"

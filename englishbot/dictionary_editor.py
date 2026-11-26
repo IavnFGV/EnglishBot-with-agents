@@ -51,6 +51,7 @@ LABEL_KEYS = (
     "heroine_requested", "heroine_use", "heroine_redraw", "heroine_skip", "heroine_none", "heroine_failed",
     "heroine_scene", "heroine_state_offline", "heroine_state_auth_required", "heroine_state_limited",
     "heroine_count_drawing", "heroine_count_ready", "heroine_ready_open",
+    "remove_word", "add_topic", "add_topic_hint", "draft_autosaved",
     "verb", "verb_base", "verb_past", "verb_participle", "verb_hint", "verb_forms_invalid", "create_verb",
 )
 
@@ -598,7 +599,7 @@ def _route_models(method: str, rest: list[str], user_id: int, body: bytes):
 
 def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
     from .homework_sets import (
-        HomeworkSetError, add_set_word, archive_set, assign_set, get_set, list_drafts, list_sets,
+        HomeworkSetError, add_set_topic, add_set_word, archive_set, assign_set, get_set, list_drafts, list_sets,
         remove_set_word, rename_set, restore_set,
     )
 
@@ -627,6 +628,8 @@ def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
                 return restore_set(user_id, set_id)
             if method == "POST" and rest[1:] == ["words"]:
                 return add_set_word(user_id, set_id, _json(body))
+            if method == "POST" and rest[1:] == ["topic"]:
+                return add_set_topic(user_id, set_id, _json(body).get("topic_id"))
             if method == "POST" and len(rest) == 4 and rest[1] == "words" and rest[3] == "delete":
                 return remove_set_word(user_id, set_id, _int_part(rest[2]))
             if method == "POST" and rest[1:] == ["assign"]:
@@ -640,7 +643,7 @@ def _route_sets(method: str, rest: list[str], user_id: int, body: bytes):
 
 
 def _route_import(method: str, set_id: int, rest: list[str], user_id: int, body: bytes):
-    from .homework_sets import HomeworkSetError, STATUS_DRAFT, cancel_set, get_draft, save_draft
+    from .homework_sets import HomeworkSetError, cancel_set, get_draft, save_draft, update_draft
 
     try:
         photo = _route_set_photos(method, set_id, rest, user_id, body)
@@ -650,6 +653,8 @@ def _route_import(method: str, set_id: int, rest: list[str], user_id: int, body:
             draft = get_draft(user_id, set_id)
             draft["labels"] = editor_labels(user_id)
             return draft
+        if method == "POST" and rest == []:
+            return update_draft(user_id, set_id, _json(body))
         if method == "POST" and rest == ["save"]:
             result = save_draft(user_id, set_id, _json(body))
             if result["assigned_to"] is not None:

@@ -562,6 +562,25 @@ def get_draft(user_id: int, set_id: int) -> dict[str, object]:
     }
 
 
+def update_draft(user_id: int, set_id: int, payload: dict[str, object]) -> dict[str, object]:
+    """Keep the editor's unsaved work (title and tasks) so closing the page loses nothing."""
+    raw_tasks = payload.get("tasks")
+    if not isinstance(raw_tasks, list) or not all(isinstance(task, dict) and task.get("kind") in TASK_KINDS for task in raw_tasks):
+        raise HomeworkSetError("invalid_request")
+    with get_connection() as connection:
+        row = _get_set(connection, user_id, set_id)
+        if row["status"] != STATUS_DRAFT:
+            raise HomeworkSetError("draft_not_available", 409)
+        draft = json.loads(row["draft_json"] or "{}")
+        draft["tasks"] = raw_tasks
+        title = _clean(payload.get("title"))
+        connection.execute(
+            "UPDATE homework_sets SET title = COALESCE(?, title), draft_json = ?, updated_at = ? WHERE id = ?",
+            (title or None, json.dumps(draft, ensure_ascii=False), utc_now(), set_id),
+        )
+    return {"saved": True}
+
+
 def _resolve_topic_id(user_id: int, family_id: int, title: str, cache: dict[str, int]) -> int | None:
     key = title.strip().lower()
     if not key:
@@ -1077,20 +1096,72 @@ def add_set_word(user_id: int, set_id: int, payload: dict[str, object]) -> dict[
             raise HomeworkSetError("text_required")
         word_id, _ = _ensure_word(user_id, family_id, english, _clean(payload.get("ru")), _clean(payload.get("topic")), {})
     with get_connection() as connection:
-        present = connection.execute(
-            "SELECT 1 FROM homework_set_items WHERE homework_set_id = ? AND learning_item_id = ?",
-            (set_id, word_id),
-        ).fetchone()
-        if present is None:
-            next_order = connection.execute(
-                "SELECT COALESCE(MAX(item_order), -1) + 1 FROM homework_set_items WHERE homework_set_id = ?",
-                (set_id,),
-            ).fetchone()[0]
-            connection.execute(
-                "INSERT INTO homework_set_items (homework_set_id, item_kind, learning_item_id, item_order, task_id) VALUES (?, 'word', ?, ?, ?)",
-                (set_id, word_id, int(next_order), _words_task_id(connection, set_id)),
-            )
+        _append_set_items(connection, set_id, [word_id])
     return get_set(user_id, set_id)
+
+
+def add_set_topic(user_id: int, set_id: int, topic_id: object) -> dict[str, object]:
+    """Add every active word and verb of a family topic to a saved set; ones already there are kept once."""
+    family_id = _family_id(user_id)
+    try:
+        topic_id = int(topic_id)
+    except (TypeError, ValueError) as exc:
+        raise HomeworkSetError("invalid_request") from exc
+    with get_connection() as connection:
+        _require_saved(connection, user_id, set_id)
+        topic = connection.execute(
+            "SELECT 1 FROM topics WHERE id = ? AND family_id = ? AND is_archived = 0", (topic_id, family_id)
+        ).fetchone()
+        if topic is None:
+            raise HomeworkSetError("topic_not_found", 404)
+        word_ids = [
+            int(row["id"])
+            for row in connection.execute(
+                """
+                SELECT learning_items.id FROM topic_items
+                JOIN learning_items ON learning_items.id = topic_items.learning_item_id
+                WHERE topic_items.topic_id = ? AND learning_items.family_id = ? AND learning_items.is_archived = 0
+                ORDER BY topic_items.id
+                """,
+                (topic_id, family_id),
+            ).fetchall()
+        ]
+        _append_set_items(connection, set_id, word_ids)
+    return get_set(user_id, set_id)
+
+
+def _append_set_items(connection, set_id: int, word_ids: list[int]) -> None:
+    """Append words to a saved set; verbs go to its verbs task when it has one, the rest to the words task."""
+    present = {
+        int(row["learning_item_id"])
+        for row in connection.execute(
+            "SELECT learning_item_id FROM homework_set_items WHERE homework_set_id = ?", (set_id,)
+        ).fetchall()
+    }
+    next_order = int(connection.execute(
+        "SELECT COALESCE(MAX(item_order), -1) + 1 FROM homework_set_items WHERE homework_set_id = ?", (set_id,)
+    ).fetchone()[0])
+    verbs_task = connection.execute(
+        "SELECT id FROM homework_set_tasks WHERE homework_set_id = ? AND task_kind = ? ORDER BY task_order, id LIMIT 1",
+        (set_id, TASK_VERBS),
+    ).fetchone()
+    words_task_id = None
+    for word_id in word_ids:
+        if word_id in present:
+            continue
+        item_type = connection.execute("SELECT item_type FROM learning_items WHERE id = ?", (word_id,)).fetchone()[0]
+        if item_type != ITEM_TYPE_WORD and verbs_task is not None:
+            task_id = int(verbs_task["id"])
+        else:
+            if words_task_id is None:
+                words_task_id = _words_task_id(connection, set_id)
+            task_id = words_task_id
+        connection.execute(
+            "INSERT INTO homework_set_items (homework_set_id, item_kind, learning_item_id, item_order, task_id) VALUES (?, 'word', ?, ?, ?)",
+            (set_id, word_id, next_order, task_id),
+        )
+        present.add(word_id)
+        next_order += 1
 
 
 def remove_set_word(user_id: int, set_id: int, word_id: int) -> dict[str, object]:

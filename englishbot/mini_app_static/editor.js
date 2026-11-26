@@ -728,7 +728,40 @@ function taskHeading(kinds, task) {
   return task.title ? `${kindLabel(kinds, task.kind)} · ${task.title}` : kindLabel(kinds, task.kind);
 }
 
-async function showSet(setId, message = '', backTo = showSets) {
+// Add words to a saved set right on its screen: search the dictionary or take a whole topic.
+function setWordAdder(setId, topics, backTo) {
+  const reload = () => showSet(setId, '', backTo, window.scrollY);
+  const results = el('div', { class: 'list' });
+  results.hidden = true;
+  const search = el('input', { type: 'search', placeholder: `🔍 ${t('search_dictionary')}`, autocapitalize: 'off' });
+  let timer = null;
+  search.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const query = search.value.trim();
+      if (!query) { results.hidden = true; return; }
+      try {
+        const found = await postJson('/words/search', { q: query });
+        results.replaceChildren(...found.words.map((word) => el('button', {
+          class: 'item', onclick: () => postJson(`/sets/${setId}/words`, { word_id: word.id }).then(reload).catch(fail),
+        },
+        el('span', { class: 'texts' },
+          el('span', { class: 'title' }, wordTitle(word)),
+          el('span', { class: 'sub' }, Object.values(word.translations || {}).find(Boolean) || '')),
+        el('span', { class: 'sub' }, '+'))));
+        results.hidden = found.words.length === 0;
+      } catch (error) { results.hidden = true; }
+    }, 250);
+  });
+  return [
+    search,
+    results,
+    topics.length ? topicPicker(topics, (topicId) => postJson(`/sets/${setId}/topic`, { topic_id: topicId }).then(reload).catch(fail)) : null,
+    el('button', { class: 'secondary', onclick: () => showAddWord(setId, topics, backTo) }, t('create_word')),
+  ];
+}
+
+async function showSet(setId, message = '', backTo = showSets, scrollY = 0) {
   setBack(backTo);
   let data;
   try { data = await getJson(`/sets/${setId}`); } catch (error) { fail(error); return; }
@@ -756,7 +789,7 @@ async function showSet(setId, message = '', backTo = showSets) {
         el('span', { class: 'title' }, `${assignment.to} · ${formatDate(assignment.created_at)}`),
         el('span', { class: 'sub' }, `${assignment.mode} · ${statusLabel(assignment.status)}`)))))
     : el('p', { class: 'muted' }, t('never_assigned'));
-  const removeWord = (word) => postJson(`/sets/${setId}/words/${word.id}/delete`).then(() => showSet(setId, '', backTo)).catch(fail);
+  const removeWord = (word) => postJson(`/sets/${setId}/words/${word.id}/delete`).then(() => showSet(setId, '', backTo, window.scrollY)).catch(fail);
   const wordList = (words) => el('div', { class: 'list' }, ...words.map((word) => el('div', { class: `item${word.archived ? ' excluded' : ''}` },
     el('span', { class: 'texts' }, el('span', { class: 'title' }, word.text), el('span', { class: 'sub' }, word.ru)),
     el('button', { class: 'icon', title: t('remove_from_set'), 'aria-label': t('remove_from_set'), onclick: () => removeWord(word) }, '✕'))));
@@ -766,7 +799,7 @@ async function showSet(setId, message = '', backTo = showSets) {
     return el('div', { class: 'task-card' },
       el('strong', {}, DRILL_KINDS.includes(task.kind) ? `${taskHeading(data.task_kinds, task)}: ${words.length}` : taskHeading(data.task_kinds, task)),
       DRILL_KINDS.includes(task.kind) && words.length ? wordList(words) : null,
-      task.kind === 'words' ? el('button', { class: 'secondary', onclick: () => showAddWord(setId, data.topics, backTo) }, t('add_to_set')) : null,
+      ...(task === firstWordsTask ? setWordAdder(setId, data.topics, backTo) : []),
       task.instructions ? el('p', { class: 'instructions' }, task.instructions) : null,
       task.photos.length ? el('div', { class: 'photo-strip' }, ...task.photos.map((id) => photoImg(setId, id))) : null);
   });
@@ -783,7 +816,7 @@ async function showSet(setId, message = '', backTo = showSets) {
     el('strong', {}, t('tasks')),
     el('p', { class: 'muted' }, t('set_edit_note')),
     ...taskCards,
-    firstWordsTask ? null : el('button', { class: 'secondary', onclick: () => showAddWord(setId, data.topics, backTo) }, t('add_to_set')),
+    ...(firstWordsTask ? [] : setWordAdder(setId, data.topics, backTo)),
     el('div', { class: 'spacer' }),
     data.set.archived
       ? el('button', { class: 'secondary', onclick: () => postJson(`/sets/${setId}/restore`).then(() => showSet(setId, '', showSets)).catch(fail) }, t('restore_set'))
@@ -793,6 +826,7 @@ async function showSet(setId, message = '', backTo = showSets) {
       }) }, t('archive_set')),
   );
   if (message) setStatus(message, 'ok');
+  if (scrollY) window.scrollTo(0, scrollY);
 }
 
 async function createHomework() {
@@ -931,15 +965,38 @@ function openPictureEditor(ctx, state, onChange) {
   document.body.append(overlay);
 }
 
+// A select of family topics with a button that hands the chosen topic id to onPick.
+function topicPicker(topics, onPick) {
+  const select = el('select', {}, el('option', { value: '' }, t('add_topic_hint')),
+    ...topics.map((topic) => el('option', { value: String(topic.id) }, topic.title)));
+  const button = el('button', { class: 'secondary', type: 'button' }, t('add_topic'));
+  button.addEventListener('click', async () => {
+    if (!select.value) { select.focus(); return; }
+    button.disabled = true;
+    try { await onPick(Number(select.value)); select.value = ''; } finally { button.disabled = false; }
+  });
+  return el('div', { class: 'row' }, el('span', { class: 'grow' }, select), button);
+}
+
+function removeButton(onClick) {
+  return el('button', {
+    class: 'icon', type: 'button', title: t('remove_word'), 'aria-label': t('remove_word'),
+    onclick: (event) => { event.preventDefault(); event.stopPropagation(); onClick(); },
+  }, '✕');
+}
+
 function wordsEditor(items, defaultTopic, ctx) {
   const rows = el('div', { class: 'list draft-list' });
   const knownRows = el('div', { class: 'list draft-list' });
   const rowState = [];
-  const addRow = (item, { top = false } = {}) => {
+  const syncLists = () => {
+    rows.hidden = rows.childElementCount === 0;
+    knownRows.hidden = knownRows.childElementCount === 0;
+  };
+  const addRow = (item) => {
     const known = Boolean(item.existing_id);
     const state = {
       item,
-      include: el('input', { type: 'checkbox', checked: item.include !== false }),
       en: el('input', { type: 'text', value: item.en || '', maxLength: 100, placeholder: 'English', autocapitalize: 'off' }),
       ru: el('input', { type: 'text', value: item.ru || '', maxLength: 200, placeholder: t('translation') }),
       topic: el('input', { type: 'text', value: item.topic || '', maxLength: 100, placeholder: t('draft_topic') }),
@@ -952,36 +1009,47 @@ function wordsEditor(items, defaultTopic, ctx) {
         el('span', { class: 'title' }, item.en),
         el('span', { class: 'sub' }, [item.ru, state.topic.value].filter(Boolean).join(' · ')))
       : el('div', { class: 'draft-fields' }, state.en, state.ru, state.topic);
-    const card = el('label', { class: 'draft-row' }, el('span', { class: 'draft-check' }, state.include), wordThumb(ctx, state), fields);
-    state.include.addEventListener('change', () => card.classList.toggle('excluded', !state.include.checked));
-    card.classList.toggle('excluded', !state.include.checked);
+    const card = el('div', { class: 'draft-row' }, wordThumb(ctx, state), fields, removeButton(() => {
+      rowState.splice(rowState.indexOf(state), 1);
+      card.remove();
+      syncLists();
+      refreshKnown();
+    }));
+    state.card = card;
     rowState.push(state);
-    (known && !top ? knownRows : rows).append(card);
-    rows.hidden = rows.childElementCount === 0;
-    knownRows.hidden = knownRows.childElementCount === 0;
+    // Words the model found already in the dictionary are listed apart; picked ones stay on top.
+    (known && !item.manual ? knownRows : rows).append(card);
+    syncLists();
     return state;
   };
-  items.forEach((item) => addRow(item));
-  rows.hidden = rows.childElementCount === 0;
-  knownRows.hidden = knownRows.childElementCount === 0;
+  // Rows unticked in older drafts were left out of the homework anyway.
+  items.filter((item) => item.include !== false).forEach((item) => addRow(item));
+  syncLists();
 
   // Pick an existing word (from any topic) into this homework without duplicating it.
   const dictionarySearch = el('input', { type: 'search', placeholder: `🔍 ${t('search_dictionary')}`, autocapitalize: 'off' });
   const dictionaryResults = el('div', { class: 'list' });
   dictionaryResults.hidden = true;
-  const pickWord = (word) => {
+  // Returns the row of a dictionary word, adding it when the homework does not have it yet.
+  const addExisting = (word) => {
     const present = rowState.find((state) => state.item.existing_id === word.id
       || state.en.value.trim().toLowerCase() === word.text.toLowerCase());
-    if (present) {
-      present.include.checked = true;
-      present.include.dispatchEvent(new Event('change'));
-      present.include.closest('.draft-row')?.scrollIntoView({ block: 'center' });
-    } else {
-      const translation = Object.values(word.translations || {}).find(Boolean) || '';
-      addRow({ en: word.text, ru: translation, topic: '', existing_id: word.id, manual: true }, { top: true });
-    }
+    if (present) return present;
+    const translation = Object.values(word.translations || {}).find(Boolean) || '';
+    return addRow({
+      en: word.text, ru: translation, topic: '', existing_id: word.id, manual: true, current_image: Boolean(word.image_id),
+    });
+  };
+  const pickWord = (word) => {
+    addExisting(word).card.scrollIntoView({ block: 'center' });
     dictionarySearch.value = '';
     dictionaryResults.hidden = true;
+  };
+  const addTopic = async (topicId) => {
+    const { words } = await getJson(`/topics/${topicId}/words`);
+    words.filter((word) => word.type !== 'verb').forEach(addExisting);
+    const verbs = words.filter((word) => word.type === 'verb');
+    if (verbs.length && ctx.addVerbs) ctx.addVerbs(verbs);
   };
   let searchTimer = null;
   dictionarySearch.addEventListener('input', () => {
@@ -1007,7 +1075,7 @@ function wordsEditor(items, defaultTopic, ctx) {
   const applyTopic = () => rowState.forEach((state) => {
     if (state.item.manual) return; // picked from another topic: it only joins the homework
     state.topic.value = allTopic.value;
-    const sub = state.item.existing_id && state.include.closest('.draft-row')?.querySelector('.sub');
+    const sub = state.item.existing_id && state.card.querySelector('.sub');
     if (sub) sub.textContent = [state.item.ru, allTopic.value].filter(Boolean).join(' · ');
   });
   const knownCount = () => rowState.filter((state) => state.item.existing_id && !state.item.manual).length;
@@ -1020,19 +1088,20 @@ function wordsEditor(items, defaultTopic, ctx) {
     rows,
     dictionarySearch,
     dictionaryResults,
-    el('button', { class: 'secondary', onclick: () => { const state = addRow({ en: '', ru: '', topic: allTopic.value }, { top: true }); state.en.focus(); } }, t('create_word')),
+    ctx.topics?.length ? topicPicker(ctx.topics, addTopic) : null,
+    el('button', { class: 'secondary', onclick: () => { const state = addRow({ en: '', ru: '', topic: allTopic.value }); state.en.focus(); } }, t('create_word')),
     knownHeading,
     knownRows);
   return {
     node,
     collect: () => rowState.map((state) => ({
       en: state.en.value, ru: state.ru.value, topic: state.topic.value,
-      include: state.include.checked, existing_id: state.item.existing_id || null,
+      existing_id: state.item.existing_id || null, manual: Boolean(state.item.manual),
       current_image: Boolean(state.item.current_image), crop: state.item.crop || null,
       image_id: state.image.id, image_user: state.image.user,
     })),
     // The first new word without a topic, so saving can point at it.
-    missingTopic: () => rowState.find((state) => state.include.checked && state.en.value.trim() && !state.item.existing_id && !state.topic.value.trim()),
+    missingTopic: () => rowState.find((state) => state.en.value.trim() && !state.item.existing_id && !state.topic.value.trim()),
   };
 }
 
@@ -1052,7 +1121,6 @@ function verbsEditor(items) {
     const field = (value, placeholder) => el('input', { type: 'text', value: value || '', maxLength: 40, placeholder, autocapitalize: 'off' });
     const state = {
       item,
-      include: el('input', { type: 'checkbox', checked: item.include !== false }),
       base: field(item.base, 'V1'),
       past: field(item.past, 'V2'),
       participle: field(item.participle, 'V3'),
@@ -1063,14 +1131,15 @@ function verbsEditor(items) {
         el('span', { class: 'title' }, [item.base, item.past, item.participle].join(' – ')),
         el('span', { class: 'sub' }, [item.ru, t('already_known')].filter(Boolean).join(' · ')))
       : el('div', { class: 'draft-fields' }, el('div', { class: 'row verb-forms' }, state.base, state.past, state.participle), state.ru);
-    const card = el('label', { class: 'draft-row' }, el('span', { class: 'draft-check' }, state.include), fields);
-    state.include.addEventListener('change', () => card.classList.toggle('excluded', !state.include.checked));
-    card.classList.toggle('excluded', !state.include.checked);
+    const card = el('div', { class: 'draft-row' }, fields, removeButton(() => {
+      rowState.splice(rowState.indexOf(state), 1);
+      card.remove();
+    }));
     rowState.push(state);
     if (top) rows.prepend(card); else rows.append(card);
     return state;
   };
-  items.forEach((item) => addRow(item));
+  items.filter((item) => item.include !== false).forEach((item) => addRow(item));
   const topic = el('input', { type: 'text', maxLength: 100, placeholder: t('draft_topic') });
   topic.setAttribute('list', 'draft-topics');
   topic.value = items.find((item) => item.topic)?.topic || 'Irregular verbs';
@@ -1084,12 +1153,20 @@ function verbsEditor(items) {
     node,
     collect: () => rowState.map((state) => ({
       base: state.base.value, past: state.past.value, participle: state.participle.value, ru: state.ru.value,
-      topic: topic.value, include: state.include.checked, existing_id: state.item.existing_id || null,
+      topic: topic.value, existing_id: state.item.existing_id || null,
     })),
+    // Dictionary verbs (from a whole topic) join once, matched by id or base form.
+    addExisting: (verbs) => verbs.forEach((verb) => {
+      if (rowState.some((state) => state.item.existing_id === verb.id || state.base.value.trim().toLowerCase() === verb.text.toLowerCase())) return;
+      addRow({
+        base: verb.text, past: verb.forms?.past || '', participle: verb.forms?.participle || '',
+        ru: Object.values(verb.translations || {}).find(Boolean) || '', existing_id: verb.id,
+      });
+    }),
     // The first included new verb with a missing or malformed form, so saving can point at it.
     invalid: () => {
       for (const state of rowState) {
-        if (!state.include.checked || state.item.existing_id || !state.base.value.trim()) continue;
+        if (state.item.existing_id || !state.base.value.trim()) continue;
         const bad = [state.base, state.past, state.participle].find((input) => !VERB_FORM.test(clean(input)));
         if (bad) return bad;
       }
@@ -1149,8 +1226,9 @@ async function showDraft(setId, backTo = null) {
     const enabled = el('input', { type: 'checkbox', checked: task.enabled !== false });
     const title = el('input', { type: 'text', value: task.title || '', maxLength: 200, placeholder: t('task_title') });
     const instructions = el('textarea', { value: task.instructions || '', maxLength: 4000, rows: 4, placeholder: t('task_instructions') });
-    const words = task.kind === 'words' ? wordsEditor(task.items || [], '', { setId, photos: () => photos })
+    const words = task.kind === 'words' ? wordsEditor(task.items || [], '', { setId, photos: () => photos, topics: data.topics, addVerbs })
       : task.kind === 'verbs' ? verbsEditor(task.items || []) : null;
+    view.addVerbs = words?.addExisting;
     view.label = () => title.value.trim() || kindLabel(data.task_kinds, task.kind);
     title.addEventListener('input', refreshPhotos);
 
@@ -1213,6 +1291,17 @@ async function showDraft(setId, backTo = null) {
     return view;
   };
 
+  // Verbs of a whole topic go to the first verbs task, made when the draft has none.
+  function addVerbs(verbs) {
+    let view = views.find((other) => other.task.kind === 'verbs');
+    if (!view) {
+      view = buildTaskView({ kind: 'verbs', title: '', instructions: '', enabled: true, items: [], photos: [] });
+      views.push(view);
+      reorder();
+    }
+    view.addVerbs(verbs);
+  }
+
   data.tasks.forEach((task) => views.push(buildTaskView(task)));
   reorder();
   refreshPhotos();
@@ -1234,6 +1323,36 @@ async function showDraft(setId, backTo = null) {
   applyDefaults(data.defaults, recipient, mode);
   const saveButton = el('button', {}, t('save_draft'));
 
+  // Unsaved work is stored a moment after every change, so closing the page loses nothing.
+  const autosaveNote = el('span', { class: 'sub' });
+  let autosaveTimer = null;
+  let closed = false;
+  const autosave = async () => {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    if (closed) return;
+    try {
+      await postJson(`/imports/${setId}`, { title: titleInput.value, tasks: views.map((view) => view.collect()) });
+      autosaveNote.textContent = t('draft_autosaved');
+    } catch (error) {
+      if (error.message === 'draft_not_available') closed = true;
+    }
+  };
+  const scheduleAutosave = () => {
+    if (closed) return;
+    autosaveNote.textContent = '';
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(autosave, 1200);
+  };
+  [tasksBox, titleInput].forEach((node) => {
+    node.addEventListener('input', scheduleAutosave);
+    node.addEventListener('change', scheduleAutosave);
+  });
+  new MutationObserver(scheduleAutosave).observe(tasksBox, { childList: true, subtree: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && autosaveTimer) autosave();
+  });
+
   saveButton.addEventListener('click', async () => {
     const missing = views.map((view) => view.missingTopic()).find(Boolean);
     if (missing) { missing.topic.focus(); return; }
@@ -1241,6 +1360,9 @@ async function showDraft(setId, backTo = null) {
     if (badVerb) { setStatus(t('verb_forms_invalid'), 'error'); badVerb.focus(); return; }
     saveButton.disabled = true;
     setStatus(t('uploading'));
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    closed = true;
     try {
       const result = await postJson(`/imports/${setId}/save`, {
         title: titleInput.value, tasks: views.map((view) => view.collect()), mode: mode.value,
@@ -1255,6 +1377,7 @@ async function showDraft(setId, backTo = null) {
       );
     } catch (error) {
       saveButton.disabled = false;
+      closed = error.message === 'draft_not_available';
       const known = { draft_not_available: t('draft_unavailable'), draft_empty: t('draft_empty'), invalid_verb_forms: t('verb_forms_invalid') };
       setStatus(known[error.message] || errorText(error), 'error');
     }
@@ -1273,8 +1396,11 @@ async function showDraft(setId, backTo = null) {
     el('label', {}, t('mode'), mode),
     saveButton,
     status,
+    autosaveNote,
     el('div', { class: 'spacer' }),
     el('button', { class: 'danger', onclick: () => confirmThen(t('delete_draft_confirm'), async () => {
+      closed = true;
+      clearTimeout(autosaveTimer);
       await postJson(`/imports/${setId}/cancel`);
       showSets();
     }) }, t('delete_draft')),
