@@ -129,6 +129,10 @@ input.answer::placeholder { color: var(--muted); font-weight: 700; font-size: 1.
 .sound { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 .listen { min-height: 48px; padding: 8px 18px; font-size: 1.05rem; }
 .voice-name { min-height: 1.2em; margin-top: -6px; text-align: center; color: var(--muted); font-size: .9rem; font-weight: 700; }
+.voice-picker { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.voice-picker[hidden] { display: none; }
+.voice-option { min-height: 44px; padding: 6px 14px; font-size: 1rem; }
+.voice-option.selected { background: var(--accent); color: var(--accent-ink); box-shadow: 0 5px 0 var(--accent-deep); }
 
 /* Finish screen */
 .finish { gap: 16px; }

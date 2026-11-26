@@ -5,7 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery
 from aiogram_dialog import Dialog, DialogManager, ShowMode, Window
 from aiogram_dialog.api.entities.media import MediaAttachment
-from aiogram_dialog.widgets.kbd import Button, Column, Row, ScrollingGroup, Select
+from aiogram_dialog.widgets.kbd import Button, Column, Group, Row, Select
 from aiogram_dialog.widgets.media import DynamicMedia
 from aiogram_dialog.widgets.text import Format
 
@@ -408,7 +408,8 @@ def _get_user_id(dialog_manager: DialogManager) -> int:
 homework_dialog = Dialog(
     Window(
         Format("{screen_text}"),
-        ScrollingGroup(
+        # A plain group: the getter pages the list, so a scrolling group's own pager would be dead.
+        Group(
             Select(
                 Format("{item[index_label]}"),
                 id="assignment_select",
@@ -416,9 +417,8 @@ homework_dialog = Dialog(
                 items="assignment_items",
                 on_click=_on_assignment_selected,
             ),
-            id="assignment_scroll",
+            id="assignment_list",
             width=LIST_PAGE_SIZE,
-            height=1,
             when="has_assignments",
         ),
         Row(

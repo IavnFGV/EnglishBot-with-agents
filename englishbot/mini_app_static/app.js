@@ -214,15 +214,30 @@ function showVoiceName() {
   if (caption && voices && voiceIndex !== null) caption.textContent = t('voice_name', { voice: voices[voiceIndex] });
 }
 
-async function switchVoice() {
-  if (busy || audioLoading) return;
+// "Other voice" opens the list of voices; a tap on one plays the word in it and closes the list.
+async function toggleVoicePicker() {
+  const picker = app.querySelector('.voice-picker');
+  if (!picker || busy) return;
+  if (!picker.hidden) { picker.hidden = true; return; }
   if (!(await ensureVoices())) {
     const feedback = app.querySelector('.feedback');
     if (feedback) feedback.replaceChildren(el('span', 'pill neutral', t('audio_unavailable')));
     return;
   }
   if (!voices.length) return;
-  voiceIndex = (voiceIndex + 1) % voices.length;
+  picker.replaceChildren(...voices.map((name, index) => {
+    const option = el('button', `secondary voice-option${index === voiceIndex ? ' selected' : ''}`, name);
+    option.onclick = () => pickVoice(index);
+    return option;
+  }));
+  picker.hidden = false;
+}
+
+async function pickVoice(index) {
+  if (busy || audioLoading) return;
+  const picker = app.querySelector('.voice-picker');
+  if (picker) picker.hidden = true;
+  voiceIndex = index;
   showVoiceName();
   await play(`/tts/${voiceIndex}`);
 }
@@ -1003,9 +1018,11 @@ function render() {
     const listenButton = el('button', 'secondary listen', t('listen'));
     listenButton.onclick = listen;
     const voiceButton = el('button', 'secondary listen', t('other_voice'));
-    voiceButton.onclick = switchVoice;
+    voiceButton.onclick = toggleVoicePicker;
     sound.append(listenButton, voiceButton);
-    app.append(sound, el('div', 'voice-name'));
+    const picker = el('div', 'voice-picker');
+    picker.hidden = true;
+    app.append(sound, el('div', 'voice-name'), picker);
     showVoiceName();
   }
   if (q.type === 'typed_answer') app.querySelector('input.answer')?.focus();

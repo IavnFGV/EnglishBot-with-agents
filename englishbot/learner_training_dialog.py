@@ -626,6 +626,7 @@ learner_training_dialog = Dialog(
             id="voice_scroll",
             width=1,
             height=6,
+            hide_on_single_page=True,
             when="has_voices",
         ),
         Row(

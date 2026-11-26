@@ -5,7 +5,7 @@ from html import escape
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram_dialog import Dialog, DialogManager, ShowMode, Window
-from aiogram_dialog.widgets.kbd import Button, Row, ScrollingGroup, Select
+from aiogram_dialog.widgets.kbd import Button, Column, Row, Select
 from aiogram_dialog.widgets.text import Format
 
 from .families import get_user_family
@@ -682,7 +682,7 @@ teacher_assignment_dialog = Dialog(
     ),
     Window(
         Format("{screen_text}"),
-        ScrollingGroup(
+        Column(
             Select(
                 Format("{item[title]} ({item[item_count]})"),
                 id="topic_select",
@@ -690,9 +690,7 @@ teacher_assignment_dialog = Dialog(
                 items="topic_items",
                 on_click=_on_topic_selected,
             ),
-            id="topic_scroll",
-            width=1,
-            height=LIST_PAGE_SIZE,
+            id="topic_list",
         ),
         Row(
             Button(Format("{prev_label}"), id="topic_page", on_click=_prev_page, when="has_prev_page"),
@@ -724,7 +722,7 @@ teacher_assignment_dialog = Dialog(
     ),
     Window(
         Format("{screen_text}"),
-        ScrollingGroup(
+        Column(
             Select(
                 Format("{item[label]}"),
                 id="recipient_select",
@@ -732,9 +730,7 @@ teacher_assignment_dialog = Dialog(
                 items="recipient_items",
                 on_click=_toggle_recipient,
             ),
-            id="recipient_scroll",
-            width=1,
-            height=LIST_PAGE_SIZE,
+            id="recipient_list",
         ),
         Row(
             Button(Format("{prev_label}"), id="recipient_page", on_click=_prev_page, when="has_prev_page"),

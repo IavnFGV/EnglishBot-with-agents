@@ -202,3 +202,28 @@ def test_launch_selected_homework_reuses_existing_session(tmp_path: Path) -> Non
             "kwargs": {},
         }
     ]
+
+
+def test_scrolling_lists_never_render_a_dead_pager_row() -> None:
+    """Lists paged by their getter are plain groups; a scrolling group hides its pager on a single page."""
+    from aiogram_dialog.widgets.kbd import ScrollingGroup
+
+    from englishbot.homework_dialog import homework_dialog
+    from englishbot.learner_training_dialog import learner_training_dialog
+    from englishbot.teacher_assignment_dialog import teacher_assignment_dialog
+
+    def widgets(widget):
+        yield widget
+        for child in getattr(widget, "buttons", ()):
+            yield from widgets(child)
+
+    found = [
+        widget
+        for dialog in (homework_dialog, learner_training_dialog, teacher_assignment_dialog)
+        for window in dialog.windows.values()
+        for widget in widgets(window.keyboard)
+    ]
+    scrolling = {widget.widget_id: widget for widget in found if isinstance(widget, ScrollingGroup)}
+    assert set(scrolling) == {"voice_scroll"}
+    assert scrolling["voice_scroll"].hide_on_single_page
+    assert {"assignment_list", "topic_list", "recipient_list"} <= {widget.widget_id for widget in found}
