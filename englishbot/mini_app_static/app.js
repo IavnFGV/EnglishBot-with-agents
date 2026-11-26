@@ -69,19 +69,22 @@ function showError(error) {
   app.append(retry);
 }
 
-async function act(action, value) {
+async function act(action, value, beforeRender) {
   if (busy || !state?.question) return;
   busy = true;
   const token = state.question.token;
+  const previous = state.question;
   app.querySelectorAll('button').forEach(button => button.disabled = true);
   try {
-    state = await (await api('/answer', {
+    const next = await (await api('/answer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, action, value })
     })).json();
-    if (state.feedback === 'correct') haptic('success');
-    else if (state.feedback === 'incorrect') haptic('error');
+    if (next.feedback === 'correct') haptic('success');
+    else if (next.feedback === 'incorrect') haptic('error');
+    if (beforeRender) await beforeRender(next, previous).catch(() => {});
+    state = next;
     render();
   } catch (error) {
     if (['stale_question', 'session_completed', 'invalid_answer'].includes(error.message)) await refresh();
@@ -306,6 +309,144 @@ function confetti() {
   return layer;
 }
 
+// Ball game: a skin over multiple-choice questions. The server still checks every answer.
+const GAME_KEY = 'englishbot.gameMode';
+const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+let gameMode = true;
+let streak = 0;
+try { gameMode = localStorage.getItem(GAME_KEY) !== 'off'; } catch (_) { /* storage is optional */ }
+
+function setGameMode(on) {
+  gameMode = on;
+  try { localStorage.setItem(GAME_KEY, on ? 'on' : 'off'); } catch (_) { /* storage is optional */ }
+  render();
+}
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, reducedMotion ? Math.min(ms, 300) : ms));
+
+const HEROINE_SVG = `
+<svg viewBox="0 0 120 160" aria-hidden="true">
+  <ellipse class="h-shadow" cx="60" cy="154" rx="30" ry="5"/>
+  <g class="h-body">
+    <rect x="47" y="124" width="10" height="24" rx="4" fill="#ffd9b8"/>
+    <rect x="63" y="124" width="10" height="24" rx="4" fill="#ffd9b8"/>
+    <ellipse cx="51" cy="149" rx="9" ry="5" fill="#e0573f"/>
+    <ellipse cx="69" cy="149" rx="9" ry="5" fill="#e0573f"/>
+    <path d="M40 92 Q60 84 80 92 L84 128 Q60 134 36 128 Z" fill="#ffd04d"/>
+    <path d="M44 104 L76 104 L80 128 Q60 133 40 128 Z" fill="#3b63f3"/>
+    <rect x="46" y="88" width="5" height="18" rx="2" fill="#3b63f3"/>
+    <rect x="69" y="88" width="5" height="18" rx="2" fill="#3b63f3"/>
+    <path d="M43 94 L30 116" stroke="#ffd9b8" stroke-width="8" stroke-linecap="round"/>
+    <g class="h-arm"><path d="M77 94 L90 116" stroke="#ffd9b8" stroke-width="8" stroke-linecap="round"/><circle cx="90" cy="116" r="5.5" fill="#ffd9b8"/></g>
+    <g class="h-head">
+      <g fill="#7a4a24">
+        <circle cx="34" cy="48" r="12"/><circle cx="86" cy="48" r="12"/><circle cx="38" cy="30" r="13"/>
+        <circle cx="82" cy="30" r="13"/><circle cx="60" cy="22" r="16"/><circle cx="31" cy="66" r="10"/><circle cx="89" cy="66" r="10"/>
+        <circle cx="36" cy="80" r="8"/><circle cx="84" cy="80" r="8"/>
+      </g>
+      <circle cx="60" cy="56" r="25" fill="#ffd9b8"/>
+      <g fill="#8d5a2e"><circle cx="45" cy="34" r="9"/><circle cx="60" cy="30" r="10"/><circle cx="75" cy="34" r="9"/></g>
+      <circle cx="44" cy="64" r="5" fill="#ffaaa0" opacity=".7"/><circle cx="76" cy="64" r="5" fill="#ffaaa0" opacity=".7"/>
+      <g class="h-eyes" fill="#1d2a44"><circle cx="51" cy="56" r="3.4"/><circle cx="69" cy="56" r="3.4"/></g>
+      <path class="h-smile" d="M51 66 Q60 75 69 66" stroke="#1d2a44" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <ellipse class="h-oops" cx="60" cy="69" rx="3.5" ry="4.5" fill="#1d2a44"/>
+    </g>
+  </g>
+</svg>`;
+
+function balloonSpots(count) {
+  const rows = Math.ceil(count / 2);
+  return Array.from({ length: count }, (_, index) => {
+    const row = Math.floor(index / 2);
+    const lonely = index === count - 1 && count % 2 === 1;
+    const left = lonely ? 50 : index % 2 ? 74 : 26;
+    const top = 3 + row * (50 / Math.max(rows, 1)) + (index % 2 && !lonely ? 9 : 0);
+    return [left, top];
+  });
+}
+
+function centerIn(field, node, fx = .5, fy = .5) {
+  const box = field.getBoundingClientRect();
+  const rect = node.getBoundingClientRect();
+  return [rect.left - box.left + rect.width * fx, rect.top - box.top + rect.height * fy];
+}
+
+function throwBall(field, heroine, balloon) {
+  const ball = el('div', 'ball');
+  field.append(ball);
+  const [x0, y0] = centerIn(field, heroine, .78, .22);
+  const [x1, y1] = centerIn(field, balloon);
+  const peak = Math.min(y0, y1) - 70;
+  const frames = Array.from({ length: 13 }, (_, step) => {
+    const k = step / 12;
+    const x = x0 + (x1 - x0) * k;
+    const y = (1 - k) * (1 - k) * y0 + 2 * (1 - k) * k * peak + k * k * y1;
+    return { transform: `translate(${x - 13}px, ${y - 13}px) rotate(${k * 540}deg)` };
+  });
+  const flight = ball.animate(frames, { duration: reducedMotion ? 1 : 520, easing: 'linear', fill: 'forwards' });
+  return flight.finished.then(() => ball.remove(), () => ball.remove());
+}
+
+function burst(field, balloon, good) {
+  const [x, y] = centerIn(field, balloon);
+  const colors = good ? ['var(--sun)', 'var(--good)', 'var(--accent)', '#ff7ab6'] : ['var(--line)', 'var(--muted)'];
+  for (let index = 0; index < (good ? 14 : 6); index += 1) {
+    const bit = el('i', 'spark');
+    const angle = (index / (good ? 14 : 6)) * Math.PI * 2;
+    const distance = good ? 60 + Math.random() * 30 : 30;
+    bit.style.left = `${x}px`; bit.style.top = `${y}px`;
+    bit.style.background = colors[index % colors.length];
+    bit.style.setProperty('--dx', `${Math.cos(angle) * distance}px`);
+    bit.style.setProperty('--dy', `${Math.sin(angle) * distance}px`);
+    field.append(bit);
+    setTimeout(() => bit.remove(), 900);
+  }
+}
+
+function renderBallGame(q) {
+  const field = el('div', 'playfield');
+  const heroine = el('div', 'heroine');
+  heroine.innerHTML = HEROINE_SVG;
+  const balloons = q.options.map(() => null);
+  balloonSpots(q.options.length).forEach(([left, top], index) => {
+    const balloon = el('button', `balloon tone-${index % 4}`);
+    balloon.append(el('span', 'balloon-text', q.options[index]));
+    balloon.style.left = `${left}%`;
+    balloon.style.top = `${top}%`;
+    balloon.style.animationDelay = `${index * .18}s, ${.9 + index * .18}s`;
+    balloon.onclick = () => {
+      if (busy) return;
+      balloon.classList.add('target');
+      heroine.className = 'heroine throw';
+      const flight = throwBall(field, heroine, balloon);
+      act('easy', index, async (next, previous) => {
+        await flight;
+        if (next.feedback === 'correct') {
+          streak += 1;
+          balloon.classList.add('popped');
+          burst(field, balloon, true);
+          heroine.className = 'heroine happy';
+          if (streak >= 2) field.append(el('div', 'streak', `🔥 ${streak}`));
+          await wait(900);
+        } else {
+          streak = 0;
+          balloon.classList.add('wrong');
+          burst(field, balloon, false);
+          heroine.className = 'heroine oops';
+          const right = previous.options.indexOf(next.correct_answer);
+          if (right >= 0 && balloons[right]) balloons[right].classList.add('reveal');
+          await wait(1700);
+        }
+      });
+    };
+    balloons[index] = balloon;
+    field.append(balloon);
+  });
+  field.append(heroine);
+  if (streak >= 2) field.append(el('div', 'streak calm', `🔥 ${streak}`));
+  return field;
+}
+
 function render() {
   app.replaceChildren();
   if (state?.status === 'completed') {
@@ -326,6 +467,12 @@ function render() {
   const topText = el('div', 'top-text');
   topText.append(el('span', 'top-word', `${t('word')} ${q.number}/${q.total}`), el('span', 'top-done', `${q.completed}/${q.total} ${t('done')}`));
   top.append(topText);
+  const playing = gameMode && q.type === 'multiple_choice';
+  if (q.type === 'multiple_choice') {
+    const toggle = el('button', 'secondary mode-toggle', gameMode ? t('quiz_mode') : t('game_mode'));
+    toggle.onclick = () => { if (!busy) setGameMode(!gameMode); };
+    top.append(toggle);
+  }
   if (state.homework_progress) top.append(renderHomeworkProgress(state.homework_progress));
   app.append(top);
   if (!state.homework_progress) {
@@ -334,7 +481,7 @@ function render() {
     fill.style.width = `${100 * q.completed / Math.max(q.total, 1)}%`;
     bar.append(fill); app.append(bar);
   }
-  const card = el('div', 'card');
+  const card = el('div', playing ? 'card compact' : 'card');
   const pictureFrame = el('div', 'picture-frame');
   card.append(pictureFrame);
   loadImage(q.image_asset_id, pictureFrame);
@@ -343,7 +490,8 @@ function render() {
   if (q.hint && q.hint !== q.prompt) card.append(el('div', 'hint', q.hint));
   if (q.type === 'typed_answer' && q.first_letter) card.append(el('div', 'hint', t('starts', { letter: q.first_letter })));
   app.append(card);
-  if (q.type === 'multiple_choice') {
+  if (playing) app.append(renderBallGame(q));
+  else if (q.type === 'multiple_choice') {
     const choices = el('div', 'choices');
     q.options.forEach((option, index) => choices.append(button(option, 'easy', index)));
     app.append(choices);

@@ -140,6 +140,66 @@ input.answer::placeholder { color: var(--muted); font-weight: 700; font-size: 1.
 .confetti { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
 .confetti i { position: absolute; top: -12px; width: 10px; height: 14px; border-radius: 3px; animation: fall 1.8s ease-in forwards; }
 
+/* Ball game: balloons drop in, the heroine throws a ball at the tapped one */
+.mode-toggle { min-height: 44px; padding: 6px 14px; font-size: .95rem; margin-left: auto; white-space: nowrap; }
+.card.compact { flex: 0 0 auto; gap: 8px; padding: 12px 14px 14px; }
+.card.compact .picture-frame { height: clamp(100px, 19vh, 170px); }
+.card.compact .prompt { font-size: clamp(1.5rem, 7vw, 2.2rem); }
+.playfield {
+  position: relative; flex: 1 0 auto; min-height: 330px; overflow: hidden;
+  border-radius: 28px; border: 2px solid var(--line);
+  background: linear-gradient(to bottom, var(--sky-deep), var(--surface) 78%, color-mix(in srgb, var(--good) 22%, var(--surface)) 78.5%);
+}
+.balloon {
+  position: absolute; z-index: 1; width: 42%; min-height: 60px; padding: 10px 12px;
+  transform: translate(-50%, 0); border-radius: 50% / 46%;
+  color: #1d2a44; font-size: 1.2rem; font-weight: 900; line-height: 1.1; overflow-wrap: anywhere;
+  animation: balloon-drop .8s cubic-bezier(.3, 1.5, .5, 1) both, balloon-bob 2.6s ease-in-out infinite;
+}
+.balloon::after {
+  content: ""; position: absolute; left: 50%; top: 100%; width: 2px; height: 22px;
+  background: color-mix(in srgb, var(--ink) 35%, transparent);
+}
+.balloon:disabled { opacity: 1; }
+.balloon:active:not(:disabled) { transform: translate(-50%, 3px); }
+.tone-0 { background: var(--sun); box-shadow: inset -8px -8px 0 var(--sun-deep); }
+.tone-1 { background: #ff9ccc; box-shadow: inset -8px -8px 0 #e06aa4; }
+.tone-2 { background: #8fe3b8; box-shadow: inset -8px -8px 0 #4bbd84; }
+.tone-3 { background: #a9c0ff; box-shadow: inset -8px -8px 0 #7393f0; }
+.balloon.target { outline: 4px solid var(--accent); outline-offset: 3px; }
+.balloon.popped { animation: balloon-pop .35s ease-out forwards; }
+.balloon.wrong { background: var(--bad-soft); box-shadow: inset -8px -8px 0 var(--bad); color: var(--bad); outline-color: var(--bad); animation: balloon-shake .35s ease-out; }
+.balloon.reveal { outline: 4px solid var(--good); outline-offset: 3px; animation: balloon-glow .6s ease-in-out 3 alternate; }
+.heroine { position: absolute; left: 50%; bottom: 4px; width: 112px; transform: translateX(-50%); z-index: 2; }
+.heroine svg { display: block; width: 100%; height: auto; overflow: visible; }
+.h-shadow { fill: color-mix(in srgb, var(--ink) 18%, transparent); }
+.h-body { animation: breathe 2.4s ease-in-out infinite; transform-origin: 60px 150px; }
+.h-arm { transform-origin: 77px 94px; transition: transform .18s ease-out; }
+.h-oops { display: none; }
+.heroine.throw .h-arm { transform: rotate(-160deg); }
+.heroine.happy .h-body { animation: hop .45s ease-out 2; }
+.heroine.happy .h-arm { transform: rotate(-150deg); }
+.heroine.oops .h-smile { display: none; }
+.heroine.oops .h-oops { display: inline; }
+.heroine.oops .h-head { animation: tilt .5s ease-in-out 2 alternate; transform-origin: 60px 80px; }
+.ball {
+  position: absolute; left: 0; top: 0; z-index: 3; width: 26px; height: 26px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff 0 18%, #ff6b4a 20% 100%);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, .25); pointer-events: none;
+}
+.spark { position: absolute; z-index: 3; width: 10px; height: 10px; margin: -5px; border-radius: 3px; pointer-events: none; animation: spark .8s ease-out forwards; }
+.streak { position: absolute; top: 10px; right: 12px; z-index: 3; padding: 4px 10px; border-radius: 99px; background: var(--surface); font-weight: 900; font-size: 1.1rem; animation: pop .3s ease-out; }
+.streak.calm { animation: none; }
+@keyframes balloon-drop { from { transform: translate(-50%, -260px); } to { transform: translate(-50%, 0); } }
+@keyframes balloon-bob { 0%, 100% { translate: 0 0; } 50% { translate: 0 -8px; } }
+@keyframes balloon-pop { 40% { transform: translate(-50%, 0) scale(1.25); opacity: 1; } to { transform: translate(-50%, 0) scale(1.6); opacity: 0; } }
+@keyframes balloon-shake { 25% { transform: translate(calc(-50% - 7px), 0); } 75% { transform: translate(calc(-50% + 7px), 0); } }
+@keyframes balloon-glow { to { transform: translate(-50%, 0) scale(1.08); } }
+@keyframes breathe { 50% { transform: scaleY(1.02); } }
+@keyframes hop { 50% { transform: translateY(-22px); } }
+@keyframes tilt { from { transform: rotate(-7deg); } to { transform: rotate(7deg); } }
+@keyframes spark { to { transform: translate(var(--dx), var(--dy)) scale(.4); opacity: 0; } }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }

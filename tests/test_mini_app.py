@@ -495,3 +495,15 @@ def test_voice_switch_plays_picked_voice_without_changing_setting(tmp_path: Path
     assert get_user_tts_voice_id(user_id) == "b"
     assert error_code(lambda: request("/tts/9")) == "invalid_voice"
     assert error_code(lambda: request("/tts/x")) == "invalid_voice"
+
+
+def test_ball_game_answers_through_server_and_has_labels(tmp_path: Path) -> None:
+    script = (Path(__file__).parents[1] / "englishbot" / "mini_app_static" / "app.js").read_text()
+    # The game sends the same "easy" action and reveals only what the server returned.
+    assert "act('easy', index, async (next, previous)" in script
+    assert "previous.options.indexOf(next.correct_answer)" in script
+    assert "gameMode && q.type === 'multiple_choice'" in script
+    user_id, _ = seed(tmp_path)
+    labels = interface_labels(user_id)
+    assert labels["game_mode"] != "mini_app.ui.game_mode"
+    assert labels["quiz_mode"] != "mini_app.ui.quiz_mode"
