@@ -134,6 +134,8 @@ def public_question(question: dict[str, object]) -> dict[str, object]:
         "total": question["total_questions"],
         "completed": question["completed_items"],
         "can_skip_hard": question["can_skip_hard"],
+        # Letters shown as help for a typed answer keep the spell scene in game mode.
+        "hinted": question["exercise_type"] == "jumbled_letters" and bool(question["used_help"]),
         "image_asset_id": image_asset_id,
         "tts_available": get_tts_base_url() is not None,
     }

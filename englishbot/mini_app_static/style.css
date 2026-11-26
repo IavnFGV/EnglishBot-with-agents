@@ -309,6 +309,20 @@ input.answer::placeholder { color: var(--muted); font-weight: 700; font-size: 1.
 .sneeze-cloud { left: 90px; top: 40px; background: radial-gradient(circle, rgba(220, 240, 255, .9), rgba(220, 240, 255, 0) 70%); animation: smoke 1.2s ease-out forwards; }
 .picture-frame.alive .picture { animation: alive 1.2s ease-in-out; }
 .spell-game input.answer { text-align: center; }
+.answer.runes { width: auto; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; gap: 2px 4px; }
+.runes .slot { width: 1.5rem; height: 2.4rem; border-bottom: 2px dotted rgba(255, 226, 122, .45); font-size: 1.9rem; font-weight: 900; }
+.runes .slot.filled { border-color: transparent; color: #ffe27a; text-shadow: 0 0 10px #ffcf4a, 0 0 22px #ff7ab6; animation: none; }
+.runes .slot.filled.fresh { animation: rune-in .45s cubic-bezier(.2, 1.4, .5, 1) both; }
+.runes .slot-gap { width: .6rem; }
+.runes.casting .slot.filled { animation: rune-glow .45s ease-in-out infinite alternate; }
+.runes.success .slot.filled { animation: rune-win .9s ease-out forwards; }
+.runes.fizzle .slot.filled { animation: rune-fizzle .9s ease-in forwards; color: #9a93ad; text-shadow: none; }
+.letters.spell-letters button {
+  background: linear-gradient(#6b4fc4, #4a3592); color: #ffe27a; box-shadow: 0 5px 0 #2e2160;
+  text-shadow: 0 0 8px #ffcf4a; text-transform: lowercase; animation: rune-in .45s cubic-bezier(.2, 1.4, .5, 1) both;
+}
+.letters.spell-letters button:active:not(:disabled) { box-shadow: 0 1px 0 #2e2160; }
+.letters.spell-letters button.used { background: transparent; box-shadow: none; border: 2px dashed rgba(107, 79, 196, .5); color: transparent; text-shadow: none; animation: none; }
 
 @keyframes river { from { background-position: 0 0; } to { background-position: 120px 0; } }
 @keyframes float-plank { 0%, 100% { translate: 0 0; rotate: -2deg; } 50% { translate: 0 -5px; rotate: 2deg; } }

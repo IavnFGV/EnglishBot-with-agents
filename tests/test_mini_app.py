@@ -135,6 +135,7 @@ def test_medium_check_and_hard_skip_use_shared_training_rules(tmp_path: Path) ->
         token = session_state(user_id, session_id)["question"]["token"]
         apply_action(user_id, session_id, token, "add", index)
     token = session_state(user_id, session_id)["question"]["token"]
+    assert session_state(user_id, session_id)["question"]["hinted"] is False
     checked = apply_action(user_id, session_id, token, "check")
     assert checked["feedback"] == "correct"
     with db.get_connection() as connection:
@@ -146,6 +147,9 @@ def test_medium_check_and_hard_skip_use_shared_training_rules(tmp_path: Path) ->
     assert hard["can_skip_hard"]
     skipped = apply_action(user_id, session_id, question_token(hard), "skip")
     assert skipped["feedback"] == "skipped"
+    # Help for a typed answer gives its letters, marked so the spell scene stays.
+    assert skipped["question"]["type"] == "jumbled_letters"
+    assert skipped["question"]["hinted"] is True
 
 
 def test_media_cannot_read_unlinked_or_outside_asset(tmp_path: Path) -> None:
@@ -511,9 +515,11 @@ def test_ball_game_answers_through_server_and_has_labels(tmp_path: Path) -> None
     assert "jumbled_letters: [renderBridgeGame]" in script
     assert "typed_answer: [renderSpellGame]" in script
     assert "skins[(q.number - 1) % skins.length]" in script
+    assert "if (q.type === 'jumbled_letters' && q.hinted) return renderSpellLettersGame;" in script
     # Bridge and spell answer through the same medium "check" and hard actions.
     assert "await act('check', undefined" in script
-    assert "act('hard', input.value, async (next, previous)" in script
+    assert "act('hard', input.value, (next, previous) => castSpell(" in script
+    assert "checkMedium((next, previous) => castSpell(" in script
     user_id, _ = seed(tmp_path)
     labels = interface_labels(user_id)
     assert labels["game_mode"] != "mini_app.ui.game_mode"

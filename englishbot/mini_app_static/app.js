@@ -233,7 +233,7 @@ function button(text, action, value, className = '') {
   return node;
 }
 
-function drawMediumSelection() {
+function drawMediumSelection(fresh = false) {
   const answer = app.querySelector('.answer');
   const letters = [...state.question.letters];
   const chosen = mediumSelected.map(index => letters[index]);
@@ -241,7 +241,8 @@ function drawMediumSelection() {
   answer.replaceChildren(...mediumMask.split(' ').map(slot => {
     if (!slot) return el('span', 'slot-gap');
     const letter = chosen[position++];
-    return el('span', letter ? 'slot filled' : 'slot', letter || '');
+    const added = fresh && position === chosen.length;
+    return el('span', letter ? (added ? 'slot filled fresh' : 'slot filled') : 'slot', letter || '');
   }));
   app.querySelectorAll('.letters button').forEach((choice, index) => {
     const selected = mediumSelected.includes(index);
@@ -279,7 +280,7 @@ function editMedium(action, index) {
     mediumSelected.push(index);
   } else if (mediumSelected.length) mediumSelected.pop();
   else return;
-  drawMediumSelection();
+  drawMediumSelection(action === 'add');
   mediumDirty = true;
   clearTimeout(mediumTimer);
   mediumTimer = setTimeout(() => flushMedium().catch(showError), 200);
@@ -782,11 +783,43 @@ function renderBridgeGame() {
   return wrapper;
 }
 
-// Spell: typed letters fly out of the wand as runes; a right word is cast, a wrong one backfires.
-function renderSpellGame(q) {
-  const wrapper = el('div', 'spell-game');
+// Spell: letters fly out of the wand as runes; a right word is cast, a wrong one backfires.
+function spellScene() {
   const scene = el('div', 'spell-scene');
   const heroine = makeHeroine(SPELL_POSES, 'spell-ready');
+  return { scene, heroine };
+}
+
+async function castSpell(scene, heroine, runes, next, previous) {
+  await wait(450);
+  if (next.feedback === 'correct') {
+    setPose(heroine, 'spell-success');
+    runes.classList.add('success');
+    sfx('chime');
+    speak(previous);
+    burst(scene, runes, true);
+    app.querySelector('.picture-frame')?.classList.add('alive');
+    await wait(1700);
+  } else {
+    const sneeze = Math.random() < .5;
+    setPose(heroine, sneeze ? 'spell-sneeze' : 'spell-sooty');
+    runes.classList.add('fizzle');
+    sfx(sneeze ? 'sneeze' : 'fart');
+    scene.append(el('div', sneeze ? 'sneeze-cloud' : 'smoke'));
+    await wait(sneeze ? 1900 : 1700);
+  }
+}
+
+function startCast(heroine, runes) {
+  sfx('unlock');
+  sfx('whoosh');
+  setPose(heroine, 'spell-cast');
+  runes.classList.add('casting');
+}
+
+function renderSpellGame(q) {
+  const wrapper = el('div', 'spell-game');
+  const { scene, heroine } = spellScene();
   const runes = el('div', 'runes');
   scene.append(heroine, runes);
   const input = el('input', 'answer');
@@ -804,29 +837,8 @@ function renderSpellGame(q) {
   const cast = () => {
     if (busy) return;
     if (!input.value.trim()) { input.focus(); return; }
-    sfx('unlock');
-    sfx('whoosh');
-    setPose(heroine, 'spell-cast');
-    runes.classList.add('casting');
-    act('hard', input.value, async (next, previous) => {
-      await wait(450);
-      if (next.feedback === 'correct') {
-        setPose(heroine, 'spell-success');
-        runes.classList.add('success');
-        sfx('chime');
-        speak(previous);
-        burst(scene, runes, true);
-        app.querySelector('.picture-frame')?.classList.add('alive');
-        await wait(1700);
-      } else {
-        const sneeze = Math.random() < .5;
-        setPose(heroine, sneeze ? 'spell-sneeze' : 'spell-sooty');
-        runes.classList.add('fizzle');
-        sfx(sneeze ? 'sneeze' : 'fart');
-        scene.append(el('div', sneeze ? 'sneeze-cloud' : 'smoke'));
-        await wait(sneeze ? 1900 : 1700);
-      }
-    });
+    startCast(heroine, runes);
+    act('hard', input.value, (next, previous) => castSpell(scene, heroine, runes, next, previous));
   };
   input.addEventListener('keydown', event => { if (event.key === 'Enter') cast(); });
   const actions = el('div', 'actions');
@@ -838,6 +850,38 @@ function renderSpellGame(q) {
   return wrapper;
 }
 
+// Spell with help: the typed word was swapped for its letters; tapping them lines up the runes.
+function renderSpellLettersGame() {
+  const wrapper = el('div', 'spell-game');
+  const { scene, heroine } = spellScene();
+  const runes = el('div', 'answer runes');
+  scene.append(heroine, runes);
+  const letters = el('div', 'letters spell-letters');
+  [...state.question.letters].forEach((letter, index) => {
+    const choice = el('button', '', letter);
+    choice.style.animationDelay = `${(index % 6) * 50}ms`;
+    choice.onclick = () => {
+      if (busy || mediumChecking) return;
+      sfx('plank');
+      editMedium('add', index);
+    };
+    letters.append(choice);
+  });
+  const actions = el('div', 'actions');
+  const backspace = el('button', 'secondary backspace', '⌫');
+  backspace.setAttribute('aria-label', 'Backspace');
+  backspace.onclick = () => editMedium('backspace');
+  const castButton = el('button', '', `🪄 ${t('check')}`);
+  castButton.onclick = () => {
+    if (busy || mediumChecking) return;
+    startCast(heroine, runes);
+    checkMedium((next, previous) => castSpell(scene, heroine, runes, next, previous));
+  };
+  actions.append(backspace, castButton);
+  wrapper.append(scene, letters, actions);
+  return wrapper;
+}
+
 // Game skins per question type. Add another skin to a list and questions take turns with it.
 const GAME_SKINS = {
   multiple_choice: [renderBallGame],
@@ -846,6 +890,7 @@ const GAME_SKINS = {
 };
 
 function pickSkin(q) {
+  if (q.type === 'jumbled_letters' && q.hinted) return renderSpellLettersGame;
   const skins = GAME_SKINS[q.type] || [];
   return skins.length ? skins[(q.number - 1) % skins.length] : null;
 }
