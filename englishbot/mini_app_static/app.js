@@ -274,6 +274,7 @@ async function flushMedium() {
   }
   if (!mediumDirty) return;
   const selected = [...mediumSelected];
+  const number = state.question.number;
   mediumDirty = false;
   mediumSave = (async () => {
     state = await (await api('/answer', {
@@ -285,6 +286,9 @@ async function flushMedium() {
   try { await mediumSave; }
   finally { mediumSave = null; }
   if (mediumDirty) return flushMedium();
+  // The letters are already on screen; a full redraw would replay the game's entrance animations.
+  const question = state?.question;
+  if (question?.type === 'jumbled_letters' && question.number === number && question.selected.join() === selected.join()) return;
   render();
 }
 
