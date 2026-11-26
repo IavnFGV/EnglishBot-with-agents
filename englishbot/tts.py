@@ -18,6 +18,12 @@ VOICE_DISPLAY_OVERRIDES: dict[str, tuple[str, str]] = {
 }
 
 
+def voice_display_name(voice_id: str) -> str:
+    """Short human name of a voice, e.g. "Ryan", for captions."""
+    override = VOICE_DISPLAY_OVERRIDES.get(str(voice_id))
+    return override[0] if override is not None else str(voice_id)
+
+
 class TTSClientError(Exception):
     pass
 

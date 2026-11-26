@@ -59,6 +59,7 @@ async function refresh() {
     labels = state.labels || labels;
     if (gameMode) loadSprites();
     render();
+    prefetchQuestion(state.question);
   } catch (error) { showError(error); }
 }
 
@@ -84,6 +85,7 @@ async function act(action, value, beforeRender) {
     })).json();
     if (next.feedback === 'correct') haptic('success');
     else if (next.feedback === 'incorrect') haptic('error');
+    prefetchQuestion(next.question);
     if (beforeRender) await beforeRender(next, previous).catch(() => {});
     state = next;
     render();
@@ -100,6 +102,21 @@ function showFallback(frame) {
   frame.replaceChildren(image);
 }
 
+function imageUrl(assetId) {
+  if (!imageCache.has(assetId)) {
+    const pending = (async () => {
+      const url = URL.createObjectURL(await (await api(`/media/${assetId}`)).blob());
+      const image = new Image();
+      image.src = url;
+      await image.decode().catch(() => {});
+      return url;
+    })();
+    pending.catch(() => imageCache.delete(assetId));
+    imageCache.set(assetId, pending);
+  }
+  return imageCache.get(assetId);
+}
+
 async function loadImage(assetId, frame) {
   if (!assetId) { showFallback(frame); return; }
   const spinnerTimer = setTimeout(() => {
@@ -110,22 +127,12 @@ async function loadImage(assetId, frame) {
       frame.replaceChildren(spinner);
     }
   }, 150);
-  let url = imageCache.get(assetId);
   try {
-    if (!url) {
-      const blob = await (await api(`/media/${assetId}`)).blob();
-      url = URL.createObjectURL(blob);
-    }
     const image = el('img', 'picture');
-    image.src = url;
+    image.src = await imageUrl(assetId);
     await image.decode();
-    imageCache.set(assetId, url);
     if (frame.isConnected) frame.replaceChildren(image);
   } catch (_) {
-    if (url) {
-      imageCache.delete(assetId);
-      URL.revokeObjectURL(url);
-    }
     if (frame.isConnected) showFallback(frame);
   } finally { clearTimeout(spinnerTimer); }
 }
@@ -135,15 +142,45 @@ let voiceIndex = null;
 let audio = null;
 let audioLoading = false;
 
+const audioCache = new Map();
+
+function voicePath() {
+  return voiceIndex === null ? '/tts' : `/tts/${voiceIndex}`;
+}
+
+function audioUrl(token, path) {
+  const key = `${token}|${path}`;
+  if (!audioCache.has(key)) {
+    const pending = (async () => URL.createObjectURL(await (await api(path)).blob()))();
+    pending.catch(() => audioCache.delete(key));
+    audioCache.set(key, pending);
+    // Keep only a few recent clips in memory.
+    while (audioCache.size > 8) {
+      const [oldKey, oldUrl] = audioCache.entries().next().value;
+      audioCache.delete(oldKey);
+      oldUrl.then(url => URL.revokeObjectURL(url), () => {});
+    }
+  }
+  return audioCache.get(key);
+}
+
+// Fetch the picture and the sound of a question before anyone asks for them.
+async function prefetchQuestion(question) {
+  if (!question) return;
+  if (question.image_asset_id) imageUrl(question.image_asset_id).catch(() => {});
+  if (question.tts_available) {
+    await ensureVoices();
+    audioUrl(question.token, voicePath()).catch(() => {});
+  }
+}
+
 async function play(path) {
-  if (audioLoading) return;
+  if (audioLoading || !state?.question) return;
   audioLoading = true;
   try {
-    const blob = await (await api(path)).blob();
-    const url = URL.createObjectURL(blob);
+    const url = await audioUrl(state.question.token, path);
     if (audio) audio.pause();
     audio = new Audio(url);
-    audio.onended = () => URL.revokeObjectURL(url);
     await audio.play();
   } catch (_) {
     const feedback = app.querySelector('.feedback');
@@ -151,9 +188,25 @@ async function play(path) {
   } finally { audioLoading = false; }
 }
 
-function listen() {
+let voicesLoading = null;
+
+function ensureVoices() {
+  if (voices) return Promise.resolve(true);
+  if (!voicesLoading) {
+    voicesLoading = api('/voices').then(response => response.json()).then(data => {
+      voices = data.voices;
+      if (voiceIndex === null) voiceIndex = data.current;
+      return true;
+    }).catch(() => { voicesLoading = null; return false; });
+  }
+  return voicesLoading;
+}
+
+async function listen() {
   if (busy) return;
-  play(voiceIndex === null ? '/tts' : `/tts/${voiceIndex}`);
+  // Name the voice on every listen, not only after switching.
+  if (await ensureVoices()) showVoiceName();
+  play(voicePath());
 }
 
 function showVoiceName() {
@@ -163,13 +216,7 @@ function showVoiceName() {
 
 async function switchVoice() {
   if (busy || audioLoading) return;
-  try {
-    if (!voices) {
-      const data = await (await api('/voices')).json();
-      voices = data.voices;
-      if (voiceIndex === null) voiceIndex = data.current;
-    }
-  } catch (_) {
+  if (!(await ensureVoices())) {
     const feedback = app.querySelector('.feedback');
     if (feedback) feedback.replaceChildren(el('span', 'pill neutral', t('audio_unavailable')));
     return;

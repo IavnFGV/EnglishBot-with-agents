@@ -715,6 +715,8 @@ def test_listen_callback_sends_voice_for_current_expected_answer(tmp_path: Path,
     assert len(message.voice_answers) == 1
     assert message.voice_answers[0]["voice"].filename.endswith(".ogg")
     assert session["voice_message_id"] == 3
+    # The voice is named on every listen; en_US_lessac is shown as "Emma".
+    assert "Emma" in str(message.voice_answers[0]["kwargs"]["caption"])
     variant = get_learning_item_tts_variant(
         1,
         voice_id="en_US_lessac",

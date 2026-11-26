@@ -502,6 +502,9 @@ def test_ball_game_answers_through_server_and_has_labels(tmp_path: Path) -> None
     # The game sends the same "easy" action and reveals only what the server returned.
     assert "act('easy', index, async (next, previous)" in script
     assert "api(`/heroine/${pose}`)" in script
+    # Next picture and sound load while the heroine still celebrates.
+    assert "prefetchQuestion(next.question);" in script
+    assert "if (await ensureVoices()) showVoiceName();" in script
     assert "previous.options.indexOf(next.correct_answer)" in script
     assert "gameMode && q.type === 'multiple_choice'" in script
     user_id, _ = seed(tmp_path)

@@ -35,7 +35,7 @@ from .mini_app import question_token
 from .config import get_mini_app_url
 from .homework_progress_image import render_homework_progress_image
 from .runtime import router
-from .tts import TTSClientError, build_tts_client, get_or_create_learning_item_tts_variant, is_tts_enabled
+from .tts import TTSClientError, build_tts_client, get_or_create_learning_item_tts_variant, is_tts_enabled, voice_display_name
 from .user_profiles import get_user_tts_voice_id
 from .verbs import verb_task_text
 from .training import (
@@ -176,11 +176,12 @@ async def _send_tts_voice_message(
     *,
     asset_id: int,
     voice_path: Path,
+    caption: str | None = None,
 ):
     cached_file_id = get_cached_telegram_file_id(asset_id, TELEGRAM_MEDIA_KIND_VOICE)
     if cached_file_id is not None:
         try:
-            return await message.answer_voice(cached_file_id)
+            return await message.answer_voice(cached_file_id, caption=caption)
         except Exception as exc:
             if _is_invalid_telegram_file_id_error(exc):
                 logger.warning(
@@ -194,6 +195,7 @@ async def _send_tts_voice_message(
 
     sent_message = await message.answer_voice(
         FSInputFile(voice_path, filename=voice_path.name),
+        caption=caption,
     )
     sent_voice = getattr(sent_message, "voice", None)
     file_id = getattr(sent_voice, "file_id", None)
@@ -229,6 +231,11 @@ async def play_current_question_tts(message: Message, telegram_user_id: int) -> 
             message,
             asset_id=int(variant_row["asset_id"]),
             voice_path=resolve_runtime_asset_path(str(variant_row["local_path"])),
+            caption=translate_for_user(
+                telegram_user_id,
+                "training.voice_caption",
+                voice=voice_display_name(str(variant_row["voice_id"])),
+            ),
         )
         set_training_session_voice_message_id(
             int(session["id"]),
