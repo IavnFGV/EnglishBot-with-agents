@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-11-26
+- Fixed slow answers: building a multiple-choice question loaded every word of the family dictionary one by one (about 3000 database connections, ~1.2 s), and one Mini App answer did it 3-4 times, so the reply took ~5 s. Wrong options are now read in a few batched queries (~2 ms) with the same words in the same order, so options do not change. Also fixed a rare error when a prefetched and a requested clip of the same word were synthesized at the same time.
 - Faster Mini App: the picture and the sound of a question are fetched as soon as it is shown, and in the ball game the next word's picture and sound load while the heroine is still celebrating, so "Listen" plays at once and the next picture is ready. The voice list loads once and is shared. (The server answers in 1-3 ms; the delay was the round trips from the phone.)
 - The voice is named on every listen: the Mini App shows "Voice: Ryan" under the buttons after "Listen", not only after switching, and the bot's voice messages carry a "🗣 Voice: Ryan" caption.
 - Ryan now uses the high-quality Piper model (`en_US-ryan-high`, in the tts-service repo); cached Ryan clips were removed so they are synthesized again.

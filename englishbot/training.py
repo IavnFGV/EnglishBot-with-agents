@@ -9,7 +9,7 @@ from .exercises import ResolvedLearningItem, TranslationEntry, build_exercise
 from .families import get_user_family, list_family_learning_items
 from .user_profiles import get_user_hint_language
 from .verbs import ITEM_TYPE_VERB, ITEM_TYPE_WORD, answer_matches as verb_answer_matches, expected_answer as verb_expected_answer, load_forms
-from .vocabulary import get_learning_item_with_translations, get_lexeme, list_learning_items
+from .vocabulary import get_learning_item_with_translations, get_lexeme
 
 
 logger = logging.getLogger(__name__)
@@ -1066,29 +1066,64 @@ def _build_distractor_pool(
     learning_item: ResolvedLearningItem,
     session_learning_item_ids: list[int],
 ) -> list[ResolvedLearningItem]:
-    distractors: list[ResolvedLearningItem] = []
+    # Order matters: session items first, then the family dictionary by id. The option
+    # shuffle is seeded by this list, so it must stay the same between rebuilds.
     seen_ids: set[int] = {learning_item.learning_item_id}
+    ordered_ids: list[int] = []
+
+    def take(candidate_id: object) -> None:
+        normalized_id = int(candidate_id)
+        if normalized_id not in seen_ids:
+            seen_ids.add(normalized_id)
+            ordered_ids.append(normalized_id)
 
     for distractor_id in session_learning_item_ids:
-        normalized_id = int(distractor_id)
-        if normalized_id in seen_ids:
-            continue
-        distractors.append(_resolve_learning_item(normalized_id))
-        seen_ids.add(normalized_id)
+        take(distractor_id)
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT family_id FROM learning_items WHERE id = ?", (learning_item.learning_item_id,)
+        ).fetchone()
+        if row is None:
+            raise NoLearningItemsError
+        if row["family_id"] is not None:
+            for family_row in connection.execute(
+                "SELECT id FROM learning_items WHERE family_id = ? AND is_archived = 0 ORDER BY id",
+                (int(row["family_id"]),),
+            ):
+                take(family_row["id"])
+        resolved = _resolve_distractor_items(connection, ordered_ids)
+    return [resolved[item_id] for item_id in ordered_ids if item_id in resolved]
 
-    content = get_learning_item_with_translations(learning_item.learning_item_id)
-    if content is None:
-        raise NoLearningItemsError
-    family_id = content["learning_item"]["family_id"]
-    if family_id is None:
-        return distractors
-    for row in list_learning_items(family_id=int(family_id)):
-        distractor_id = int(row["id"])
-        if distractor_id in seen_ids:
-            continue
-        distractors.append(_resolve_learning_item(distractor_id))
-        seen_ids.add(distractor_id)
-    return distractors
+
+def _resolve_distractor_items(connection, learning_item_ids: list[int]) -> dict[int, ResolvedLearningItem]:
+    """Headwords of many items in a few queries; distractors need no image or translations."""
+    resolved: dict[int, ResolvedLearningItem] = {}
+    for offset in range(0, len(learning_item_ids), 500):
+        chunk = learning_item_ids[offset:offset + 500]
+        rows = connection.execute(
+            f"""
+            SELECT learning_items.id, learning_items.text, learning_items.item_type,
+                   learning_items.details_json, lexemes.lemma
+            FROM learning_items
+            JOIN lexemes ON lexemes.id = learning_items.lexeme_id
+            WHERE learning_items.id IN ({",".join("?" * len(chunk))})
+            """,
+            tuple(chunk),
+        ).fetchall()
+        for row in rows:
+            headword, item_type, verb_base = str(row["lemma"]), ITEM_TYPE_WORD, None
+            forms = load_forms(row["details_json"]) if row["item_type"] == ITEM_TYPE_VERB else None
+            if forms is not None:
+                item_type, verb_base = ITEM_TYPE_VERB, str(row["text"]).strip() or headword
+                headword = verb_expected_answer(*forms)
+            resolved[int(row["id"])] = ResolvedLearningItem(
+                learning_item_id=int(row["id"]),
+                headword=headword,
+                translations=[],
+                item_type=item_type,
+                verb_base=verb_base,
+            )
+    return resolved
 
 
 def _resolve_learning_item(learning_item_id: int) -> ResolvedLearningItem:

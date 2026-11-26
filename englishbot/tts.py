@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -226,10 +227,22 @@ def get_or_create_learning_item_tts_variant(
     if variant_row is not None:
         return variant_row
     audio_bytes = client.synthesize(text=normalized_text, voice_id=voice_id)
-    return create_learning_item_tts_variant(
-        learning_item_id,
-        voice_id=voice_id,
-        tts_model_key=model_key,
-        source_text=normalized_text,
-        audio_bytes=audio_bytes,
-    )
+    try:
+        return create_learning_item_tts_variant(
+            learning_item_id,
+            voice_id=voice_id,
+            tts_model_key=model_key,
+            source_text=normalized_text,
+            audio_bytes=audio_bytes,
+        )
+    except sqlite3.IntegrityError:
+        # A parallel request (prefetch and Listen) stored the same clip first.
+        variant_row = get_learning_item_tts_variant(
+            learning_item_id,
+            voice_id=voice_id,
+            tts_model_key=model_key,
+            source_text=normalized_text,
+        )
+        if variant_row is None:
+            raise
+        return variant_row

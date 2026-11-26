@@ -274,3 +274,31 @@ def test_each_answer_is_logged_with_expected_and_given_text(tmp_path, caplog):
     assert "given='wrong'" in message
     assert "result=wrong" in message
     assert "failed_attempts=1" in message
+
+
+def test_distractor_pool_matches_per_item_resolution_in_order(tmp_path: Path) -> None:
+    import json
+    from englishbot.training import _build_distractor_pool, _resolve_learning_item
+
+    setup_db(tmp_path)
+    seed_user_with_learning_items(6)
+    with db.get_connection() as connection:
+        family_id = connection.execute("SELECT family_id FROM learning_items WHERE id = 1").fetchone()[0]
+        verb_lexeme = connection.execute("INSERT INTO lexemes (lemma, created_at, updated_at) VALUES ('go', '', '')").lastrowid
+        connection.execute(
+            "INSERT INTO learning_items (family_id, lexeme_id, text, is_archived, item_type, details_json, created_at, updated_at) VALUES (?, ?, 'go', 0, 'verb', ?, '', '')",
+            (family_id, verb_lexeme, json.dumps({"past": "went", "participle": "gone"})),
+        )
+        connection.execute("UPDATE learning_items SET is_archived = 1 WHERE id = 4")
+        family_ids = [row[0] for row in connection.execute("SELECT id FROM learning_items WHERE family_id = ? AND is_archived = 0 ORDER BY id", (family_id,))]
+    session_ids = [5, 4, 2, 5]
+    current = _resolve_learning_item(1)
+    expected = []
+    for item_id in [*session_ids, *family_ids]:
+        if item_id != 1 and item_id not in [entry.learning_item_id for entry in expected]:
+            expected.append(_resolve_learning_item(item_id))
+    pool = _build_distractor_pool(current, session_ids)
+    assert [(entry.learning_item_id, entry.headword, entry.item_type) for entry in pool] == [
+        (entry.learning_item_id, entry.headword, entry.item_type) for entry in expected
+    ]
+    assert any(entry.item_type == "verb" for entry in pool)
