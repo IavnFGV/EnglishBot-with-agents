@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-11-26
+- Homework draft: the name field now reads "Homework name (the child sees it)" and a task's name field "Task name (optional)", since a name typed into the task field was mistaken for the homework's name and the list kept showing the default "Homework <date>".
 - Mini App bridge game: picking a letter no longer replays the whole scene. Every letter was saved to the server and the reply redrew the screen, so the planks, the heroine, and the picture animated in again after each tap; the redraw now happens only when the server's letters differ from the ones on screen.
 - Fixed "Audio is not available" for some words: when a saved clip's file was missing (the old Ryan clips were deleted after the model change), the stale database row was meant to be dropped and the clip synthesized again, but the removal was never committed, so storing the new clip hit the unique index on every listen. The removal is now committed and such clips heal on the next listen.
 - Learner Mini App: "Other voice" now opens the list of voices under the buttons, with the current one highlighted; a tap plays the word in the chosen voice and closes the list, instead of stepping through the voices one tap at a time.
