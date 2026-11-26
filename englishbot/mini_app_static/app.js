@@ -57,6 +57,7 @@ async function refresh() {
   try {
     state = await (await api('')).json();
     labels = state.labels || labels;
+    if (gameMode) loadSprites();
     render();
   } catch (error) { showError(error); }
 }
@@ -371,42 +372,105 @@ function centerIn(field, node, fx = .5, fy = .5) {
   return [rect.left - box.left + rect.width * fx, rect.top - box.top + rect.height * fy];
 }
 
-function throwBall(field, heroine, balloon) {
+// Drawn heroine poses live on the server; without them the SVG heroine stays.
+const POSES = ['idle', 'windup', 'throw', 'happy', 'oops'];
+let sprites = null;
+let spritesLoading = null;
+
+function loadSprites() {
+  if (!spritesLoading) {
+    spritesLoading = Promise.all(POSES.map(async pose => {
+      const url = URL.createObjectURL(await (await api(`/heroine/${pose}`)).blob());
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      return [pose, url];
+    })).then(entries => { sprites = Object.fromEntries(entries); }, () => { sprites = null; });
+  }
+  return spritesLoading;
+}
+
+function dressHeroine(heroine) {
+  if (sprites) {
+    // All poses stay in the DOM so switching is instant and never flickers.
+    heroine.replaceChildren(...POSES.map(pose => {
+      const image = el('img', `sprite pose-${pose}`);
+      image.alt = '';
+      image.src = sprites[pose];
+      return image;
+    }));
+    heroine.classList.add('drawn');
+  } else heroine.innerHTML = HEROINE_SVG;
+}
+
+function setPose(heroine, pose) {
+  heroine.classList.remove('idle', 'windup', 'throw', 'happy', 'oops');
+  void heroine.offsetWidth; // restart CSS animations of the new pose
+  heroine.classList.add(pose);
+}
+
+function throwBall(field, heroine, balloon, facingRight) {
   const ball = el('div', 'ball');
   field.append(ball);
-  const [x0, y0] = centerIn(field, heroine, .78, .22);
+  const drawn = heroine.classList.contains('drawn');
+  const handX = drawn ? (facingRight ? .84 : .16) : .78;
+  const [x0, y0] = centerIn(field, heroine, handX, drawn ? .14 : .22);
   const [x1, y1] = centerIn(field, balloon);
-  const peak = Math.min(y0, y1) - 70;
-  const frames = Array.from({ length: 13 }, (_, step) => {
-    const k = step / 12;
-    const x = x0 + (x1 - x0) * k;
-    const y = (1 - k) * (1 - k) * y0 + 2 * (1 - k) * k * peak + k * k * y1;
-    return { transform: `translate(${x - 13}px, ${y - 13}px) rotate(${k * 540}deg)` };
+  const peak = Math.min(y0, y1) - 80;
+  const point = k => [x0 + (x1 - x0) * k, (1 - k) * (1 - k) * y0 + 2 * (1 - k) * k * peak + k * k * y1];
+  const frames = Array.from({ length: 17 }, (_, step) => {
+    const k = step / 16;
+    const [x, y] = point(k);
+    const squash = k > .94 ? 'scale(1.25, .8)' : 'scale(1)';
+    return { transform: `translate(${x - 13}px, ${y - 13}px) rotate(${k * 720}deg) ${squash}` };
   });
-  const flight = ball.animate(frames, { duration: reducedMotion ? 1 : 520, easing: 'linear', fill: 'forwards' });
+  const duration = reducedMotion ? 1 : 560;
+  if (!reducedMotion) {
+    for (let index = 1; index <= 6; index += 1) {
+      const dot = el('i', 'trail');
+      field.append(dot);
+      setTimeout(() => {
+        const [x, y] = point(index / 7);
+        dot.style.transform = `translate(${x - 5}px, ${y - 5}px)`;
+        dot.classList.add('on');
+        setTimeout(() => dot.remove(), 420);
+      }, duration * index / 7);
+    }
+  }
+  const flight = ball.animate(frames, { duration, easing: 'cubic-bezier(.3, .1, .6, 1)', fill: 'forwards' });
   return flight.finished.then(() => ball.remove(), () => ball.remove());
 }
 
 function burst(field, balloon, good) {
   const [x, y] = centerIn(field, balloon);
   const colors = good ? ['var(--sun)', 'var(--good)', 'var(--accent)', '#ff7ab6'] : ['var(--line)', 'var(--muted)'];
-  for (let index = 0; index < (good ? 14 : 6); index += 1) {
-    const bit = el('i', 'spark');
-    const angle = (index / (good ? 14 : 6)) * Math.PI * 2;
-    const distance = good ? 60 + Math.random() * 30 : 30;
+  const count = good ? 18 : 6;
+  for (let index = 0; index < count; index += 1) {
+    const bit = el('i', good && index % 3 === 0 ? 'spark star' : 'spark');
+    if (bit.classList.contains('star')) bit.textContent = '★';
+    const angle = (index / count) * Math.PI * 2;
+    const distance = good ? 60 + Math.random() * 40 : 30;
     bit.style.left = `${x}px`; bit.style.top = `${y}px`;
-    bit.style.background = colors[index % colors.length];
+    bit.style.color = colors[index % colors.length];
+    if (!bit.textContent) bit.style.background = colors[index % colors.length];
     bit.style.setProperty('--dx', `${Math.cos(angle) * distance}px`);
     bit.style.setProperty('--dy', `${Math.sin(angle) * distance}px`);
     field.append(bit);
-    setTimeout(() => bit.remove(), 900);
+    setTimeout(() => bit.remove(), 1000);
+  }
+  if (good) {
+    const plus = el('div', 'plus-one', '+1');
+    plus.style.left = `${x}px`; plus.style.top = `${y}px`;
+    field.append(plus);
+    setTimeout(() => plus.remove(), 1100);
   }
 }
 
 function renderBallGame(q) {
   const field = el('div', 'playfield');
-  const heroine = el('div', 'heroine');
-  heroine.innerHTML = HEROINE_SVG;
+  const heroine = el('div', 'heroine idle');
+  dressHeroine(heroine);
+  if (!sprites) loadSprites().then(() => { if (sprites && heroine.isConnected) dressHeroine(heroine); });
   const balloons = q.options.map(() => null);
   balloonSpots(q.options.length).forEach(([left, top], index) => {
     const balloon = el('button', `balloon tone-${index % 4}`);
@@ -417,25 +481,30 @@ function renderBallGame(q) {
     balloon.onclick = () => {
       if (busy) return;
       balloon.classList.add('target');
-      heroine.className = 'heroine throw';
-      const flight = throwBall(field, heroine, balloon);
+      const facingRight = left > 50 || (left === 50 && Math.random() < .5);
+      heroine.classList.toggle('face-right', facingRight);
+      setPose(heroine, 'windup');
+      const flight = wait(240).then(() => {
+        setPose(heroine, 'throw');
+        return throwBall(field, heroine, balloon, facingRight);
+      });
       act('easy', index, async (next, previous) => {
         await flight;
         if (next.feedback === 'correct') {
           streak += 1;
           balloon.classList.add('popped');
           burst(field, balloon, true);
-          heroine.className = 'heroine happy';
+          setPose(heroine, 'happy');
           if (streak >= 2) field.append(el('div', 'streak', `🔥 ${streak}`));
-          await wait(900);
+          await wait(1100);
         } else {
           streak = 0;
           balloon.classList.add('wrong');
           burst(field, balloon, false);
-          heroine.className = 'heroine oops';
+          setPose(heroine, 'oops');
           const right = previous.options.indexOf(next.correct_answer);
           if (right >= 0 && balloons[right]) balloons[right].classList.add('reveal');
-          await wait(1700);
+          await wait(1800);
         }
       });
     };

@@ -251,6 +251,20 @@ def claim_completion_notification(session_id: int) -> bool:
         return cursor.rowcount == 1
 
 
+HEROINE_POSES = ("idle", "windup", "throw", "happy", "oops")
+HEROINE_POSE_DIR = Path("assets/images/heroine-game")
+
+
+def heroine_pose_path(pose: str) -> Path:
+    """Ball-game sprite of the heroine; kept on the server, never in the repository."""
+    if pose not in HEROINE_POSES:
+        raise MiniAppError("media_not_found", 404)
+    path = resolve_runtime_asset_path(HEROINE_POSE_DIR / f"{pose}.webp")
+    if not path.is_file():
+        raise MiniAppError("media_not_found", 404)
+    return path
+
+
 def safe_media_path(user_id: int, session_id: int, asset_id: int, kind: str) -> tuple[Path, str]:
     authorize_session(user_id, session_id)
     question = get_current_question(user_id)

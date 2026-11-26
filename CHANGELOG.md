@@ -1,6 +1,7 @@
 # Changelog
 
 ## 2026-11-26
+- Ball game heroine is now drawn like the word pictures: five Codex-drawn poses (ready with the ball, wind-up, throw, jump for joy, "oh no") with a white sticker outline. She turns to the tapped balloon, winds up, throws (the ball spins along an arc with a trail and squashes on hit), hops with squash-and-stretch and a shrinking shadow on a right answer (stars and "+1"), and wobbles on a wrong one. The poses are kept on the server in `assets/images/heroine-game/*.webp` (not in the public repository) and served only to an authorized Mini App session via `/mini-app/api/sessions/<id>/heroine/<pose>`; without them the SVG heroine is used.
 - Learner Mini App ball game: multiple-choice questions open as a game. The options drop in as balloons, the child taps one, and a cartoon heroine with brown curly hair (inline SVG) throws a ball at it. A right answer pops the balloon with sparks and the heroine hops (🔥 counts a streak); a wrong one turns the balloon red and highlights the right balloon that the server returned. The answer goes through the same `easy` action, so progress and checking are unchanged, and a miss with the ball is impossible. A "📝 Quiz" / "🎮 Game" button in the header switches modes; the choice is kept in the browser. Jumbled-letter and typed questions look as before.
 
 ## 2026-11-23

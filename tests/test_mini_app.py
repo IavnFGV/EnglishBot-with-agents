@@ -501,9 +501,38 @@ def test_ball_game_answers_through_server_and_has_labels(tmp_path: Path) -> None
     script = (Path(__file__).parents[1] / "englishbot" / "mini_app_static" / "app.js").read_text()
     # The game sends the same "easy" action and reveals only what the server returned.
     assert "act('easy', index, async (next, previous)" in script
+    assert "api(`/heroine/${pose}`)" in script
     assert "previous.options.indexOf(next.correct_answer)" in script
     assert "gameMode && q.type === 'multiple_choice'" in script
     user_id, _ = seed(tmp_path)
     labels = interface_labels(user_id)
     assert labels["game_mode"] != "mini_app.ui.game_mode"
     assert labels["quiz_mode"] != "mini_app.ui.quiz_mode"
+
+
+def test_heroine_poses_need_auth_and_exist_only_on_server(tmp_path: Path, monkeypatch) -> None:
+    from englishbot.mini_app import MiniAppError
+
+    user_id, session_id = seed(tmp_path)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+
+    async def request(pose: str, signed: bool = True) -> bytes:
+        reader = asyncio.StreamReader()
+        reader.feed_eof()
+        headers = {"x-telegram-init-data": sign_test_init_data(user_id, TOKEN)} if signed else {}
+        return await _mini_app_response("GET", f"/mini-app/api/sessions/{session_id}/heroine/{pose}", headers, reader, None)
+
+    with pytest.raises(MiniAppError) as missing:
+        asyncio.run(request("idle"))
+    assert missing.value.status == 404
+    pose_dir = tmp_path / "assets" / "images" / "heroine-game"
+    pose_dir.mkdir(parents=True)
+    (pose_dir / "idle.webp").write_bytes(b"RIFF-sprite")
+    (pose_dir / "secret.webp").write_bytes(b"x")
+    response = asyncio.run(request("idle"))
+    assert b"image/webp" in response and response.endswith(b"RIFF-sprite")
+    for pose in ("secret", "..%2Fidle"):
+        with pytest.raises(MiniAppError):
+            asyncio.run(request(pose))
+    with pytest.raises(MiniAppError):
+        asyncio.run(request("idle", signed=False))

@@ -75,7 +75,7 @@ def _json_response(status: int, value: dict[str, object]) -> bytes:
 async def _mini_app_response(method: str, path: str, headers: dict[str, str], reader: asyncio.StreamReader, bot) -> bytes:
     from .config import load_config, get_tts_base_url
     from .assets import NO_IMAGE_PLACEHOLDER_PATH, resolve_runtime_asset_path
-    from .mini_app import MiniAppError, apply_action, authorize_session, claim_completion_notification, interface_labels, safe_media_path, session_state, validate_init_data
+    from .mini_app import MiniAppError, apply_action, authorize_session, claim_completion_notification, heroine_pose_path, interface_labels, safe_media_path, session_state, validate_init_data
     from .training import get_current_question, get_training_session
     from .tts import build_tts_client, get_or_create_learning_item_tts_variant, TTSClientError
     from .user_profiles import get_user_tts_voice_id
@@ -156,6 +156,9 @@ async def _mini_app_response(method: str, path: str, headers: dict[str, str], re
     if len(parts) == 6 and parts[4] == "media" and parts[5].isdigit() and method == "GET":
         file_path, content_type = safe_media_path(user_id, session_id, int(parts[5]), "image")
         return _response(200, await asyncio.to_thread(file_path.read_bytes), content_type, "private, max-age=3600")
+    if len(parts) == 6 and parts[4] == "heroine" and method == "GET":
+        file_path = heroine_pose_path(parts[5])
+        return _response(200, await asyncio.to_thread(file_path.read_bytes), "image/webp", "private, max-age=86400")
     if len(parts) == 5 and parts[4] == "voices" and method == "GET":
         if get_tts_base_url() is None:
             raise MiniAppError("tts_unavailable", 503)
