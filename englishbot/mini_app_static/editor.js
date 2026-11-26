@@ -524,9 +524,33 @@ function formatDate(value) {
 
 const SETS_PAGE = 10;
 
+// One-of-few choice as a row of the app's buttons (no native select); node.value reads and sets the choice.
+function choiceGroup(options, initial = options[0]?.value) {
+  const node = el('div', { class: 'choices', role: 'radiogroup' });
+  const buttons = options.map((option) => el('button', { class: 'choice', type: 'button', role: 'radio', onclick: () => select(option.value) }, option.label));
+  let current = null;
+  const select = (value) => {
+    current = value;
+    buttons.forEach((button, index) => {
+      const on = options[index].value === value;
+      button.classList.toggle('selected', on);
+      button.setAttribute('aria-checked', String(on));
+    });
+  };
+  Object.defineProperty(node, 'value', { get: () => current, set: select });
+  node.has = (value) => options.some((option) => option.value === value);
+  node.append(...buttons);
+  select(initial);
+  return node;
+}
+
+function field(caption, control) {
+  return el('div', { class: 'field' }, el('span', { class: 'field-caption' }, caption), control);
+}
+
 function applyDefaults(defaults, recipient, mode) {
-  if (defaults?.recipient && [...recipient.options].some((option) => option.value === String(defaults.recipient))) recipient.value = String(defaults.recipient);
-  if (defaults?.mode) mode.value = defaults.mode;
+  if (defaults?.recipient && recipient.has(String(defaults.recipient))) recipient.value = String(defaults.recipient);
+  if (defaults?.mode && mode.has(defaults.mode)) mode.value = defaults.mode;
 }
 
 async function showSets() {
@@ -772,8 +796,8 @@ async function showSet(setId, message = '', backTo = showSets, scrollY = 0) {
     await postJson(`/sets/${setId}`, { title });
     showSet(setId, '', backTo);
   }, t('draft_name'));
-  const recipient = el('select', {}, ...data.members.map((member) => el('option', { value: String(member.id) }, member.name)));
-  const mode = el('select', {}, ...data.modes.map((option) => el('option', { value: option.code }, option.label)));
+  const recipient = choiceGroup(data.members.map((member) => ({ value: String(member.id), label: member.name })));
+  const mode = choiceGroup(data.modes.map((option) => ({ value: option.code, label: option.label })));
   applyDefaults(data.defaults, recipient, mode);
   const assignButton = el('button', {}, t('assign'));
   assignButton.addEventListener('click', async () => {
@@ -807,8 +831,8 @@ async function showSet(setId, message = '', backTo = showSets, scrollY = 0) {
     heading,
     el('button', { class: 'secondary', onclick: rename }, t('rename')),
     el('strong', {}, t('assign_again')),
-    el('label', {}, t('assign_to'), recipient),
-    el('label', {}, t('mode'), mode),
+    field(t('assign_to'), recipient),
+    field(t('mode'), mode),
     assignButton,
     status,
     el('strong', {}, t('set_assignments')),
@@ -965,17 +989,30 @@ function openPictureEditor(ctx, state, onChange) {
   document.body.append(overlay);
 }
 
-// A select of family topics with a button that hands the chosen topic id to onPick.
+// "+ Whole topic" opens the family topics as the app's own list (not a native select); a tap hands the id to onPick.
 function topicPicker(topics, onPick) {
-  const select = el('select', {}, el('option', { value: '' }, t('add_topic_hint')),
-    ...topics.map((topic) => el('option', { value: String(topic.id) }, topic.title)));
   const button = el('button', { class: 'secondary', type: 'button' }, t('add_topic'));
-  button.addEventListener('click', async () => {
-    if (!select.value) { select.focus(); return; }
-    button.disabled = true;
-    try { await onPick(Number(select.value)); select.value = ''; } finally { button.disabled = false; }
+  const list = el('div', { class: 'list' });
+  const filter = el('input', { type: 'search', placeholder: `🔍 ${t('search')}`, autocapitalize: 'off' });
+  const panel = el('div', { class: 'section picker' }, el('span', { class: 'sub' }, t('add_topic_hint')), topics.length > 8 ? filter : null, list);
+  panel.hidden = true;
+  const render = () => {
+    const query = filter.value.trim().toLowerCase();
+    list.replaceChildren(...topics.filter((topic) => topic.title.toLowerCase().includes(query)).map((topic) => el('button', {
+      class: 'item', type: 'button',
+      onclick: async (event) => {
+        const item = event.currentTarget;
+        item.disabled = true;
+        try { await onPick(topic.id); panel.hidden = true; } finally { item.disabled = false; }
+      },
+    }, el('span', { class: 'texts' }, el('span', { class: 'title' }, topic.title)), el('span', { class: 'sub' }, '+'))));
+  };
+  filter.addEventListener('input', render);
+  button.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) { filter.value = ''; render(); }
   });
-  return el('div', { class: 'row' }, el('span', { class: 'grow' }, select), button);
+  return el('div', { class: 'section' }, button, panel);
 }
 
 function removeButton(onClick) {
@@ -989,9 +1026,17 @@ function wordsEditor(items, defaultTopic, ctx) {
   const rows = el('div', { class: 'list draft-list' });
   const knownRows = el('div', { class: 'list draft-list' });
   const rowState = [];
+  // Where new (typed or recognized) words are filed in the dictionary; dictionary words keep their topics.
+  const allTopic = el('input', { type: 'text', maxLength: 100, placeholder: t('draft_topic') });
+  allTopic.setAttribute('list', 'draft-topics');
+  allTopic.value = items.find((item) => item.topic)?.topic || defaultTopic || '';
+  const topicField = field(t('new_words_topic'), el('div', { class: 'row' },
+    el('span', { class: 'grow' }, allTopic),
+    el('button', { class: 'secondary', type: 'button', onclick: () => applyTopic() }, '↓')));
   const syncLists = () => {
     rows.hidden = rows.childElementCount === 0;
     knownRows.hidden = knownRows.childElementCount === 0;
+    topicField.hidden = !rowState.some((state) => !state.item.existing_id);
   };
   const addRow = (item) => {
     const known = Boolean(item.existing_id);
@@ -1069,9 +1114,6 @@ function wordsEditor(items, defaultTopic, ctx) {
     }, 250);
   });
 
-  const allTopic = el('input', { type: 'text', maxLength: 100, placeholder: t('draft_topic') });
-  allTopic.setAttribute('list', 'draft-topics');
-  allTopic.value = items.find((item) => item.topic)?.topic || defaultTopic || '';
   const applyTopic = () => rowState.forEach((state) => {
     if (state.item.manual) return; // picked from another topic: it only joins the homework
     state.topic.value = allTopic.value;
@@ -1084,12 +1126,12 @@ function wordsEditor(items, defaultTopic, ctx) {
   refreshKnown();
 
   const node = el('div', { class: 'section' },
-    el('label', {}, t('draft_topic'), el('div', { class: 'row' }, el('span', { class: 'grow' }, allTopic), el('button', { class: 'secondary', onclick: applyTopic }, '↓'))),
     rows,
     dictionarySearch,
     dictionaryResults,
     ctx.topics?.length ? topicPicker(ctx.topics, addTopic) : null,
     el('button', { class: 'secondary', onclick: () => { const state = addRow({ en: '', ru: '', topic: allTopic.value }); state.en.focus(); } }, t('create_word')),
+    topicField,
     knownHeading,
     knownRows);
   return {
@@ -1306,9 +1348,9 @@ async function showDraft(setId, backTo = null) {
   reorder();
   refreshPhotos();
 
-  const kindSelect = el('select', {}, ...data.task_kinds.map((kind) => el('option', { value: kind.code }, kind.label)));
-  const addTask = () => {
-    const view = buildTaskView({ kind: kindSelect.value, title: '', instructions: '', enabled: true, items: [], photos: [] });
+  // One button per task kind adds that task at once.
+  const addTask = (kind) => {
+    const view = buildTaskView({ kind, title: '', instructions: '', enabled: true, items: [], photos: [] });
     views.push(view);
     reorder();
     refreshPhotos();
@@ -1316,10 +1358,11 @@ async function showDraft(setId, backTo = null) {
   };
 
   const titleInput = el('input', { type: 'text', value: data.set.title, maxLength: 200 });
-  const recipient = el('select', {},
-    ...data.members.map((member) => el('option', { value: String(member.id) }, member.name)),
-    el('option', { value: '' }, t('dont_assign')));
-  const mode = el('select', {}, ...data.modes.map((option) => el('option', { value: option.code }, option.label)));
+  const recipient = choiceGroup([
+    ...data.members.map((member) => ({ value: String(member.id), label: member.name })),
+    { value: '', label: t('dont_assign') },
+  ]);
+  const mode = choiceGroup(data.modes.map((option) => ({ value: option.code, label: option.label })));
   applyDefaults(data.defaults, recipient, mode);
   const saveButton = el('button', {}, t('save_draft'));
 
@@ -1389,11 +1432,13 @@ async function showDraft(setId, backTo = null) {
     el('label', {}, t('draft_name'), titleInput),
     el('strong', {}, t('tasks')),
     tasksBox,
-    el('div', { class: 'row' }, el('span', { class: 'grow' }, kindSelect), el('button', { onclick: addTask }, t('add_task'))),
+    field(t('add_task'), el('div', { class: 'choices' }, ...data.task_kinds.map((kind) => el('button', {
+      class: 'choice', type: 'button', onclick: () => addTask(kind.code),
+    }, kind.label)))),
     el('strong', {}, t('gallery')),
     gallery,
-    el('label', {}, t('assign_to'), recipient),
-    el('label', {}, t('mode'), mode),
+    field(t('assign_to'), recipient),
+    field(t('mode'), mode),
     saveButton,
     status,
     autosaveNote,

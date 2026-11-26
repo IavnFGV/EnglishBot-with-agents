@@ -62,6 +62,11 @@ Use `CHANGELOG.md` or git history only when the task needs historical context.
 - Non-trivial multi-step flows should use `aiogram-dialog`.
 - Telegram handlers should orchestrate UI only; business rules stay in domain modules.
 
+## Mini App and web editor UI rules
+- Every control must match the app's own design (palette, cards, buttons in `editor.css` / `style.css`).
+- Do not use native `<select>` or other browser controls that open the system picker (radio-list sheets) for choosing from a list; use the app's `.list` / `.item` cards or button rows instead.
+- Long lists in a picker get a search field, as on the topics and words screens.
+
 ## Documentation update rules
 - `context/current-state.md` is the concise source of truth for current repository state.
 - Keep `docs/architecture.md` stable and structural.

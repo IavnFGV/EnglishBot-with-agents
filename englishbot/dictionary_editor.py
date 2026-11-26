@@ -51,7 +51,7 @@ LABEL_KEYS = (
     "heroine_requested", "heroine_use", "heroine_redraw", "heroine_skip", "heroine_none", "heroine_failed",
     "heroine_scene", "heroine_state_offline", "heroine_state_auth_required", "heroine_state_limited",
     "heroine_count_drawing", "heroine_count_ready", "heroine_ready_open",
-    "remove_word", "add_topic", "add_topic_hint", "draft_autosaved",
+    "remove_word", "add_topic", "add_topic_hint", "draft_autosaved", "new_words_topic",
     "verb", "verb_base", "verb_past", "verb_participle", "verb_hint", "verb_forms_invalid", "create_verb",
 )
 
