@@ -516,6 +516,8 @@ def test_ball_game_answers_through_server_and_has_labels(tmp_path: Path) -> None
     assert "typed_answer: [renderSpellGame]" in script
     assert "skins[(q.number - 1) % skins.length]" in script
     assert "if (q.type === 'jumbled_letters' && q.hinted) return renderSpellLettersGame;" in script
+    # Saved taps redraw the screen; spell letters pop in only once per word.
+    assert "spellLettersShown === shownKey ? 'letters spell-letters' : 'letters spell-letters intro'" in script
     # Bridge and spell answer through the same medium "check" and hard actions.
     assert "await act('check', undefined" in script
     assert "act('hard', input.value, (next, previous) => castSpell(" in script

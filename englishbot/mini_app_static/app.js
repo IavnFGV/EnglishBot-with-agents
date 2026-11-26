@@ -851,19 +851,26 @@ function renderSpellGame(q) {
 }
 
 // Spell with help: the typed word was swapped for its letters; tapping them lines up the runes.
-function renderSpellLettersGame() {
+// Every saved tap redraws the screen, so the letters pop in only the first time a word is shown.
+let spellLettersShown = '';
+function renderSpellLettersGame(q) {
   const wrapper = el('div', 'spell-game');
   const { scene, heroine } = spellScene();
   const runes = el('div', 'answer runes');
   scene.append(heroine, runes);
-  const letters = el('div', 'letters spell-letters');
-  [...state.question.letters].forEach((letter, index) => {
+  const shownKey = `${session}|${q.number}|${q.letters}`;
+  const letters = el('div', spellLettersShown === shownKey ? 'letters spell-letters' : 'letters spell-letters intro');
+  spellLettersShown = shownKey;
+  [...q.letters].forEach((letter, index) => {
     const choice = el('button', '', letter);
     choice.style.animationDelay = `${(index % 6) * 50}ms`;
     choice.onclick = () => {
       if (busy || mediumChecking) return;
       sfx('plank');
       editMedium('add', index);
+      letters.classList.remove('intro', 'nudge');
+      void letters.offsetWidth;
+      letters.classList.add('nudge');
     };
     letters.append(choice);
   });

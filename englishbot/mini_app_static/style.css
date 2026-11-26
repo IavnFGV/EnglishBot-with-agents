@@ -319,8 +319,11 @@ input.answer::placeholder { color: var(--muted); font-weight: 700; font-size: 1.
 .runes.fizzle .slot.filled { animation: rune-fizzle .9s ease-in forwards; color: #9a93ad; text-shadow: none; }
 .letters.spell-letters button {
   background: linear-gradient(#6b4fc4, #4a3592); color: #ffe27a; box-shadow: 0 5px 0 #2e2160;
-  text-shadow: 0 0 8px #ffcf4a; text-transform: lowercase; animation: rune-in .45s cubic-bezier(.2, 1.4, .5, 1) both;
+  text-shadow: 0 0 8px #ffcf4a; text-transform: lowercase;
 }
+.letters.spell-letters.intro button { animation: rune-in .45s cubic-bezier(.2, 1.4, .5, 1) both; }
+.letters.spell-letters.nudge button:not(.used) { animation: rune-nudge .3s ease-out; animation-delay: 0s !important; }
+@keyframes rune-nudge { 40% { transform: translateY(-3px); text-shadow: 0 0 14px #fff2b0; } }
 .letters.spell-letters button:active:not(:disabled) { box-shadow: 0 1px 0 #2e2160; }
 .letters.spell-letters button.used { background: transparent; box-shadow: none; border: 2px dashed rgba(107, 79, 196, .5); color: transparent; text-shadow: none; animation: none; }
 
